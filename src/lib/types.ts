@@ -71,7 +71,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id?: number | null;
+  hotel_rate_id: number; // Made required as per DDL
   rate_name?: string | null; // For display
   room_name: string;
   room_code: string;
@@ -90,4 +90,3 @@ export interface SimpleRate {
   id: number;
   name: string;
 }
-

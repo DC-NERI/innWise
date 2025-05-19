@@ -149,6 +149,7 @@ export type BranchCreateData = z.infer<typeof branchCreateSchema>;
 export const branchUpdateSchemaSysAd = z.object({
   tenant_id: z.coerce.number().int().positive({ message: "Tenant ID is required" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
+  // branch_code: z.string().min(1, "Branch code is required").max(50), // Branch code usually not editable
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
   contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
   email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
@@ -163,7 +164,7 @@ export const hotelRateCreateSchema = z.object({
   price: z.coerce.number().positive("Price must be a positive number"),
   hours: z.coerce.number().int().positive("Hours must be a positive integer"),
   excess_hour_price: z.coerce.number().positive("Excess hour price must be a positive number").optional().nullable(),
-  description: z.string().optional().nullable(),
+  description: z.string().max(500, "Description too long").optional().nullable(),
 });
 export type HotelRateCreateData = z.infer<typeof hotelRateCreateSchema>;
 
@@ -174,14 +175,14 @@ export type HotelRateUpdateData = z.infer<typeof hotelRateUpdateSchema>;
 
 // Hotel Room Schemas
 export const hotelRoomCreateSchema = z.object({
-  hotel_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  hotel_rate_id: z.coerce.number().int().positive({ message: "A valid rate must be selected." }),
   room_name: z.string().min(1, "Room name is required").max(100),
   room_code: z.string().min(1, "Room code is required").max(50),
   floor: z.coerce.number().int().optional().nullable(),
   room_type: z.string().max(50).optional().nullable(),
   bed_type: z.string().max(50).optional().nullable(),
   capacity: z.coerce.number().int().min(1, "Capacity must be at least 1").optional().nullable().default(2),
-  is_available: z.boolean().default(true),
+  is_available: z.boolean().default(true), // This will be a Switch in the form
 });
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
@@ -189,4 +190,3 @@ export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
-
