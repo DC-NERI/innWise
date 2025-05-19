@@ -208,10 +208,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
           <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {floorRooms.map(room => {
-              // DEBUGGING LOG:
               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Active Tx ID: ${room.active_transaction_id}, Client Name: ${room.active_transaction_client_name}`);
-              const isButtonDisabledForDetails = !room.active_transaction_id;
-
+              
               return (
                 <Card 
                   key={room.id} 
@@ -226,7 +224,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                     <CardDescription className="text-xs">{room.room_code}</CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
-                    <div className="mb-2 space-y-1"> {/* Content above buttons */}
+                    <div className="mb-2 space-y-1">
                       {room.is_available ? (
                         <div className="flex items-center space-x-2">
                           <span className="h-3 w-3 rounded-full bg-green-500"></span>
@@ -240,7 +238,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                       )}
 
                       {!room.is_available && room.active_transaction_client_name && (
-                        <div className="flex items-center text-xs text-muted-foreground">
+                        <div className="flex items-center text-xs text-muted-foreground mt-1">
                           <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-primary" />
                           <span className="font-medium text-foreground">Guest:</span>
                           <span className="ml-1 truncate" title={room.active_transaction_client_name}>
@@ -257,61 +255,58 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                       {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                     </div>
                     
-                    {/* Action Buttons Area */}
                     <div className="mt-auto pt-2 space-y-2 border-t border-border/50">
                       {!room.is_available && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full flex items-center justify-center"
-                          onClick={(e) => {
-                            e.stopPropagation(); // Prevent card click if any
-                            if (room.active_transaction_id) {
-                              handleOpenTransactionInfoDialog(room.active_transaction_id);
-                            } else {
-                              toast({ title: "Error", description: "No transaction ID found for this occupied room.", variant: "destructive" });
-                            }
-                          }}
-                          disabled={isButtonDisabledForDetails}
-                          title="View Guest/Transaction Info"
-                        >
-                          <Info className="h-4 w-4 mr-2" />
-                          View Details
-                        </Button>
-                      )}
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full flex items-center justify-center"
+                            onClick={(e) => {
+                              e.stopPropagation(); 
+                              if (room.active_transaction_id) {
+                                handleOpenTransactionInfoDialog(room.active_transaction_id);
+                              } else {
+                                toast({ title: "Info", description: "No active transaction details available for this room.", variant: "default" });
+                              }
+                            }}
+                            title="View Guest/Transaction Info"
+                          >
+                            <Info className="h-4 w-4 mr-2" />
+                            View Details
+                          </Button>
 
-                      {!room.is_available && (
-                         <AlertDialog 
-                          open={!!roomToCheckout && roomToCheckout.id === room.id} 
-                          onOpenChange={(open) => { if (!open) setRoomToCheckout(null);}}
-                         >
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="destructive" 
-                              size="sm" 
-                              className="w-full flex items-center justify-center"
-                              onClick={(e) => { e.stopPropagation(); setRoomToCheckout(room); }}
-                              title="Check-out Guest"
-                              disabled={!room.active_transaction_id} // Disable if no active transaction to checkout
-                            >
-                              <LogOut className="h-3 w-3 mr-1" /> Check-out
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to check out the guest from room {room.room_name} ({room.room_code})?
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setRoomToCheckout(null);}}>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={(e) => {e.stopPropagation(); handleCheckout();}} disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                          <AlertDialog
+                            open={!!roomToCheckout && roomToCheckout.id === room.id}
+                            onOpenChange={(open) => { if (!open) setRoomToCheckout(null);}}
+                          >
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="w-full flex items-center justify-center"
+                                onClick={(e) => { e.stopPropagation(); setRoomToCheckout(room); }}
+                                title="Check-out Guest"
+                              >
+                                <LogOut className="h-3 w-3 mr-1" /> Check-out
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to check out the guest from room {room.room_name} ({room.room_code})?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setRoomToCheckout(null);}}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={(e) => {e.stopPropagation(); handleCheckout();}} disabled={isSubmitting}>
+                                  {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </>
                       )}
                     </div>
                   </CardContent>
@@ -379,4 +374,4 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
-    
+
