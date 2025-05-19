@@ -1,6 +1,6 @@
 
 import { z } from "zod";
-import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS } from '@/lib/constants';
 
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -184,13 +184,13 @@ export const hotelRoomCreateSchema = z.object({
   room_type: z.string().max(50).optional().nullable(),
   bed_type: z.string().max(50).optional().nullable(),
   capacity: z.coerce.number().int().min(1, "Capacity must be at least 1").optional().nullable().default(2),
-  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE), // 0: Available, 1: Occupied, 2: Reserved
+  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
 });
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
   room_code: z.string().min(1, "Room code is required").max(50),
-  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE), // 0: Available, 1: Occupied, 2: Reserved
+  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
@@ -208,3 +208,10 @@ export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
+
+export const transactionReservedUpdateSchema = z.object({
+  client_name: z.string().min(1, "Client name is required").max(255),
+  client_payment_method: z.string().min(1, "Payment method is required").max(50),
+  notes: z.string().max(1000, "Notes too long").optional().nullable(),
+});
+export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
