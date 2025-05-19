@@ -28,7 +28,8 @@ export const userCreateSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff", "sysad"]).default("staff"),
-  tenant_id: z.number().int().positive().optional().nullable(), // Changed from string to number
+  tenant_id: z.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.number().int().positive().optional().nullable(), // New field
 });
 export type UserCreateData = z.infer<typeof userCreateSchema>;
 

@@ -13,7 +13,7 @@ import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
 
 const SysAdDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'tenants' | 'users' | 'branches' | 'settings'>('tenants');
+  const [activeView, setActiveView] = useState<'tenants' | 'branches' | 'users' | 'settings'>('tenants');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -33,9 +33,11 @@ const SysAdDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        // SysAd specific tenant name is hardcoded, so no need to fetch from localStorage
+        if (storedRole !== 'sysad') { // Redirect if not sysad
+            router.push('/');
+            return;
+        }
       } else {
-        // If no role, redirect to login or handle as unauthorized
         router.push('/');
         return;
       }
@@ -106,6 +108,16 @@ const SysAdDashboardPage: NextPage = () => {
                 Tenants
               </SidebarMenuButton>
             </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('branches')}
+                isActive={activeView === 'branches'}
+                className="justify-start"
+              >
+                <Network className="h-5 w-5" />
+                Branches
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('users')}
@@ -114,16 +126,6 @@ const SysAdDashboardPage: NextPage = () => {
               >
                 <Users className="h-5 w-5" />
                 Users
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={() => setActiveView('branches')}
-                isActive={activeView === 'branches'}
-                className="justify-start"
-              >
-                <Network className="h-5 w-5" />
-                Branches
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -156,8 +158,8 @@ const SysAdDashboardPage: NextPage = () => {
         </header>
         <main className="p-4 lg:p-6">
           {activeView === 'tenants' && <TenantsManagement />}
-          {activeView === 'users' && <UsersManagement />}
           {activeView === 'branches' && <AllBranchesManagement />}
+          {activeView === 'users' && <UsersManagement />}
           {activeView === 'settings' && (
             <div>
               <h2 className="text-2xl font-semibold">System Settings</h2>

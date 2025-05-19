@@ -3,7 +3,7 @@
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
-import type { Tenant, Branch, User } from '@/lib/types';
+import type { Tenant, Branch, User, SimpleBranch } from '@/lib/types';
 import { branchUpdateSchema, tenantCreateSchema, TenantCreateData, userCreateSchema, UserCreateData, branchCreateSchema, BranchCreateData } from '@/lib/schemas';
 import type { z } from 'zod';
 
@@ -121,6 +121,27 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
   } catch (error) {
     console.error(`Failed to fetch branches for tenant ${tenantId}:`, error);
     throw new Error(`Database error: Could not fetch branches. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
+
+// New action to get a simplified list of branches for a tenant
+export async function getBranchesForTenantSimple(tenantId: number): Promise<SimpleBranch[]> {
+  if (isNaN(tenantId) || tenantId <= 0) {
+    console.warn(`Invalid tenantId received in getBranchesForTenantSimple: ${tenantId}`);
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      'SELECT id, branch_name FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
+      [tenantId]
+    );
+    return res.rows as SimpleBranch[];
+  } catch (error) {
+    console.error(`Failed to fetch simple branches for tenant ${tenantId}:`, error);
+    throw new Error(`Database error: Could not fetch simple branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
   }
@@ -256,16 +277,20 @@ export async function listAllUsers(): Promise<User[]> {
   const client = await pool.connect();
   try {
     const res = await client.query(`
-      SELECT u.id, u.tenant_id, t.tenant_name, u.first_name, u.last_name, u.username, 
+      SELECT u.id, u.tenant_id, t.tenant_name, u.tenant_branch_id, tb.branch_name, 
+             u.first_name, u.last_name, u.username, 
              u.email, u.role, u.status, u.created_at, u.updated_at, u.last_log_in 
       FROM users u 
       LEFT JOIN tenants t ON u.tenant_id = t.id 
+      LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id
       ORDER BY u.last_name ASC, u.first_name ASC
     `);
     return res.rows.map(row => ({
       id: row.id,
       tenant_id: row.tenant_id,
       tenant_name: row.tenant_name,
+      tenant_branch_id: row.tenant_branch_id,
+      branch_name: row.branch_name,
       first_name: row.first_name,
       last_name: row.last_name,
       username: row.username,
@@ -290,7 +315,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
   
-  const { first_name, last_name, username, password, email, role, tenant_id } = validatedFields.data;
+  const { first_name, last_name, username, password, email, role, tenant_id, tenant_branch_id } = validatedFields.data;
   
   const salt = bcrypt.genSaltSync(10);
   const password_hash = bcrypt.hashSync(password, salt);
@@ -298,19 +323,22 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7) 
-       RETURNING id, tenant_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
-      [first_name, last_name, username, password_hash, email, role, tenant_id]
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
+      [first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id]
     );
     if (res.rows.length > 0) {
       const newUser = res.rows[0];
+      // Potentially fetch tenant_name and branch_name if needed for the returned user object
+      // For now, returning raw IDs from insert
       return { 
         success: true, 
         message: "User created successfully.", 
         user: {
           id: newUser.id,
           tenant_id: newUser.tenant_id,
+          tenant_branch_id: newUser.tenant_branch_id,
           first_name: newUser.first_name,
           last_name: newUser.last_name,
           username: newUser.username,

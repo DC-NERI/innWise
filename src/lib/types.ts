@@ -5,6 +5,8 @@ export interface User { // Renamed from AuthenticatedUser for broader use
   id: string | number; // number from DB, string for some contexts
   tenant_id?: number | null;
   tenant_name?: string | null; // For listing users with their tenant
+  tenant_branch_id?: number | null; // New field
+  branch_name?: string | null; // For displaying branch name
   first_name: string;
   last_name: string;
   username: string;
@@ -38,4 +40,10 @@ export interface Branch {
   email_address?: string | null;
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
+}
+
+// For simpler branch selection
+export interface SimpleBranch {
+  id: number;
+  branch_name: string;
 }

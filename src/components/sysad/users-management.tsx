@@ -9,21 +9,22 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, PlusCircle, Users } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { Loader2, PlusCircle, Users as UsersIcon } from 'lucide-react'; // Renamed Users to UsersIcon
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { userCreateSchema, UserCreateData } from '@/lib/schemas';
-import type { User, Tenant } from '@/lib/types';
-import { createUserSysAd, listAllUsers, listTenants } from '@/actions/admin';
+import type { User, Tenant, SimpleBranch } from '@/lib/types';
+import { createUserSysAd, listAllUsers, listTenants, getBranchesForTenantSimple } from '@/actions/admin';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-
 
 export default function UsersManagement() {
   const [users, setUsers] = useState<User[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [availableBranches, setAvailableBranches] = useState<SimpleBranch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
   const { toast } = useToast();
 
   const form = useForm<UserCreateData>({
@@ -36,7 +37,13 @@ export default function UsersManagement() {
       email: '',
       role: 'staff',
       tenant_id: undefined,
+      tenant_branch_id: undefined,
     },
+  });
+
+  const selectedTenantId = useWatch({
+    control: form.control,
+    name: 'tenant_id',
   });
 
   async function fetchData() {
@@ -62,13 +69,38 @@ export default function UsersManagement() {
 
   useEffect(() => {
     fetchData();
-  }, []); // Removed toast from dependency array to prevent loop
+  }, []);
+
+  useEffect(() => {
+    form.setValue('tenant_branch_id', undefined); // Reset branch when tenant changes
+    setAvailableBranches([]);
+
+    if (selectedTenantId && typeof selectedTenantId === 'number') {
+      setIsLoadingBranches(true);
+      getBranchesForTenantSimple(selectedTenantId)
+        .then(branches => {
+          setAvailableBranches(branches);
+        })
+        .catch(error => {
+          console.error("Failed to fetch branches for tenant:", error);
+          toast({
+            title: "Error",
+            description: "Could not fetch branches for the selected tenant.",
+            variant: "destructive",
+          });
+        })
+        .finally(() => {
+          setIsLoadingBranches(false);
+        });
+    }
+  }, [selectedTenantId, form, toast]);
 
   const onSubmit = async (data: UserCreateData) => {
     setIsSubmitting(true);
     const payload = {
       ...data,
       tenant_id: data.tenant_id ? Number(data.tenant_id) : null,
+      tenant_branch_id: data.tenant_branch_id ? Number(data.tenant_branch_id) : null,
     };
 
     try {
@@ -80,6 +112,7 @@ export default function UsersManagement() {
         });
         form.reset();
         setIsDialogOpen(false);
+        setAvailableBranches([]); // Reset branches in form
         fetchData(); 
       } else {
         toast({
@@ -114,14 +147,20 @@ export default function UsersManagement() {
       <CardHeader className="flex flex-row items-center justify-between">
          <div>
           <div className="flex items-center space-x-2">
-            <Users className="h-6 w-6 text-primary" />
+            <UsersIcon className="h-6 w-6 text-primary" />
             <CardTitle>Users Management</CardTitle>
           </div>
           <CardDescription>View, add, and manage system users.</CardDescription>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+                form.reset();
+                setAvailableBranches([]);
+            }
+        }}>
           <DialogTrigger asChild>
-            <Button onClick={() => {form.reset(); setIsDialogOpen(true);}}>
+            <Button onClick={() => {form.reset(); setAvailableBranches([]); setIsDialogOpen(true);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add User
             </Button>
           </DialogTrigger>
@@ -130,7 +169,7 @@ export default function UsersManagement() {
               <DialogTitle>Add New User</DialogTitle>
             </DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
                 <FormField
                   control={form.control}
                   name="first_name"
@@ -224,7 +263,6 @@ export default function UsersManagement() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {/* <SelectItem value="">None</SelectItem>  Removed this problematic item */}
                           {tenants.map(tenant => (
                             <SelectItem key={tenant.id} value={tenant.id.toString()}>
                               {tenant.tenant_name}
@@ -232,14 +270,48 @@ export default function UsersManagement() {
                           ))}
                         </SelectContent>
                       </Select>
-                      <FormDescription>Leave blank if user is not tied to a specific tenant.</FormDescription>
+                      <FormDescription>Select tenant to assign branch.</FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-                <DialogFooter>
+                 <FormField
+                  control={form.control}
+                  name="tenant_branch_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Branch (Optional)</FormLabel>
+                      <Select
+                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}
+                        value={field.value?.toString()}
+                        disabled={!selectedTenantId || isLoadingBranches || availableBranches.length === 0}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={
+                              isLoadingBranches ? "Loading branches..." : 
+                              !selectedTenantId ? "Select a tenant first" :
+                              availableBranches.length === 0 ? "No branches for selected tenant" :
+                              "Assign to a branch"
+                            } />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {availableBranches.map(branch => (
+                            <SelectItem key={branch.id} value={branch.id.toString()}>
+                              {branch.branch_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormDescription>Assign user to a specific branch of the selected tenant.</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter className="sticky bottom-0 bg-background py-4 border-t">
                    <DialogClose asChild>
-                        <Button type="button" variant="outline" onClick={() => {form.reset(); setIsDialogOpen(false);}}>Cancel</Button>
+                        <Button type="button" variant="outline" onClick={() => {form.reset(); setAvailableBranches([]); setIsDialogOpen(false);}}>Cancel</Button>
                    </DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create User"}
@@ -261,6 +333,7 @@ export default function UsersManagement() {
                 <TableHead>Username</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Tenant</TableHead>
+                <TableHead>Branch</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -272,6 +345,7 @@ export default function UsersManagement() {
                   <TableCell>{user.username}</TableCell>
                   <TableCell>{user.role}</TableCell>
                   <TableCell>{user.tenant_name || 'N/A'}</TableCell>
+                  <TableCell>{user.branch_name || 'N/A'}</TableCell>
                   <TableCell>{user.status === '1' ? 'Active' : 'Inactive'}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" disabled>Edit</Button>
@@ -285,4 +359,3 @@ export default function UsersManagement() {
     </Card>
   );
 }
-
