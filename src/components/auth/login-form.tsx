@@ -40,6 +40,7 @@ export function LoginForm() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
+      console.log("[login-form.tsx] Clearing localStorage on mount");
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
@@ -48,7 +49,7 @@ export function LoginForm() {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
-      localStorage.removeItem('userId'); // Also clear userId on login page load
+      localStorage.removeItem('userId'); 
     }
   }, []);
 
@@ -61,6 +62,8 @@ export function LoginForm() {
 
     try {
       const result = await loginUser(formData);
+      console.log("[login-form.tsx] Login attempt result:", result);
+
 
       if (result.success && result.role) {
         toast({
@@ -69,9 +72,11 @@ export function LoginForm() {
         });
 
         if (typeof window !== 'undefined') {
+            console.log("[login-form.tsx] Storing user info in localStorage...");
             localStorage.setItem('userRole', result.role);
             if (result.tenantId) {
                 localStorage.setItem('userTenantId', String(result.tenantId));
+                console.log("[login-form.tsx] Stored tenantId:", result.tenantId);
             }
             if (result.tenantName) {
                 localStorage.setItem('userTenantName', result.tenantName);
@@ -87,12 +92,16 @@ export function LoginForm() {
             }
             if (result.tenantBranchId) {
                 localStorage.setItem('userTenantBranchId', String(result.tenantBranchId));
+                console.log("[login-form.tsx] Stored tenantBranchId:", result.tenantBranchId);
             }
             if (result.branchName) {
                 localStorage.setItem('userBranchName', result.branchName);
             }
-            if (result.userId) { // Ensure userId is stored
+            if (result.userId && typeof result.userId === 'number' && result.userId > 0) {
                 localStorage.setItem('userId', String(result.userId));
+                console.log("[login-form.tsx] Stored userId:", result.userId);
+            } else {
+                console.warn("[login-form.tsx] userId not stored or invalid:", result.userId);
             }
         }
         

@@ -22,7 +22,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'check-in' | 'room-status' | 'settings'>('room-status'); // Default to room-status
+  const [activeView, setActiveView] = useState<'check-in' | 'room-status' | 'settings'>('room-status'); 
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -33,12 +33,13 @@ const StaffDashboardPage: NextPage = () => {
   const [lastName, setLastName] = useState<string | null>(null);
   const [branchId, setBranchId] = useState<number | null>(null);
   const [branchName, setBranchName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<number | null>(null); // State for staff user ID
+  const [userId, setUserId] = useState<number | null>(null);
 
 
   const router = useRouter();
 
   useEffect(() => {
+    console.log("[staff/page.tsx] useEffect running to retrieve localStorage data");
     if (typeof window !== 'undefined') {
       const storedRole = localStorage.getItem('userRole') as UserRole | null;
       const storedTenantId = localStorage.getItem('userTenantId');
@@ -48,16 +49,21 @@ const StaffDashboardPage: NextPage = () => {
       const storedLastName = localStorage.getItem('userLastName');
       const storedBranchId = localStorage.getItem('userTenantBranchId');
       const storedBranchName = localStorage.getItem('userBranchName');
-      const storedUserId = localStorage.getItem('userId'); // Retrieve userId
+      const storedUserId = localStorage.getItem('userId');
 
+      console.log("[staff/page.tsx] Retrieved from localStorage:", {
+        storedRole, storedTenantId, storedTenantName, storedUsername, storedFirstName, storedLastName, storedBranchId, storedBranchName, storedUserId
+      });
 
       if (storedRole) {
         setUserRole(storedRole);
         if (storedRole !== 'staff') { 
+            console.warn("[staff/page.tsx] Role is not staff, redirecting to /");
             router.push('/'); 
             return;
         }
       } else {
+        console.warn("[staff/page.tsx] No role found, redirecting to /");
         router.push('/'); 
         return;
       }
@@ -68,7 +74,18 @@ const StaffDashboardPage: NextPage = () => {
       if (storedLastName) setLastName(storedLastName);
       if (storedBranchId) setBranchId(parseInt(storedBranchId, 10));
       if (storedBranchName) setBranchName(storedBranchName);
-      if (storedUserId) setUserId(parseInt(storedUserId, 10)); // Set userId state
+      
+      if (storedUserId && !isNaN(parseInt(storedUserId, 10))) {
+        const parsedUserId = parseInt(storedUserId, 10);
+        if (parsedUserId > 0) {
+          setUserId(parsedUserId);
+          console.log("[staff/page.tsx] Set userId from localStorage:", parsedUserId);
+        } else {
+          console.warn("[staff/page.tsx] Parsed userId from localStorage is not a positive number:", parsedUserId);
+        }
+      } else {
+        console.warn("[staff/page.tsx] userId not found or invalid in localStorage:", storedUserId);
+      }
 
 
       if (storedTenantName) {
@@ -110,6 +127,7 @@ const StaffDashboardPage: NextPage = () => {
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
+      console.log("[staff/page.tsx] Logging out, clearing localStorage");
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
@@ -118,7 +136,7 @@ const StaffDashboardPage: NextPage = () => {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
-      localStorage.removeItem('userId'); // Clear userId on logout
+      localStorage.removeItem('userId'); 
     }
     router.push('/');
   };

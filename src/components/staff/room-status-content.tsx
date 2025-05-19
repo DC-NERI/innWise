@@ -20,8 +20,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 
 interface RoomStatusContentProps {
-  tenantId: number;
-  branchId: number;
+  tenantId: number | null;
+  branchId: number | null;
   staffUserId: number | null;
 }
 
@@ -54,15 +54,22 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     defaultValues: defaultTransactionFormValues,
   });
 
+  console.log("[RoomStatusContent] Props received:", { tenantId, branchId, staffUserId });
+
+
   const fetchRoomsData = useCallback(async () => {
     if (!tenantId || !branchId) {
+      console.log("[RoomStatusContent] TenantId or BranchId is missing, skipping fetchRoomsData.");
       setIsLoading(false);
+      setRooms([]); 
+      setGroupedRooms({});
       return;
     }
+    console.log("[RoomStatusContent] Fetching rooms for tenantId:", tenantId, "branchId:", branchId);
     setIsLoading(true);
     try {
       const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
-      const activeDisplayRooms = fetchedRooms.filter(room => room.status === '1'); // Only display active rooms
+      const activeDisplayRooms = fetchedRooms.filter(room => room.status === '1'); 
       setRooms(activeDisplayRooms);
 
       const grouped = activeDisplayRooms.reduce((acc, room) => {
@@ -82,6 +89,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       const sortedGroupedRooms: GroupedRooms = {};
       for (const floor of sortedFloors) sortedGroupedRooms[floor] = grouped[floor];
       setGroupedRooms(sortedGroupedRooms);
+      console.log("[RoomStatusContent] Rooms fetched and grouped:", sortedGroupedRooms);
 
     } catch (error) {
       console.error("Failed to fetch rooms:", error);
@@ -96,25 +104,37 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [fetchRoomsData]);
 
   const handleOpenBookingDialog = (room: HotelRoom) => {
+    console.log("[RoomStatusContent] Opening booking dialog for room:", room);
     setSelectedRoomForBooking(room);
     bookingForm.reset(defaultTransactionFormValues);
     setIsBookingDialogOpen(true);
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
+    console.log("[RoomStatusContent] handleBookingSubmit called. Current state:", {
+      selectedRoomForBooking,
+      staffUserId,
+      formData: data
+    });
+
     if (!selectedRoomForBooking || !staffUserId) {
-      toast({ title: "Error", description: "Selected room or staff details are missing.", variant: "destructive" });
+      console.error("[RoomStatusContent] Booking check failed:", {
+        selectedRoomForBookingExists: !!selectedRoomForBooking,
+        selectedRoomId: selectedRoomForBooking?.id,
+        staffUserId: staffUserId,
+      });
+      toast({ title: "Error", description: "Selected room or staff details are missing. Please ensure you are logged in correctly and have selected a room.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await createTransactionAndOccupyRoom(
-        data, tenantId, branchId, selectedRoomForBooking.id, selectedRoomForBooking.hotel_rate_id, staffUserId
+        data, tenantId!, branchId!, selectedRoomForBooking.id, selectedRoomForBooking.hotel_rate_id, staffUserId
       );
       if (result.success) {
         toast({ title: "Success", description: result.message });
         setIsBookingDialogOpen(false);
-        fetchRoomsData(); // Refresh room list
+        fetchRoomsData(); 
       } else {
         toast({ title: "Booking Failed", description: result.message, variant: "destructive" });
       }
@@ -130,9 +150,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       toast({ title: "Info", description: "No active transaction for this room.", variant: "default" });
       return;
     }
-    setIsLoading(true); // Use general loading or a specific one for dialog
+    setIsLoading(true); 
     try {
-      const details = await getActiveTransactionDetails(transactionId, tenantId, branchId);
+      const details = await getActiveTransactionDetails(transactionId, tenantId!, branchId!);
       if (details) {
         setCurrentTransactionDetails(details);
         setIsTransactionInfoDialogOpen(true);
@@ -154,11 +174,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     setIsSubmitting(true);
     try {
       const result = await checkOutGuestAndFreeRoom(
-        roomToCheckout.active_transaction_id, staffUserId, tenantId, branchId, roomToCheckout.id
+        roomToCheckout.active_transaction_id, staffUserId, tenantId!, branchId!, roomToCheckout.id
       );
       if (result.success) {
         toast({ title: "Success", description: result.message });
-        fetchRoomsData(); // Refresh room list
+        fetchRoomsData(); 
       } else {
         toast({ title: "Check-out Failed", description: result.message, variant: "destructive" });
       }
@@ -166,7 +186,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       toast({ title: "Error", description: "An unexpected error occurred during check-out.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
-      setRoomToCheckout(null); // Close the alert dialog implicitly by resetting the state
+      setRoomToCheckout(null); 
     }
   };
 
@@ -174,11 +194,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   if (isLoading && Object.keys(groupedRooms).length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room statuses...</p></div>;
   }
-  if (!branchId) {
-    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Room Status</CardTitle></div><CardDescription>View current room availability.</CardDescription></CardHeader><CardContent><p className="text-muted-foreground">No branch assigned or selected.</p></CardContent></Card>;
+  if (!branchId && !isLoading) { // Also check !isLoading to avoid showing this during initial load
+    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Room Status</CardTitle></div><CardDescription>View current room availability.</CardDescription></CardHeader><CardContent><p className="text-muted-foreground">No branch assigned or selected. Please ensure your staff account is assigned to a branch.</p></CardContent></Card>;
   }
   if (rooms.length === 0 && !isLoading) {
-    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Room Status</CardTitle></div><CardDescription>View current room availability.</CardDescription></CardHeader><CardContent><p className="text-muted-foreground">No active rooms found for this branch.</p></CardContent></Card>;
+    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Room Status</CardTitle></div><CardDescription>View current room availability.</CardDescription></CardHeader><CardContent><p className="text-muted-foreground">No active rooms found for this branch. Rooms may need to be added by an administrator.</p></CardContent></Card>;
   }
 
   return (
@@ -250,7 +270,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         </div>
       ))}
 
-      {/* Booking Dialog */}
       <Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -281,7 +300,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         </DialogContent>
       </Dialog>
 
-      {/* Transaction Info Dialog */}
       <Dialog open={isTransactionInfoDialogOpen} onOpenChange={setIsTransactionInfoDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Transaction Details - Room {currentTransactionDetails?.room_name}</DialogTitle></DialogHeader>

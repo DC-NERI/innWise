@@ -17,6 +17,7 @@ export type LoginResult = {
   lastName?: string;
   tenantBranchId?: number;
   branchName?: string;
+  userId?: number; 
 };
 
 const pool = new Pool({
@@ -49,7 +50,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         `SELECT u.id, u.username, u.password_hash, u.role, u.tenant_id, u.first_name, u.last_name, u.tenant_branch_id, tb.branch_name 
          FROM users u
          LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id AND u.tenant_id = tb.tenant_id
-         WHERE u.username = $1 AND u.status = '1'`, // Ensure user is active
+         WHERE u.username = $1 AND u.status = '1'`, 
         [username]
       );
 
@@ -58,6 +59,8 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
       }
 
       const user = userResult.rows[0];
+      console.log("[auth.ts] User found in DB:", {id: user.id, username: user.username, role: user.role});
+
 
       const passwordMatches = bcrypt.compareSync(password, user.password_hash); 
 
@@ -72,7 +75,6 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         return { message: "Login successful, but user role is not recognized for dashboard access.", success: false };
       }
 
-      // Check tenant status if user is not sysad
       if (user.tenant_id && userRole !== 'sysad') {
         const tenantStatusRes = await client.query('SELECT status FROM tenants WHERE id = $1', [user.tenant_id]);
         if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status !== '1') {
@@ -80,7 +82,6 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         }
       }
 
-      // Check branch status if user is staff and assigned to a branch
       if (user.tenant_branch_id && userRole === 'staff') {
         const branchStatusRes = await client.query('SELECT status FROM tenant_branch WHERE id = $1', [user.tenant_branch_id]);
          if (branchStatusRes.rows.length === 0 || branchStatusRes.rows[0].status !== '1') {
@@ -111,8 +112,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         [user.id]
       );
       
-      console.log(`User ${user.username} (Role: ${userRole}, Tenant ID: ${tenantId || 'N/A'}, Branch ID: ${user.tenant_branch_id || 'N/A'}) logged in at ${new Date().toISOString()}.`);
-      return { 
+      const loginResultData: LoginResult = { 
         message: "Login successful!", 
         success: true, 
         role: userRole,
@@ -123,7 +123,10 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         lastName: user.last_name,
         tenantBranchId: user.tenant_branch_id,
         branchName: user.branch_name,
+        userId: user.id, 
       };
+      console.log("[auth.ts] Login result being returned:", loginResultData);
+      return loginResultData;
 
     } catch (dbError) {
       console.error("Database error during login:", dbError);
