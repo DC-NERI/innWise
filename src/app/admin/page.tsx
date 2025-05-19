@@ -5,19 +5,44 @@ import type { NextPage } from 'next';
 import { useState, useEffect } from 'react';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Home, Settings, LogOut } from 'lucide-react';
+import { Users, Building, Settings, LogOut } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
-import Link from 'next/link';
+import { getTenantDetails } from '@/actions/admin';
+import type { UserRole } from '@/lib/types'; // Assuming UserRole is defined in types
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches'>('branches'); // Default to branches as per typical first content
+  const [activeView, setActiveView] = useState<'users' | 'branches'>('branches');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
-  const [tenantName, setTenantName] = useState<string>("Tenant Name Placeholder"); // Placeholder
+  const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
+
+  // Placeholder: In a real app, tenantId and userRole would come from user's session/authentication context
+  const tenantId = 1; 
+  const userRole: UserRole = 'admin'; // Change to 'sysad' or 'staff' to test different roles
 
   useEffect(() => {
-    // Fetch actual tenant name here if possible, e.g., from session or an API
-    // For now, we use a placeholder.
+    async function fetchAndSetTenantName() {
+      if (userRole === 'sysad') {
+        setTenantName("System Administrator");
+        return;
+      }
+      if (tenantId) {
+        try {
+          const tenant = await getTenantDetails(tenantId);
+          if (tenant) {
+            setTenantName(tenant.tenant_name);
+          } else {
+            setTenantName("Tenant Not Found");
+          }
+        } catch (error) {
+          console.error("Failed to fetch tenant details:", error);
+          setTenantName("Error Fetching Tenant Info");
+        }
+      } else {
+        setTenantName("Tenant Information"); // Default if no tenantId
+      }
+    }
+    fetchAndSetTenantName();
 
     const intervalId = setInterval(() => {
       const now = new Date();
@@ -33,17 +58,14 @@ const AdminDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, []);
-
-  // Placeholder tenantId - in a real app, this would come from the user's session
-  const tenantId = 1; 
+  }, [tenantId, userRole]);
 
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
-          <div className="p-4">
-            <h2 className="text-xl font-semibold text-sidebar-primary-foreground">InnWise Admin</h2>
+          <div className="p-4 border-b border-sidebar-border">
+            <h2 className="text-xl font-semibold text-sidebar-primary-foreground truncate" title={tenantName}>{tenantName}</h2>
           </div>
         </SidebarHeader>
         <SidebarContent>
@@ -62,21 +84,10 @@ const AdminDashboardPage: NextPage = () => {
               <Building className="mr-2 h-5 w-5" />
               Branches
             </SidebarMenuItem>
-             <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                <Link href="/">
-                  <Home className="mr-2 h-5 w-5" />
-                  Go to Login
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
-          <div className="p-2">
+          <div className="p-2 border-t border-sidebar-border">
             <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent">
               <Settings className="mr-2 h-5 w-5" /> Settings
             </Button>
@@ -89,7 +100,8 @@ const AdminDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex flex-col sm:flex-row justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="mb-2 sm:mb-0">
-            <h1 className="text-2xl font-semibold">{tenantName}</h1>
+             {/* Tenant name in the main header is driven by the same tenantName state */}
+            <h1 className="text-2xl font-semibold truncate" title={tenantName}>{tenantName}</h1>
           </div>
           <div className="text-sm text-muted-foreground">
             {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
