@@ -2,7 +2,7 @@
 "use server";
 
 import { Pool } from 'pg';
-import type { Transaction } from '@/lib/types';
+import type { Transaction, HotelRoom } from '@/lib/types'; // Added HotelRoom
 import { 
   transactionCreateSchema, TransactionCreateData, 
   transactionUpdateNotesSchema, TransactionUpdateNotesData,
@@ -26,7 +26,12 @@ export async function createTransactionAndOccupyRoom(
   roomId: number,
   rateId: number,
   staffUserId: number
-): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
+): Promise<{ 
+  success: boolean; 
+  message?: string; 
+  transaction?: Transaction; 
+  updatedRoomData?: Partial<HotelRoom> & { id: number } 
+}> {
   const validatedFields = transactionCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
@@ -62,6 +67,10 @@ export async function createTransactionAndOccupyRoom(
       return { success: false, message: "Failed to update room status to occupied. Room not found or already in desired state." };
     }
 
+    // Fetch rate name for the updatedRoomData
+    const rateNameRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [rateId]);
+    const rate_name = rateNameRes.rows.length > 0 ? rateNameRes.rows[0].name : null;
+
     await client.query('COMMIT');
     return {
       success: true,
@@ -72,6 +81,14 @@ export async function createTransactionAndOccupyRoom(
         created_at: new Date(newTransaction.created_at).toISOString(),
         updated_at: new Date(newTransaction.updated_at).toISOString(),
       } as Transaction,
+      updatedRoomData: {
+        id: roomId,
+        is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
+        active_transaction_id: newTransaction.id,
+        active_transaction_client_name: newTransaction.client_name,
+        active_transaction_check_in_time: new Date(newTransaction.check_in_time).toISOString(),
+        active_transaction_rate_name: rate_name,
+      }
     };
 
   } catch (error) {
@@ -91,7 +108,12 @@ export async function createReservation(
   roomId: number,
   rateId: number,
   staffUserId: number
-): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
+): Promise<{ 
+  success: boolean; 
+  message?: string; 
+  transaction?: Transaction; 
+  updatedRoomData?: Partial<HotelRoom> & { id: number } 
+}> {
   const validatedFields = transactionCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data for reservation: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
@@ -126,6 +148,10 @@ export async function createReservation(
       await client.query('ROLLBACK');
       return { success: false, message: "Failed to update room status to reserved. Room not found or already in desired state." };
     }
+    
+    // Fetch rate name for the updatedRoomData
+    const rateNameRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [rateId]);
+    const rate_name = rateNameRes.rows.length > 0 ? rateNameRes.rows[0].name : null;
 
     await client.query('COMMIT');
     return {
@@ -137,6 +163,14 @@ export async function createReservation(
         created_at: new Date(newTransaction.created_at).toISOString(),
         updated_at: new Date(newTransaction.updated_at).toISOString(),
       } as Transaction,
+      updatedRoomData: {
+        id: roomId,
+        is_available: ROOM_AVAILABILITY_STATUS.RESERVED,
+        active_transaction_id: newTransaction.id,
+        active_transaction_client_name: newTransaction.client_name,
+        active_transaction_check_in_time: new Date(newTransaction.check_in_time).toISOString(),
+        active_transaction_rate_name: rate_name,
+      }
     };
 
   } catch (error) {
@@ -175,7 +209,7 @@ export async function getActiveTransactionForRoom(
       console.log(`[staff.ts:getActiveTransactionForRoom] Found transaction: ${JSON.stringify(row)}`);
       return {
         ...row,
-        price: row.price ? parseFloat(row.price) : undefined,
+        price: row.price ? parseFloat(row.price) : undefined, // Assuming price might come from a join not shown
         total_amount: row.total_amount ? parseFloat(row.total_amount) : undefined,
         check_in_time: new Date(row.check_in_time).toISOString(),
         check_out_time: row.check_out_time ? new Date(row.check_out_time).toISOString() : null,
@@ -198,7 +232,7 @@ export async function updateTransactionNotes(
   notes: string | null | undefined,
   tenantId: number,
   branchId: number
-): Promise<{ success: boolean; message?: string; updatedTransaction?: Pick<Transaction, 'id' | 'notes'> }> {
+): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
   console.log(`[staff.ts:updateTransactionNotes] Called with: transactionId=${transactionId}, notes=${notes === undefined ? 'undefined' : notes === null ? 'null' : `"${notes}"`}`);
   const client = await pool.connect();
   try {
@@ -206,14 +240,33 @@ export async function updateTransactionNotes(
       `UPDATE transactions
        SET notes = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2 AND tenant_id = $3 AND branch_id = $4
-       RETURNING id, notes`,
+       RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id, check_out_time, hours_used, total_amount`,
       [notes, transactionId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
+       const updatedRow = res.rows[0];
+       // Fetch room_name and rate_name again
+       const detailsRes = await client.query(
+        `SELECT hr.room_name, hrt.name as rate_name
+         FROM hotel_room hr
+         JOIN hotel_rates hrt ON $1 = hrt.id 
+         WHERE hr.id = $2`, [updatedRow.hotel_rate_id, updatedRow.hotel_room_id]
+      );
+      const room_name = detailsRes.rows[0]?.room_name;
+      const rate_name = detailsRes.rows[0]?.rate_name;
+
       return {
         success: true,
         message: "Transaction notes updated successfully.",
-        updatedTransaction: res.rows[0] as Pick<Transaction, 'id' | 'notes'>,
+        updatedTransaction: {
+          ...updatedRow,
+          room_name,
+          rate_name,
+          check_in_time: new Date(updatedRow.check_in_time).toISOString(),
+          check_out_time: updatedRow.check_out_time ? new Date(updatedRow.check_out_time).toISOString() : null,
+          created_at: new Date(updatedRow.created_at).toISOString(),
+          updated_at: new Date(updatedRow.updated_at).toISOString(),
+        } as Transaction,
       };
     }
     return { success: false, message: "Transaction not found or notes update failed." };
@@ -242,7 +295,7 @@ export async function updateReservedTransactionDetails(
       `UPDATE transactions
        SET client_name = $1, client_payment_method = $2, notes = $3, updated_at = CURRENT_TIMESTAMP
        WHERE id = $4 AND tenant_id = $5 AND branch_id = $6 AND status = $7
-       RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id`,
+       RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id, check_out_time, hours_used, total_amount`,
       [client_name, client_payment_method, notes, transactionId, tenantId, branchId, TRANSACTION_STATUS.ADVANCE_PAID]
     );
     if (res.rows.length > 0) {
@@ -265,6 +318,7 @@ export async function updateReservedTransactionDetails(
           room_name,
           rate_name,
           check_in_time: new Date(updatedRow.check_in_time).toISOString(),
+          check_out_time: updatedRow.check_out_time ? new Date(updatedRow.check_out_time).toISOString() : null,
           created_at: new Date(updatedRow.created_at).toISOString(),
           updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as Transaction,
@@ -286,7 +340,12 @@ export async function checkOutGuestAndFreeRoom(
   tenantId: number,
   branchId: number,
   roomId: number
-): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
+): Promise<{ 
+  success: boolean; 
+  message?: string; 
+  transaction?: Transaction; 
+  updatedRoomData?: Partial<HotelRoom> & { id: number } 
+}> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -350,7 +409,7 @@ export async function checkOutGuestAndFreeRoom(
 
     if (roomUpdateRes.rowCount === 0) {
       console.warn(`Check-out successful for transaction ${transactionId}, but failed to update room ${roomId} status.`);
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK'); // Still rollback if room update fails critical part of freeing room
       return { success: false, message: "Check-out processed for transaction, but failed to update room status. Please check manually." };
     }
 
@@ -365,6 +424,14 @@ export async function checkOutGuestAndFreeRoom(
         created_at: new Date(updatedTransaction.created_at).toISOString(),
         updated_at: new Date(updatedTransaction.updated_at).toISOString(),
       } as Transaction,
+      updatedRoomData: {
+        id: roomId,
+        is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
+        active_transaction_id: null,
+        active_transaction_client_name: null,
+        active_transaction_check_in_time: null,
+        active_transaction_rate_name: null,
+      }
     };
 
   } catch (error) {
@@ -375,3 +442,4 @@ export async function checkOutGuestAndFreeRoom(
     client.release();
   }
 }
+
