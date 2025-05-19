@@ -13,13 +13,13 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches'>('branches');
+  const [activeView, setActiveView] = useState<'users' | 'branches' | 'settings'>('branches');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
-  const [username, setUsername] = useState<string | null>(null); // Retained for potential use, though firstName/lastName preferred
+  const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
 
@@ -48,7 +48,9 @@ const AdminDashboardPage: NextPage = () => {
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            localStorage.setItem('userTenantName', tenant.tenant_name); 
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('userTenantName', tenant.tenant_name); 
+            }
           } else {
             setTenantName("Tenant Not Found");
           }
@@ -95,7 +97,7 @@ const AdminDashboardPage: NextPage = () => {
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
-          <div className="p-4 border-b border-sidebar-border flex flex-col space-y-1">
+          <div className="p-4 border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
             <h2 className="text-lg font-semibold text-sidebar-primary-foreground truncate" title={tenantName}>
               {tenantName}
             </h2>
@@ -114,21 +116,27 @@ const AdminDashboardPage: NextPage = () => {
         <SidebarContent>
           <SidebarMenu>
             {userRole === 'admin' && (
-              <SidebarMenuItem
-                onClick={() => setActiveView('users')}
-                className={`hover:bg-sidebar-accent ${activeView === 'users' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}
-              >
-                <Users className="mr-2 h-5 w-5" />
-                Users
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setActiveView('users')}
+                  isActive={activeView === 'users'}
+                  className="justify-start"
+                >
+                  <Users className="h-5 w-5" />
+                  Users
+                </SidebarMenuButton>
               </SidebarMenuItem>
             )}
              {(userRole === 'admin' || userRole === 'sysad') && (
-                <SidebarMenuItem
-                onClick={() => setActiveView('branches')}
-                className={`hover:bg-sidebar-accent ${activeView === 'branches' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}
-                >
-                <Building className="mr-2 h-5 w-5" />
-                Branches
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setActiveView('branches')}
+                    isActive={activeView === 'branches'}
+                    className="justify-start"
+                  >
+                    <Building className="h-5 w-5" />
+                    Branches
+                  </SidebarMenuButton>
                 </SidebarMenuItem>
             )}
           </SidebarMenu>
@@ -136,16 +144,25 @@ const AdminDashboardPage: NextPage = () => {
         <SidebarFooter>
           <div className="p-2 border-t border-sidebar-border">
             { (userRole === 'admin' || userRole === 'sysad') && (
-              <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent">
-                <Settings className="mr-2 h-5 w-5" /> Settings
-              </Button>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setActiveView('settings')}
+                    isActive={activeView === 'settings'}
+                    className="justify-start"
+                  >
+                    <Settings className="h-5 w-5" />
+                     Settings
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
             )}
           </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm font-bold text-foreground">
             {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
@@ -156,11 +173,12 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'users' && userRole === 'admin' && <UsersContent />}
           {activeView === 'branches' && (userRole === 'admin' || userRole === 'sysad') && tenantId !== null && <BranchesContent tenantId={tenantId} />}
           {activeView === 'branches' && tenantId === null && userRole !== 'sysad' && <p>Loading tenant information...</p>}
-          {/* SysAd might not have branches directly tied in the same way, or it's a global view. 
-              Adjust if sysad needs a specific message or branch view logic.
-              For now, if tenantId is null (which it would be for sysad as per current logic), BranchesContent won't render.
-          */}
-
+          {activeView === 'settings' && (userRole === 'admin' || userRole === 'sysad') && (
+            <div>
+              <h2 className="text-2xl font-semibold">Settings</h2>
+              <p className="text-muted-foreground">System settings will be managed here.</p>
+            </div>
+          )}
         </main>
       </SidebarInset>
     </SidebarProvider>
@@ -168,3 +186,5 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
+
+    
