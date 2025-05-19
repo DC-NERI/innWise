@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogIn, LogOut } from "lucide-react";
+import { BedDouble, Loader2, Info, LogIn, LogOut, User } from "lucide-react"; // Added User icon
 import type { HotelRoom, Transaction } from '@/lib/types';
 import { listRoomsForBranch } from '@/actions/admin';
 import { createTransactionAndOccupyRoom, getActiveTransactionDetails, checkOutGuestAndFreeRoom } from '@/actions/staff';
@@ -117,19 +117,21 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       formData: data
     });
 
-    if (!selectedRoomForBooking || !staffUserId) {
+    if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId) {
       console.error("[RoomStatusContent] Booking check failed:", {
         selectedRoomForBookingExists: !!selectedRoomForBooking,
         selectedRoomId: selectedRoomForBooking?.id,
         staffUserId: staffUserId,
+        tenantId: tenantId,
+        branchId: branchId
       });
-      toast({ title: "Error", description: "Selected room or staff details are missing. Please ensure you are logged in correctly and have selected a room.", variant: "destructive" });
+      toast({ title: "Error", description: "Selected room, staff details, tenant, or branch information is missing. Please ensure you are logged in correctly and have selected a room.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await createTransactionAndOccupyRoom(
-        data, tenantId!, branchId!, selectedRoomForBooking.id, selectedRoomForBooking.hotel_rate_id, staffUserId
+        data, tenantId, branchId, selectedRoomForBooking.id, selectedRoomForBooking.hotel_rate_id, staffUserId
       );
       if (result.success) {
         toast({ title: "Success", description: result.message });
@@ -150,14 +152,25 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       toast({ title: "Info", description: "No active transaction for this room.", variant: "default" });
       return;
     }
+    if (!tenantId || !branchId) {
+         toast({ title: "Error", description: "Tenant or branch information is missing.", variant: "destructive" });
+        return;
+    }
     setIsLoading(true); 
     try {
-      const details = await getActiveTransactionDetails(transactionId, tenantId!, branchId!);
+      const details = await getActiveTransactionDetails(transactionId, tenantId, branchId);
       if (details) {
         setCurrentTransactionDetails(details);
         setIsTransactionInfoDialogOpen(true);
       } else {
-        toast({ title: "Not Found", description: "Could not find active transaction details.", variant: "destructive" });
+        // Attempt to fetch again in case of a race condition or if listRoomsForBranch didn't pick up a very recent transaction
+        const freshDetails = await getActiveTransactionDetails(transactionId, tenantId, branchId);
+        if (freshDetails) {
+            setCurrentTransactionDetails(freshDetails);
+            setIsTransactionInfoDialogOpen(true);
+        } else {
+            toast({ title: "Not Found", description: "Could not find active transaction details. It might have been recently checked out or an error occurred.", variant: "destructive" });
+        }
       }
     } catch (error) {
       toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
@@ -167,14 +180,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleCheckout = async () => {
-    if (!roomToCheckout || !roomToCheckout.active_transaction_id || !staffUserId) {
-      toast({ title: "Error", description: "Room or transaction details missing for checkout.", variant: "destructive" });
+    if (!roomToCheckout || !roomToCheckout.active_transaction_id || !staffUserId || !tenantId || !branchId) {
+      toast({ title: "Error", description: "Room, transaction, staff, tenant or branch details missing for checkout.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await checkOutGuestAndFreeRoom(
-        roomToCheckout.active_transaction_id, staffUserId, tenantId!, branchId!, roomToCheckout.id
+        roomToCheckout.active_transaction_id, staffUserId, tenantId, branchId, roomToCheckout.id
       );
       if (result.success) {
         toast({ title: "Success", description: result.message });
@@ -194,7 +207,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   if (isLoading && Object.keys(groupedRooms).length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room statuses...</p></div>;
   }
-  if (!branchId && !isLoading) { // Also check !isLoading to avoid showing this during initial load
+  if (!branchId && !isLoading) { 
     return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Room Status</CardTitle></div><CardDescription>View current room availability.</CardDescription></CardHeader><CardContent><p className="text-muted-foreground">No branch assigned or selected. Please ensure your staff account is assigned to a branch.</p></CardContent></Card>;
   }
   if (rooms.length === 0 && !isLoading) {
@@ -210,39 +223,59 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
             {floorRooms.map(room => (
               <Card 
                 key={room.id} 
-                className={`shadow-md hover:shadow-lg transition-shadow duration-200 ${room.is_available ? 'cursor-pointer' : ''}`}
+                className={`shadow-md hover:shadow-lg transition-shadow duration-200 ${room.is_available ? 'cursor-pointer' : ''} flex flex-col`}
                 onClick={room.is_available ? () => handleOpenBookingDialog(room) : undefined}
               >
                 <CardHeader className="p-4">
                   <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name}</CardTitle>
                   <CardDescription className="text-xs">{room.room_code}</CardDescription>
                 </CardHeader>
-                <CardContent className="p-4 pt-0">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <span className={`h-3 w-3 rounded-full ${room.is_available ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                    <span className={`text-sm font-medium ${room.is_available ? 'text-green-600' : 'text-red-600'}`}>
-                      {room.is_available ? 'Available' : 'Occupied'}
-                    </span>
+                <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center space-x-2 mb-2">
+                      <span className={`h-3 w-3 rounded-full ${room.is_available ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                      <span className={`text-sm font-medium ${room.is_available ? 'text-green-600' : 'text-red-600'}`}>
+                        {room.is_available ? 'Available' : 'Occupied'}
+                      </span>
+                    </div>
+                    {!room.is_available && room.active_transaction_client_name && (
+                      <div className="flex items-center text-xs text-muted-foreground">
+                        <User className="h-3 w-3 mr-1 flex-shrink-0" />
+                        <span className="truncate" title={room.active_transaction_client_name}>
+                           Guest: {room.active_transaction_client_name}
+                        </span>
+                      </div>
+                    )}
+                    {!room.is_available && room.active_transaction_check_in_time && (
+                      <p className="text-xs text-muted-foreground">
+                        Checked-in: {new Date(room.active_transaction_check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
+                      </p>
+                    )}
+                    {room.room_type && <p className="text-xs text-muted-foreground mt-1">Type: {room.room_type}</p>}
+                    {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                   </div>
-                  {!room.is_available && room.active_transaction_client_name && (
-                    <p className="text-xs text-muted-foreground">Guest: {room.active_transaction_client_name}</p>
-                  )}
-                  {!room.is_available && room.active_transaction_check_in_time && (
-                    <p className="text-xs text-muted-foreground">
-                      Checked-in: {new Date(room.active_transaction_check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                    </p>
-                  )}
-                  {room.room_type && <p className="text-xs text-muted-foreground mt-1">Type: {room.room_type}</p>}
-                  {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                   
                   {!room.is_available && room.active_transaction_id && (
-                    <div className="mt-3 flex space-x-2">
-                      <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); handleOpenTransactionInfoDialog(room.active_transaction_id); }}>
+                    <div className="mt-3 flex space-x-2 items-center">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={(e) => { e.stopPropagation(); handleOpenTransactionInfoDialog(room.active_transaction_id); }}
+                        className="flex-1"
+                      >
                         <Info className="h-3 w-3 mr-1" /> Info
                       </Button>
-                       <AlertDialog open={!!roomToCheckout && roomToCheckout.id === room.id} onOpenChange={(open) => !open && setRoomToCheckout(null)}>
+                       <AlertDialog 
+                        open={!!roomToCheckout && roomToCheckout.id === room.id} 
+                        onOpenChange={(open) => !open && setRoomToCheckout(null)}
+                       >
                         <AlertDialogTrigger asChild>
-                          <Button variant="destructive" size="sm" onClick={(e) => { e.stopPropagation(); setRoomToCheckout(room); }}>
+                          <Button 
+                            variant="destructive" 
+                            size="sm" 
+                            onClick={(e) => { e.stopPropagation(); setRoomToCheckout(room); }}
+                            className="flex-1"
+                          >
                             <LogOut className="h-3 w-3 mr-1" /> Check-out
                           </Button>
                         </AlertDialogTrigger>
@@ -254,7 +287,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setRoomToCheckout(null);}}>Cancel</AlertDialogCancel>
                             <AlertDialogAction onClick={handleCheckout} disabled={isSubmitting}>
                               {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
                             </AlertDialogAction>
@@ -284,7 +317,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                 <FormItem><FormLabel>Payment Method *</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl><SelectTrigger><SelectValue placeholder="Select payment method" /></SelectTrigger></FormControl>
-                    <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Online">Online</SelectItem></SelectContent>
+                    <SelectContent>
+                        <SelectItem value="Cash">Cash</SelectItem>
+                        <SelectItem value="Card">Card</SelectItem>
+                        <SelectItem value="Online">Online Payment</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
                   </Select><FormMessage />
                 </FormItem>
               )} />
@@ -306,12 +344,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
           {currentTransactionDetails ? (
             <div className="space-y-2 text-sm">
               <p><strong>Client:</strong> {currentTransactionDetails.client_name}</p>
-              <p><strong>Rate:</strong> {currentTransactionDetails.rate_name}</p>
+              <p><strong>Rate:</strong> {currentTransactionDetails.rate_name || 'N/A'}</p>
               <p><strong>Payment Method:</strong> {currentTransactionDetails.client_payment_method}</p>
               <p><strong>Check-in:</strong> {new Date(currentTransactionDetails.check_in_time).toLocaleString()}</p>
               {currentTransactionDetails.check_out_time && (<p><strong>Check-out:</strong> {new Date(currentTransactionDetails.check_out_time).toLocaleString()}</p>)}
-              {currentTransactionDetails.hours_used !== undefined && (<p><strong>Hours Used:</strong> {currentTransactionDetails.hours_used}</p>)}
-              {currentTransactionDetails.total_amount !== undefined && (<p><strong>Total Amount:</strong> {currentTransactionDetails.total_amount.toFixed(2)}</p>)}
+              {currentTransactionDetails.hours_used !== undefined && currentTransactionDetails.hours_used !== null && (<p><strong>Hours Used:</strong> {currentTransactionDetails.hours_used}</p>)}
+              {currentTransactionDetails.total_amount !== undefined && currentTransactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> {currentTransactionDetails.total_amount.toFixed(2)}</p>)}
               {currentTransactionDetails.notes && <p><strong>Notes:</strong> {currentTransactionDetails.notes}</p>}
               <p><strong>Status:</strong> {currentTransactionDetails.status === '0' ? 'Active' : 'Completed'}</p>
             </div>
@@ -322,3 +360,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
+
+
+    
