@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"; // Added import
 import { Settings, LogOut, LogIn, BedDouble, Building } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin'; 
 import type { UserRole } from '@/lib/types';
