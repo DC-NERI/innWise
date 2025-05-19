@@ -18,7 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Added for status
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -182,7 +182,7 @@ export default function TenantsManagement() {
         render={({ field }) => (
           <FormItem>
             <FormLabel>Tenant Name *</FormLabel>
-            <FormControl><Input placeholder="Grand Hotel" {...field} /></FormControl>
+            <FormControl><Input placeholder="Grand Hotel" {...field} className="w-[90%]" /></FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -193,7 +193,7 @@ export default function TenantsManagement() {
         render={({ field }) => (
           <FormItem>
             <FormLabel>Address</FormLabel>
-            <FormControl><Textarea placeholder="123 Main St, City" {...field} value={field.value ?? ''}/></FormControl>
+            <FormControl><Textarea placeholder="123 Main St, City" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -204,7 +204,7 @@ export default function TenantsManagement() {
         render={({ field }) => (
           <FormItem>
             <FormLabel>Email</FormLabel>
-            <FormControl><Input type="email" placeholder="contact@grandhotel.com" {...field} value={field.value ?? ''}/></FormControl>
+            <FormControl><Input type="email" placeholder="contact@grandhotel.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -215,7 +215,7 @@ export default function TenantsManagement() {
         render={({ field }) => (
           <FormItem>
             <FormLabel>Contact Info</FormLabel>
-            <FormControl><Input placeholder="+1-555-0100" {...field} value={field.value ?? ''}/></FormControl>
+            <FormControl><Input placeholder="+1-555-0100" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -228,7 +228,7 @@ export default function TenantsManagement() {
             <FormItem>
               <FormLabel>Status *</FormLabel>
                <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
-                <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
                   <SelectItem value="1">Active</SelectItem>
                   <SelectItem value="0">Archived</SelectItem>
@@ -260,8 +260,6 @@ export default function TenantsManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedTenant(null);
-                } else {
-                    // Logic for opening add/edit is handled by triggers
                 }
             }}
         >
@@ -273,9 +271,9 @@ export default function TenantsManagement() {
           <DialogContent className="sm:max-w-lg p-3">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="space-y-3 py-2">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
                 {renderFormFields()}
-                <DialogFooter>
+                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Tenant")}</Button>
                 </DialogFooter>
@@ -347,4 +345,3 @@ export default function TenantsManagement() {
     </Card>
   );
 }
-

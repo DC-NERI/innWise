@@ -31,7 +31,7 @@ const defaultFormValuesCreate: UserCreateDataAdmin = {
   username: '',
   password: '',
   email: '',
-  role: 'staff', // Default role for admin creation
+  role: 'staff', 
   tenant_branch_id: undefined,
 };
 
@@ -48,11 +48,11 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
   const { toast } = useToast();
 
   const isEditing = !!selectedUser;
-  const selectedRoleInForm = useWatch({ control: form.control, name: 'role' });
-
+  
   const form = useForm<UserFormValues>({
-    // Resolver set dynamically in useEffect
+    // Resolver set dynamically
   });
+  const selectedRoleInForm = useWatch({ control: form.control, name: 'role' });
   
   const fetchData = useCallback(async () => {
     if (!tenantId) {
@@ -61,13 +61,12 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     }
     setIsLoading(true);
     try {
-      // For Admin, branches are fetched for their own tenant
       const [fetchedUsers, fetchedBranches] = await Promise.all([
         getUsersForTenant(tenantId),
         getBranchesForTenantSimple(tenantId) 
       ]);
       setUsers(fetchedUsers);
-      setAvailableBranches(fetchedBranches); // These are for the current admin's tenant
+      setAvailableBranches(fetchedBranches); 
     } catch (error) { 
       console.error("Failed to fetch user data for admin:", error);
       toast({ title: "Error", description: "Could not fetch user data for your tenant.", variant: "destructive" }); 
@@ -88,29 +87,26 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         last_name: selectedUser.last_name,
         password: '', 
         email: selectedUser.email || '',
-        role: selectedUser.role as 'admin' | 'staff', // Ensure role is one of the allowed for admin
+        role: selectedUser.role as 'admin' | 'staff', 
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
         status: selectedUser.status || '1',
       };
-      // Branches are already loaded for the admin's tenant in fetchData
     } else {
       newDefaults = defaultFormValuesCreate;
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
-  }, [selectedUser, form, toast, isAddDialogOpen, isEditDialogOpen]);
+  }, [selectedUser, form, isAddDialogOpen, isEditDialogOpen]);
 
 
   const handleAddSubmit = async (data: UserCreateDataAdmin) => {
     setIsSubmitting(true);
     try {
-      const result = await createUserAdmin(data, tenantId); // tenantId is the admin's tenant
+      const result = await createUserAdmin(data, tenantId); 
       if (result.success && result.user) {
         toast({ title: "Success", description: "User created." });
         setUsers(prev => [...prev, result.user!].sort((a, b) => {
             if (a.role === 'admin' && b.role !== 'admin') return -1;
             if (a.role !== 'admin' && b.role === 'admin') return 1;
-            if (a.role === 'staff' && b.role !== 'staff') return -1; // should not happen if admin cannot create staff
-            if (a.role !== 'staff' && b.role === 'staff') return 1; // should not happen
             return a.last_name.localeCompare(b.last_name);
         }));
         setIsAddDialogOpen(false);
@@ -139,11 +135,10 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => {
              if (a.role === 'admin' && b.role !== 'admin') return -1;
             if (a.role !== 'admin' && b.role === 'admin') return 1;
-            if (a.role === 'staff' && b.role !== 'staff') return -1;
-            if (a.role !== 'staff' && b.role === 'staff') return 1;
             return a.last_name.localeCompare(b.last_name);
         }));
         setIsEditDialogOpen(false);
+        setSelectedUser(null);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -176,7 +171,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       first_name: user.first_name,
       last_name: user.last_name,
       email: user.email || '',
-      role: user.role as 'admin' | 'staff', // Admin can only restore to admin or staff
+      role: user.role as 'admin' | 'staff', 
       tenant_branch_id: user.tenant_branch_id,
       status: '1', 
     };
@@ -196,47 +191,46 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
   };
 
   const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
+  
+  const usernameField = (() => {
+      if (isEditing && selectedUser) {
+        return (
+          <FormItem>
+            <FormLabel>Username (Read-only)</FormLabel>
+            <FormControl><Input readOnly value={selectedUser.username} className="w-[90%]" /></FormControl>
+          </FormItem>
+        );
+      }
+      return (
+        <FormField
+          control={form.control}
+          name="username"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Username *</FormLabel>
+              <FormControl><Input placeholder="johndoe" {...field} className="w-[90%]" /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      );
+    })();
+
 
   const renderFormFields = () => {
-    const usernameField = (() => {
-        if (isEditing && selectedUser) {
-          return (
-            <FormItem>
-              <FormLabel>Username (Read-only)</FormLabel>
-              <FormControl><Input readOnly value={selectedUser.username} /></FormControl>
-            </FormItem>
-          );
-        }
-        return (
-          <FormField
-            control={form.control}
-            name="username"
-            render={( { field } ) => {
-              return (
-                <FormItem>
-                  <FormLabel>Username *</FormLabel>
-                  <FormControl><Input placeholder="johndoe" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              );
-            }}
-          />
-        );
-      })();
-
     return (
       <React.Fragment>
-        <FormField control={form.control} name="first_name" render={({ field }) => (<FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem>)} />
-        <FormField control={form.control} name="last_name" render={({ field }) => (<FormItem><FormLabel>Last Name *</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="first_name" render={({ field }) => (<FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="last_name" render={({ field }) => (<FormItem><FormLabel>Last Name *</FormLabel><FormControl><Input placeholder="Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
         {usernameField}
-        <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl><FormMessage /></FormItem>)} />
-        <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
         <FormField control={form.control} name="role"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Role *</FormLabel>
               <Select onValueChange={field.onChange} value={field.value as 'admin' | 'staff'}>
-                <FormControl><SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
                 <SelectContent>
                   <SelectItem value="staff">Staff</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
@@ -254,7 +248,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                 value={field.value?.toString()}
                 disabled={isLoadingBranches || availableBranches.length === 0}
               >
-                <FormControl><SelectTrigger><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
                 <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -266,7 +260,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
               <FormItem>
                 <FormLabel>Status *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value?.toString()}>
-                  <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                   <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
                 </Select><FormMessage />
               </FormItem>
@@ -296,8 +290,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedUser(null); 
-                } else {
-                    // Logic to set dialog type (add/edit) is handled by button clicks
                 }
             }}
         >
@@ -309,9 +301,9 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
           <DialogContent className="sm:max-w-lg p-3">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
                 {renderFormFields()}
-                <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10">
+                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>
@@ -332,7 +324,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                     <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button variant="outline" size="sm" onClick={() => { setSelectedUser(u); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
-                      <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting || u.role === 'admin'} title={u.role === 'admin' ? "Cannot archive admin account from here" : "Archive User"}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
+                      <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting || u.role === 'admin'} title={u.role === 'admin' ? "Admin accounts cannot be archived from here." : "Archive User"}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive user "{u.username}"?</AlertDialogDescription></AlertDialogHeader>
                           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(Number(u.id), u.username)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
@@ -362,4 +354,3 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     </Card>
   );
 }
-

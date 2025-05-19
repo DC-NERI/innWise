@@ -48,7 +48,7 @@ export default function UsersManagement() {
   const isEditing = !!selectedUser;
 
   const form = useForm<UserFormValues>({
-    // Resolver is set dynamically in useEffect
+    // Resolver is set dynamically in useEffect below
   });
 
   const selectedTenantIdInForm = useWatch({ control: form.control, name: 'tenant_id' });
@@ -59,7 +59,7 @@ export default function UsersManagement() {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([listAllUsers(), listTenants()]);
       setUsers(fetchedUsers);
-      setTenants(fetchedTenants.filter(t => t.status === '1'));
+      setTenants(fetchedTenants.filter(t => t.status === '1')); // Only active tenants for selection
     } catch (error) {
       console.error("Failed to fetch user data:", error);
       toast({ title: "Error", description: "Could not fetch user data.", variant: "destructive" });
@@ -68,23 +68,23 @@ export default function UsersManagement() {
   }, [toast]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
+  
   useEffect(() => {
     const currentIsEditing = !!selectedUser;
-    const newResolver = zodResolver(currentIsEditing ? userUpdateSchemaSysAd : userCreateSchema);
-    let newDefaults: UserFormValues;
+    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? userUpdateSchemaSysAd : userCreateSchema) } as any);
 
     if (currentIsEditing && selectedUser) {
-      newDefaults = {
+      form.reset({
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
-        password: '', // Always empty for edit, user can type new if they want
+        password: '', 
         email: selectedUser.email || '',
         role: selectedUser.role,
         tenant_id: selectedUser.tenant_id || undefined,
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
         status: selectedUser.status || '1',
-      };
+      } as UserUpdateDataSysAd);
+      
       if (selectedUser.tenant_id) {
         setIsLoadingBranches(true);
         getBranchesForTenantSimple(selectedUser.tenant_id)
@@ -95,33 +95,37 @@ export default function UsersManagement() {
         setAvailableBranches([]);
       }
     } else {
-      newDefaults = defaultFormValuesCreate;
-      setAvailableBranches([]); // Clear branches if it's an add form or user is cleared
+       form.reset(defaultFormValuesCreate);
+       setAvailableBranches([]); 
     }
-    form.reset(newDefaults, { resolver: newResolver } as any); // Use as any if TS complains about resolver type mismatch
   }, [selectedUser, form, toast]);
 
 
   useEffect(() => {
-    const currentTenantId = typeof selectedTenantIdInForm === 'number' ? selectedTenantIdInForm : undefined;
+    const currentTenantId = typeof selectedTenantIdInForm === 'number' ? selectedTenantIdInForm : selectedTenantIdInForm && typeof selectedTenantIdInForm === 'string' ? parseInt(selectedTenantIdInForm) : undefined;
+    const isDirtyTenant = form.formState.dirtyFields.tenant_id;
 
     if (currentTenantId) {
-      const isTenantChanged = isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id;
-      // If tenant ID changed in form, or if it's a new form, or if it's edit mode and tenant changed:
-      if (form.formState.dirtyFields.tenant_id || !isEditing || isTenantChanged) {
-        form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
-      }
-      setIsLoadingBranches(true);
-      getBranchesForTenantSimple(currentTenantId)
-        .then(branches => setAvailableBranches(branches))
-        .catch(() => toast({ title: "Error", description: "Could not fetch branches for the selected tenant.", variant: "destructive" }))
-        .finally(() => setIsLoadingBranches(false));
-    } else if (!currentTenantId && (form.formState.dirtyFields.tenant_id || !isEditing)) {
-      // If tenant_id is cleared in the form (or it's a new form without a tenant yet)
-      setAvailableBranches([]);
-      if (form.getValues('tenant_branch_id')) { // Check if there was a branch selected
-          form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
-      }
+        const currentBranchId = form.getValues('tenant_branch_id');
+        if (isDirtyTenant || (isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id)) {
+             if (currentBranchId) form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
+        }
+        setIsLoadingBranches(true);
+        getBranchesForTenantSimple(currentTenantId)
+            .then(branches => {
+                setAvailableBranches(branches);
+                const currentBranchIsValid = branches.some(b => b.id === currentBranchId);
+                if (currentBranchId && !currentBranchIsValid && isDirtyTenant) {
+                    form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
+                }
+            })
+            .catch(() => toast({ title: "Error", description: "Could not fetch branches for the selected tenant.", variant: "destructive" }))
+            .finally(() => setIsLoadingBranches(false));
+    } else {
+        setAvailableBranches([]);
+        if (form.getValues('tenant_branch_id')) {
+            form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
+        }
     }
   }, [selectedTenantIdInForm, form, toast, isEditing, selectedUser]);
 
@@ -138,7 +142,7 @@ export default function UsersManagement() {
       if (result.success && result.user) {
         toast({ title: "Success", description: "User created." });
         setUsers(prev => [...prev, result.user!].sort((a,b) => a.last_name.localeCompare(b.last_name)));
-        setIsAddDialogOpen(false); // Close dialog on success
+        setIsAddDialogOpen(false); 
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -152,24 +156,24 @@ export default function UsersManagement() {
   const handleEditSubmit = async (data: UserUpdateDataSysAd) => {
     if (!selectedUser) return;
     setIsSubmitting(true);
-    // Create a mutable copy of data to potentially delete the password
+    
     let payload: Partial<UserUpdateDataSysAd> = {
       ...data,
       tenant_id: data.tenant_id ? Number(data.tenant_id) : null,
       tenant_branch_id: data.tenant_branch_id ? Number(data.tenant_branch_id) : null
     };
 
-    // If password is empty, null, or undefined, remove it from payload so it's not updated
     if (data.password === '' || data.password === null || data.password === undefined) {
       delete payload.password;
     }
 
     try {
-      const result = await updateUserSysAd(Number(selectedUser.id), payload as UserUpdateDataSysAd); // Cast needed if password was deleted
+      const result = await updateUserSysAd(Number(selectedUser.id), payload as UserUpdateDataSysAd); 
       if (result.success && result.user) {
         toast({ title: "Success", description: "User updated." });
         setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => a.last_name.localeCompare(b.last_name)));
-        setIsEditDialogOpen(false); // Close dialog on success
+        setIsEditDialogOpen(false); 
+        setSelectedUser(null);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -198,16 +202,14 @@ export default function UsersManagement() {
 
   const handleRestore = async (user: User) => {
     setIsSubmitting(true);
-    // Construct payload for update, ensuring all required fields for UserUpdateDataSysAd are present
     const payload: UserUpdateDataSysAd = {
       first_name: user.first_name,
       last_name: user.last_name,
-      // password: '', // Don't send password for restore, or set a specific policy
-      email: user.email || '', // Ensure email is a string
+      email: user.email || '', 
       role: user.role,
       tenant_id: user.tenant_id,
       tenant_branch_id: user.tenant_branch_id,
-      status: '1', // Explicitly set status to '1'
+      status: '1', 
     };
     try {
       const result = await updateUserSysAd(Number(user.id), payload);
@@ -230,14 +232,13 @@ export default function UsersManagement() {
   if (isLoading && users.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading users...</p></div>;
   }
-
-  const renderFormFields = () => {
-    const usernameField = (() => {
+  
+  const usernameField = (() => {
       if (isEditing && selectedUser) {
         return (
           <FormItem>
             <FormLabel>Username (Read-only)</FormLabel>
-            <FormControl><Input readOnly value={selectedUser.username} /></FormControl>
+            <FormControl><Input readOnly value={selectedUser.username} className="w-[90%]" /></FormControl>
           </FormItem>
         );
       }
@@ -245,12 +246,11 @@ export default function UsersManagement() {
         <FormField
           control={form.control}
           name="username"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Username *</FormLabel>
-                <FormControl><Input placeholder="johndoe" {...field} /></FormControl>
+                <FormControl><Input placeholder="johndoe" {...field} className="w-[90%]" /></FormControl>
                 <FormMessage />
               </FormItem>
             );
@@ -259,27 +259,26 @@ export default function UsersManagement() {
       );
     })();
 
+  const renderFormFields = () => {
     return (
       <React.Fragment>
         <FormField control={form.control} name="first_name"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>First Name *</FormLabel>
-                <FormControl><Input placeholder="John" {...field} /></FormControl>
+                <FormControl><Input placeholder="John" {...field} className="w-[90%]" /></FormControl>
                 <FormMessage />
               </FormItem>
             );
           }}
         />
         <FormField control={form.control} name="last_name"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Last Name *</FormLabel>
-                <FormControl><Input placeholder="Doe" {...field} /></FormControl>
+                <FormControl><Input placeholder="Doe" {...field} className="w-[90%]" /></FormControl>
                 <FormMessage />
               </FormItem>
             );
@@ -287,37 +286,34 @@ export default function UsersManagement() {
         />
         {usernameField}
         <FormField control={form.control} name="password"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel>
-                <FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl>
+                <FormControl><Input type="password" placeholder="••••••••" {...field} className="w-[90%]" /></FormControl>
                 <FormMessage />
               </FormItem>
             );
           }}
         />
         <FormField control={form.control} name="email"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Email</FormLabel>
-                <FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} /></FormControl>
+                <FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
                 <FormMessage />
               </FormItem>
             );
           }}
         />
         <FormField control={form.control} name="role"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Role *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl><SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
                   <SelectContent>
                     <SelectItem value="staff">Staff</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
@@ -330,13 +326,12 @@ export default function UsersManagement() {
           }}
         />
         <FormField control={form.control} name="tenant_id"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Tenant {selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? '*' : '(Optional)'}</FormLabel>
                 <Select onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)} value={field.value?.toString()}>
-                  <FormControl><SelectTrigger><SelectValue placeholder={selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
                   <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
                 </Select>
                 <FormMessage />
@@ -345,8 +340,7 @@ export default function UsersManagement() {
           }}
         />
         <FormField control={form.control} name="tenant_branch_id"
-          render={(controllerRenderProps) => {
-            const { field } = controllerRenderProps;
+          render={({ field }) => {
             return (
               <FormItem>
                 <FormLabel>Branch {selectedRoleInForm === 'staff' ? '*' : '(Optional)'}</FormLabel>
@@ -355,7 +349,7 @@ export default function UsersManagement() {
                   value={field.value?.toString()}
                   disabled={!selectedTenantIdInForm || isLoadingBranches || availableBranches.length === 0}
                 >
-                  <FormControl><SelectTrigger><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : !selectedTenantIdInForm ? "Select tenant first" : availableBranches.length === 0 ? "No branches for tenant" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : !selectedTenantIdInForm ? "Select tenant first" : availableBranches.length === 0 ? "No branches for tenant" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
                   <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
                 </Select>
                 <FormMessage />
@@ -365,17 +359,13 @@ export default function UsersManagement() {
         />
         {isEditing && (
           <FormField control={form.control} name="status"
-            render={(controllerRenderProps) => {
-              const { field } = controllerRenderProps;
+            render={({ field }) => {
               return (
                 <FormItem>
                   <FormLabel>Status *</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value?.toString()}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="1">Active</SelectItem>
-                      <SelectItem value="0">Archived</SelectItem>
-                    </SelectContent>
+                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                    <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
@@ -387,6 +377,7 @@ export default function UsersManagement() {
     );
   }
 
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -395,21 +386,19 @@ export default function UsersManagement() {
             key={isEditing ? `edit-user-sysad-${selectedUser?.id}` : 'add-user-sysad'}
             open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
-                if (!open) { // When dialog is closing
-                    setSelectedUser(null); // This will trigger form reset to 'add' defaults via useEffect
+                if (!open) { 
+                    setSelectedUser(null); 
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
-                    setAvailableBranches([]); // Clear branches
-                } else { // When dialog is opening
-                  // The decision to open 'add' or 'edit' is handled by the trigger buttons
-                  // If selectedUser is set, useEffect will configure form for 'edit'
-                  // If selectedUser is null, useEffect will configure form for 'add'
+                    setAvailableBranches([]); 
+                } else {
+                  // Handled by button clicks
                 }
             }}
         >
           <DialogTrigger asChild>
             <Button onClick={() => {
-              setSelectedUser(null); // Ensure form is reset for 'add'
+              setSelectedUser(null); 
               setIsAddDialogOpen(true);
               setIsEditDialogOpen(false);
             }}><PlusCircle className="mr-2 h-4 w-4" /> Add User</Button>
@@ -417,9 +406,9 @@ export default function UsersManagement() {
           <DialogContent className="sm:max-w-lg p-3">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
                 {renderFormFields()}
-                <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10">
+                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>

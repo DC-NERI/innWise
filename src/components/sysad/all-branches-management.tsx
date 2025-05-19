@@ -74,14 +74,13 @@ export default function AllBranchesManagement() {
       form.reset({
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
-        // branch_code is not directly part of the form for edit, shown as read-only
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
         status: selectedBranch.status || '1', 
       } as BranchUpdateDataSysAd); 
     } else {
-      form.reset({ // Default for add form
+      form.reset({ 
         tenant_id: undefined, branch_name: '', branch_code: '',
         branch_address: '', contact_number: '', email_address: '', status: '1',
       } as BranchCreateData);
@@ -168,25 +167,25 @@ export default function AllBranchesManagement() {
           <FormItem>
             <FormLabel>Tenant *</FormLabel>
             <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value?.toString()} disabled={isEditingForm && !!selectedBranch?.tenant_id}>
-              <FormControl><SelectTrigger><SelectValue placeholder="Select tenant" /></SelectTrigger></FormControl>
+              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select tenant" /></SelectTrigger></FormControl>
               <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
             </Select><FormMessage />
           </FormItem>
         )}
       />
-      <FormField control={form.control} name="branch_name" render={({ field }) => (<FormItem><FormLabel>Branch Name *</FormLabel><FormControl><Input placeholder="Downtown Branch" {...field} /></FormControl><FormMessage /></FormItem>)} />
-      {!isEditingForm && <FormField control={form.control} name="branch_code" render={({ field }) => (<FormItem><FormLabel>Branch Code *</FormLabel><FormControl><Input placeholder="DTOWN01" {...field} /></FormControl><FormMessage /></FormItem>)} />}
-      {isEditingForm && selectedBranch && <FormItem><FormLabel>Branch Code (Read-only)</FormLabel><FormControl><Input readOnly value={selectedBranch.branch_code} /></FormControl></FormItem>}
-      <FormField control={form.control} name="branch_address" render={({ field }) => (<FormItem><FormLabel>Address</FormLabel><FormControl><Textarea placeholder="456 Branch Ave" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="contact_number" render={({ field }) => (<FormItem><FormLabel>Contact</FormLabel><FormControl><Input placeholder="+1-555-0200" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="email_address" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="branch@tenant.com" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="branch_name" render={({ field }) => (<FormItem><FormLabel>Branch Name *</FormLabel><FormControl><Input placeholder="Downtown Branch" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      {!isEditingForm && <FormField control={form.control} name="branch_code" render={({ field }) => (<FormItem><FormLabel>Branch Code *</FormLabel><FormControl><Input placeholder="DTOWN01" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />}
+      {isEditingForm && selectedBranch && <FormItem><FormLabel>Branch Code (Read-only)</FormLabel><FormControl><Input readOnly value={selectedBranch.branch_code} className="w-[90%]" /></FormControl></FormItem>}
+      <FormField control={form.control} name="branch_address" render={({ field }) => (<FormItem><FormLabel>Address</FormLabel><FormControl><Textarea placeholder="456 Branch Ave" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="contact_number" render={({ field }) => (<FormItem><FormLabel>Contact</FormLabel><FormControl><Input placeholder="+1-555-0200" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="email_address" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="branch@tenant.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       {isEditingForm && (
         <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status *</FormLabel>
               <Select onValueChange={field.onChange} value={field.value?.toString()}>
-                <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -208,8 +207,6 @@ export default function AllBranchesManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedBranch(null); 
-                } else {
-                     // Logic for opening add/edit is handled by triggers
                 }
             }}
         >
@@ -217,9 +214,9 @@ export default function AllBranchesManagement() {
           <DialogContent className="sm:max-w-lg p-3">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2">
+                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
                     {renderFormFields(isEditing)}
-              <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button></DialogFooter>
+              <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button></DialogFooter>
             </form></Form>
           </DialogContent>
         </Dialog>
@@ -266,5 +263,3 @@ export default function AllBranchesManagement() {
     </Card>
   );
 }
-
-    
