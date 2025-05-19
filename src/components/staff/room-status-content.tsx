@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, User, LogOutIcon, LogIn, Edit3, CalendarClock, Ban } from "lucide-react"; // Added Ban for Cancel
+import { BedDouble, Loader2, Info, User, LogOutIcon, LogIn, Edit3, CalendarClock, Ban } from "lucide-react";
 import type { HotelRoom, Transaction, SimpleRate } from '@/lib/types';
 import { listRoomsForBranch, getRatesForBranchSimple } from '@/actions/admin';
 import { 
@@ -21,7 +21,7 @@ import {
   checkOutGuestAndFreeRoom, 
   updateTransactionNotes,
   updateReservedTransactionDetails,
-  cancelReservation // Added import
+  cancelReservation
 } from '@/actions/staff';
 import { 
   transactionCreateSchema, TransactionCreateData, 
@@ -81,9 +81,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   const [editingModeForDialog, setEditingModeForDialog] = useState<'notesOnly' | 'fullReservation' | null>(null);
   
   const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
-  const [isCancelReservationConfirmOpen, setIsCancelReservationConfirmOpen] = useState(false); // New state for cancel confirmation
-  const [roomForActionConfirmation, setRoomForActionConfirmation] = useState<HotelRoom | null>(null); // Generic for checkout/cancel
-  const [activeTransactionIdForAction, setActiveTransactionIdForAction] = useState<number | null>(null); // Generic for checkout/cancel
+  const [isCancelReservationConfirmOpen, setIsCancelReservationConfirmOpen] = useState(false); 
+  const [roomForActionConfirmation, setRoomForActionConfirmation] = useState<HotelRoom | null>(null); 
+  const [activeTransactionIdForAction, setActiveTransactionIdForAction] = useState<number | null>(null); 
 
 
   const [allBranchActiveRates, setAllBranchActiveRates] = useState<SimpleRate[]>([]);
@@ -169,7 +169,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
           return a.localeCompare(b);
       });
       const sortedGroupedRooms: GroupedRooms = {};
-      for (const floor of sortedFloors) sortedGroupedRooms[floor] = newGrouped[floor];
+      for (const floor of sortedFloors) sortedGroupedRooms[floor] = grouped[floor]; // Corrected here
       setGroupedRooms(sortedGroupedRooms);
 
     } catch (error) {
@@ -228,12 +228,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         return;
       }
 
-      if (result.success) {
+      if (result.success && result.updatedRoomData) {
         toast({ title: "Success", description: result.message || (bookingMode === 'book' ? "Guest checked in." : "Room reserved.") });
         setIsBookingDialogOpen(false);
-        if (result.updatedRoomData) {
-          updateRoomInLocalState(result.updatedRoomData);
-        }
+        updateRoomInLocalState(result.updatedRoomData);
       } else {
         toast({ title: `${bookingMode === 'book' ? "Booking" : "Reservation"} Failed`, description: result.message, variant: "destructive" });
       }
@@ -249,6 +247,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     if (!tenantId || !branchId) {
       toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
       return;
+    }
+    if (!room.id) { // room.id is used as hotel_room_id in getActiveTransactionForRoom
+        toast({title: "Error", description: "Room ID is missing.", variant: "destructive"});
+        return;
     }
     setIsSubmitting(true); 
     try {
@@ -266,7 +268,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
             notes: transaction.notes || '',
           });
         } else {
-           setEditingModeForDialog(null); // Should not happen if getActiveTransactionForRoom logic is correct
+           setEditingModeForDialog(null);
            console.warn("Unexpected transaction status for room status", room, transaction);
         }
         setIsTransactionDetailsDialogOpen(true);
@@ -374,6 +376,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       if (result.success && result.updatedRoomData) {
         toast({ title: "Success", description: result.message || "Reservation cancelled." });
         updateRoomInLocalState(result.updatedRoomData);
+         if (isTransactionDetailsDialogOpen && transactionDetails?.id === activeTransactionIdForAction) {
+            setIsTransactionDetailsDialogOpen(false);
+            setTransactionDetails(null);
+        }
       } else {
         toast({ title: "Cancellation Failed", description: result.message, variant: "destructive" });
       }
@@ -399,7 +405,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Notes updated." });
             setTransactionDetails(result.updatedTransaction);
-            // No direct card update needed if only notes changed unless notes affect card display.
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update notes.", variant: "destructive" });
         }
@@ -575,7 +580,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                            Are you sure you want to check out the guest from room {room.room_name} ({room.room_code})?
+                                            Are you sure you want to check out the guest from room {roomForActionConfirmation?.room_name} ({roomForActionConfirmation?.room_code})?
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
@@ -797,7 +802,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                             variant="destructive" 
                             size="sm" 
                             onClick={(e) => { e.stopPropagation(); 
-                                // Find the original room object from the 'rooms' state to pass to confirmation
                                 const originalRoom = rooms.find(r => r.id === transactionDetails.hotel_room_id);
                                 if (originalRoom) {
                                     handleOpenCancelReservationConfirmation(originalRoom);
@@ -838,3 +842,4 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   );
 }
 
+    
