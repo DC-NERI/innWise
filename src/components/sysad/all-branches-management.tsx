@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
@@ -32,17 +32,19 @@ export default function AllBranchesManagement() {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [activeTab, setActiveTab] = useState("active");
   const { toast } = useToast();
+  
+  const isEditing = !!selectedBranch;
 
   const form = useForm<BranchFormValues>({
-    resolver: zodResolver(selectedBranch ? branchUpdateSchemaSysAd : branchCreateSchema),
+    resolver: zodResolver(isEditing ? branchUpdateSchemaSysAd : branchCreateSchema),
     defaultValues: {
       tenant_id: undefined,
       branch_name: '',
-      branch_code: '', // Only for create
+      branch_code: '', 
       branch_address: '',
       contact_number: '',
       email_address: '',
-      status: '1', // For update
+      // status: '1', // Status is handled by the backend or default, not in this form for now
     },
   });
 
@@ -51,9 +53,10 @@ export default function AllBranchesManagement() {
     try {
       const [fetchedBranches, fetchedTenants] = await Promise.all([listAllBranches(), listTenants()]);
       setBranches(fetchedBranches);
-      setTenants(fetchedTenants.filter(t => t.status === '1')); // Only active tenants for selection
+      setTenants(fetchedTenants.filter(t => t.status === '1')); 
     } catch (error) {
-      toast({ title: "Error", description: "Could not fetch data.", variant: "destructive" });
+      console.error("Fetch data error in AllBranchesManagement:", error);
+      toast({ title: "Error", description: "Could not fetch data. Check console for details.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -64,24 +67,27 @@ export default function AllBranchesManagement() {
   }, [fetchData]);
   
   useEffect(() => {
-    if (selectedBranch) {
+    const currentIsEditing = !!selectedBranch;
+    // Update resolver dynamically
+    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? branchUpdateSchemaSysAd : branchCreateSchema) } as any);
+
+    if (currentIsEditing && selectedBranch) {
       form.reset({
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
-        // branch_code: selectedBranch.branch_code, // Not editable
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
-        status: selectedBranch.status || '1',
-      } as BranchUpdateDataSysAd); // Cast for resolver to pick up correct schema
+        // status: selectedBranch.status || '1', // Status not part of the form for this workaround
+      } as BranchUpdateDataSysAd); 
     } else {
       form.reset({
         tenant_id: undefined, branch_name: '', branch_code: '',
         branch_address: '', contact_number: '', email_address: '',
-        status: '1',
       } as BranchCreateData);
     }
   }, [selectedBranch, form, isEditDialogOpen, isAddDialogOpen]);
+
 
   const handleAddSubmit = async (data: BranchCreateData) => {
     setIsSubmitting(true);
@@ -116,54 +122,59 @@ export default function AllBranchesManagement() {
   
   const handleArchive = async (branchId: number) => {
     setIsSubmitting(true);
-    try {
-      const result = await archiveBranch(branchId);
-      if (result.success) {
+    const result = await archiveBranch(branchId); // This action now returns a specific message
+    if (result.success) {
         toast({ title: "Success", description: result.message });
         fetchData();
-      } else {
-        toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
-      }
-    } catch (e) { toast({ title: "Error", description: "Unexpected error.", variant: "destructive" }); }
-    finally { setIsSubmitting(false); }
+    } else {
+        toast({ title: "Operation Info", description: result.message, variant: result.success ? "default" : "destructive" });
+    }
+    setIsSubmitting(false);
   };
 
   const handleRestore = async (branch: Branch) => {
     setIsSubmitting(true);
-     const payload: BranchUpdateDataSysAd = {
+     const payload: BranchUpdateDataSysAd = { // Schema no longer includes status
         tenant_id: branch.tenant_id,
         branch_name: branch.branch_name,
         branch_address: branch.branch_address,
         contact_number: branch.contact_number,
         email_address: branch.email_address,
-        status: '1',
     };
-    try {
-        const result = await updateBranchSysAd(branch.id, payload);
-        if (result.success) {
-            toast({ title: "Success", description: "Branch restored successfully." });
-            fetchData();
-        } else {
-            toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
-        }
-    } catch (e) { toast({ title: "Error", description: "Unexpected error.", variant: "destructive" }); }
-    finally { setIsSubmitting(false); }
+    // To restore, we would call updateBranchSysAd with status '1'
+    // but since status handling is now limited in updateBranchSysAd due to missing column,
+    // we simulate this by calling update with existing data. The actual restore needs DB status column.
+    toast({ title: "Info", description: "Branch restore functionality requires the 'status' column in database and related code adjustments.", variant: "default"});
+    // For now, let's just try to update it as if it were a normal edit, which won't change status if column is missing
+    // const result = await updateBranchSysAd(branch.id, {...payload, status: '1'}); //This would be ideal if status was in schema
+    // if (result.success) {
+    //     toast({ title: "Success", description: "Branch status set to active (if supported)." });
+    //     fetchData();
+    // } else {
+    //     toast({ title: "Restore Info", description: result.message, variant: "destructive" });
+    // }
+    setIsSubmitting(false);
   };
 
 
-  const filteredBranches = branches.filter(branch => activeTab === "active" ? branch.status === '1' : branch.status === '0');
+  const filteredBranches = branches.filter(branch => {
+    // Since all branches are defaulted to status '1' if DB status column is missing,
+    // The "Archive" tab will be empty. All branches will appear in "Active".
+    return activeTab === "active"; // Effectively, branch.status === '1'
+  });
+
 
   if (isLoading && branches.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading...</p></div>;
   }
 
-  const renderFormFields = (isEditing: boolean) => (
-    <>
+  const renderFormFields = (isEditingForm: boolean) => (
+    <React.Fragment>
       <FormField control={form.control} name="tenant_id"
         render={({ field }) => (
           <FormItem>
             <FormLabel>Tenant *</FormLabel>
-            <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value?.toString()} disabled={isEditing && !!selectedBranch?.tenant_id}>
+            <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value?.toString()} disabled={isEditingForm && !!selectedBranch?.tenant_id}>
               <FormControl><SelectTrigger><SelectValue placeholder="Select tenant" /></SelectTrigger></FormControl>
               <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
             </Select><FormMessage />
@@ -171,12 +182,13 @@ export default function AllBranchesManagement() {
         )}
       />
       <FormField control={form.control} name="branch_name" render={({ field }) => (<FormItem><FormLabel>Branch Name *</FormLabel><FormControl><Input placeholder="Downtown Branch" {...field} /></FormControl><FormMessage /></FormItem>)} />
-      {!isEditing && <FormField control={form.control} name="branch_code" render={({ field }) => (<FormItem><FormLabel>Branch Code *</FormLabel><FormControl><Input placeholder="DTOWN01" {...field} /></FormControl><FormMessage /></FormItem>)} />}
-      {isEditing && selectedBranch && <FormItem><FormLabel>Branch Code (Read-only)</FormLabel><FormControl><Input readOnly value={selectedBranch.branch_code} /></FormControl></FormItem>}
+      {!isEditingForm && <FormField control={form.control} name="branch_code" render={({ field }) => (<FormItem><FormLabel>Branch Code *</FormLabel><FormControl><Input placeholder="DTOWN01" {...field} /></FormControl><FormMessage /></FormItem>)} />}
+      {isEditingForm && selectedBranch && <FormItem><FormLabel>Branch Code (Read-only)</FormLabel><FormControl><Input readOnly value={selectedBranch.branch_code} /></FormControl></FormItem>}
       <FormField control={form.control} name="branch_address" render={({ field }) => (<FormItem><FormLabel>Address</FormLabel><FormControl><Textarea placeholder="456 Branch Ave" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="contact_number" render={({ field }) => (<FormItem><FormLabel>Contact</FormLabel><FormControl><Input placeholder="+1-555-0200" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="email_address" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="branch@tenant.com" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
-      {isEditing && (
+      {/* Status field removed from edit form for this workaround
+      {isEditingForm && (
         <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
@@ -189,25 +201,45 @@ export default function AllBranchesManagement() {
           )}
         />
       )}
-    </>
+      */}
+    </React.Fragment>
   );
   
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <div><div className="flex items-center space-x-2"><Network className="h-6 w-6 text-primary" /><CardTitle>All Branches</CardTitle></div><CardDescription>Manage branches across all tenants.</CardDescription></div>
-        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {setIsAddDialogOpen(open); if (!open) form.reset();}}>
+        <div><div className="flex items-center space-x-2"><Network className="h-6 w-6 text-primary" /><CardTitle>All Branches</CardTitle></div><CardDescription>Manage branches across all tenants. Archive/Restore functionality limited if 'status' column is missing in database.</CardDescription></div>
+        <Dialog 
+            key={isEditing ? `edit-branch-${selectedBranch?.id}` : 'add-branch'}
+            open={isAddDialogOpen || isEditDialogOpen} 
+            onOpenChange={(open) => {
+                if (!open) {
+                    setIsAddDialogOpen(false);
+                    setIsEditDialogOpen(false);
+                    setSelectedBranch(null); 
+                } else {
+                     if (isEditing && selectedBranch) {
+                        // useEffect handles form reset
+                    } else {
+                        setSelectedBranch(null); 
+                        setIsAddDialogOpen(true);
+                    }
+                }
+            }}
+        >
           <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); setIsAddDialogOpen(true);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
-          <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Add New Branch</DialogTitle></DialogHeader>
-            <Form {...form}><form onSubmit={form.handleSubmit(d => handleAddSubmit(d as BranchCreateData))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">{renderFormFields(false)}
-              <DialogFooter className="sticky bottom-0 bg-background py-4 border-t"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Create Branch"}</Button></DialogFooter>
+          <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
+            <Form {...form}>
+                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                    {renderFormFields(isEditing)}
+              <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button></DialogFooter>
             </form></Form>
           </DialogContent>
         </Dialog>
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
+          <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive (Limited)</TabsTrigger></TabsList>
           <TabsContent value="active">
             {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
             {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No active branches found.</p>}
@@ -217,16 +249,9 @@ export default function AllBranchesManagement() {
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">{b.branch_name}</TableCell><TableCell>{b.branch_code}</TableCell><TableCell>{b.tenant_name || 'N/A'}</TableCell><TableCell>{b.email_address || '-'}</TableCell>
                     <TableCell className="text-right space-x-2">
-                      <Dialog open={isEditDialogOpen && selectedBranch?.id === b.id} onOpenChange={(open) => {if(!open)setSelectedBranch(null); setIsEditDialogOpen(open);}}>
-                        <DialogTrigger asChild><Button variant="outline" size="sm" onClick={() => {setSelectedBranch(b); setIsEditDialogOpen(true);}}><Edit className="mr-1 h-3 w-3" /> Edit</Button></DialogTrigger>
-                        <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>Edit Branch: {selectedBranch?.branch_name}</DialogTitle></DialogHeader>
-                          <Form {...form}><form onSubmit={form.handleSubmit(d => handleEditSubmit(d as BranchUpdateDataSysAd))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">{renderFormFields(true)}
-                            <DialogFooter className="sticky bottom-0 bg-background py-4 border-t"><DialogClose asChild><Button type="button" variant="outline" onClick={() => setSelectedBranch(null)}>Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}</Button></DialogFooter>
-                          </form></Form>
-                        </DialogContent>
-                      </Dialog>
+                        <Button variant="outline" size="sm" onClick={() => {setSelectedBranch(b); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                       <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
-                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Archive branch "{b.branch_name}"?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(b.id)} disabled={isSubmitting}>Archive</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Archive branch "{b.branch_name}"? This feature's full effect depends on database setup.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(b.id)} disabled={isSubmitting}>Archive</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                       </AlertDialog>
                     </TableCell>
                   </TableRow>))}
@@ -234,11 +259,14 @@ export default function AllBranchesManagement() {
               </Table>)}
           </TabsContent>
           <TabsContent value="archive">
-             {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-            {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No archived branches found.</p>}
-            {!isLoading && filteredBranches.length > 0 && (
-              <Table><TableHeader><TableRow><TableHead>Branch</TableHead><TableHead>Code</TableHead><TableHead>Tenant</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                <TableBody>{filteredBranches.map(b => (
+            <p className="text-muted-foreground text-center py-8">Archived branches are not fully supported if the 'status' column is missing in the database. Add the column for full functionality.</p>
+            {/* Placeholder for archived branches if functionality is restored 
+            {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+            {!isLoading && branches.filter(b => b.status === '0').length === 0 && <p className="text-muted-foreground text-center py-8">No archived branches found.</p>}
+            {!isLoading && branches.filter(b => b.status === '0').length > 0 && (
+              <Table>
+                <TableHeader><TableRow><TableHead>Branch</TableHead><TableHead>Code</TableHead><TableHead>Tenant</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{branches.filter(b => b.status === '0').map(b => (
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">{b.branch_name}</TableCell><TableCell>{b.branch_code}</TableCell><TableCell>{b.tenant_name || 'N/A'}</TableCell>
                     <TableCell className="text-right">
@@ -247,6 +275,7 @@ export default function AllBranchesManagement() {
                   </TableRow>))}
                 </TableBody>
               </Table>)}
+            */}
           </TabsContent>
         </Tabs>
       </CardContent>
