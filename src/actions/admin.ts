@@ -514,7 +514,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
   
   const client = await pool.connect();
   try {
-    if (tenant_id) { // Only check limit if user is assigned to a tenant
+    if (tenant_id && (role === 'admin' || role === 'staff')) { 
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
         if (tenantDetails.rows.length === 0) {
             return { success: false, message: "Assigned tenant not found." };
@@ -599,7 +599,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
   
   const client = await pool.connect();
   try {
-    if (status === '1' && tenant_id) { 
+    if (status === '1' && tenant_id && (role === 'admin' || role === 'staff')) { 
         const currentUserRes = await client.query('SELECT status, tenant_id as current_tenant_id FROM users WHERE id = $1', [userId]);
         if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') { 
             const userCurrentTenantId = currentUserRes.rows[0].current_tenant_id;
@@ -1120,10 +1120,13 @@ export async function getRatesForBranchSimple(branchId: number, tenantId: number
   const client = await pool.connect();
   try {
     const result = await client.query(
-      "SELECT id, name FROM hotel_rates WHERE branch_id = $1 AND tenant_id = $2 AND status = '1' ORDER BY name ASC",
+      "SELECT id, name, price FROM hotel_rates WHERE branch_id = $1 AND tenant_id = $2 AND status = '1' ORDER BY name ASC",
       [branchId, tenantId]
     );
-    return result.rows as SimpleRate[];
+    return result.rows.map(row => ({
+        ...row,
+        price: parseFloat(row.price)
+    })) as SimpleRate[];
   } catch (error: any) {
      console.error(`Failed to fetch simple rates for branch ${branchId}:`, error.message);
     throw new Error(`Database error: Could not fetch simple active rates. ${error instanceof Error ? error.message : String(error)}`);
@@ -1135,44 +1138,46 @@ export async function getRatesForBranchSimple(branchId: number, tenantId: number
 
 // Hotel Room Actions
 export async function listRoomsForBranch(branchId: number, tenantId: number): Promise<HotelRoom[]> {
-  if (isNaN(branchId) || branchId <= 0 || isNaN(tenantId) || tenantId <= 0) {
-    return [];
-  }
   const client = await pool.connect();
   try {
-    const res = await client.query(
-      `SELECT 
-              r.id, r.tenant_id, r.branch_id, tb.branch_name, 
-              r.hotel_rate_id, -- This is now JSONB
-              r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity, 
-              r.is_available, r.status, r.created_at, r.updated_at
-       FROM hotel_room r
-       JOIN tenant_branch tb ON r.branch_id = tb.id
-       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
-       ORDER BY r.floor ASC, r.room_name ASC`,
-      [branchId, tenantId]
-    );
+    const query = `
+      SELECT 
+        r.id, r.tenant_id, r.branch_id, tb.branch_name, 
+        r.hotel_rate_id, -- This is JSONB
+        r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity, 
+        r.is_available, r.status, r.created_at, r.updated_at,
+        (SELECT hr.name FROM hotel_rates hr WHERE hr.id = (r.hotel_rate_id->>0)::int AND hr.tenant_id = r.tenant_id AND hr.branch_id = r.branch_id LIMIT 1) as rate_name -- Fetch name of first rate if available
+      FROM hotel_room r
+      JOIN tenant_branch tb ON r.branch_id = tb.id
+      WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
+      ORDER BY r.floor ASC, r.room_name ASC;
+    `;
+    // Note: The above subquery for rate_name is simplified. If multiple rates, you might want a different approach or handle it client-side.
+    // For full support of multiple rate_names, you'd typically fetch all rates and map names client-side, or use array aggregation in SQL.
+
+    const res = await client.query(query, [branchId, tenantId]);
+    
     return res.rows.map(row => {
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          // The database driver might already parse JSON, or it might be a string
           parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
             console.warn(`Room ID ${row.id} has invalid hotel_rate_id format:`, row.hotel_rate_id);
-            parsedRateIds = []; // Default to empty array if parsing fails or not an array of numbers
+            parsedRateIds = []; 
           }
         } catch (parseError) {
           console.error(`Error parsing hotel_rate_id for room ${row.id}:`, parseError);
-          parsedRateIds = []; // Default to empty array on error
+          parsedRateIds = []; 
         }
       } else {
-        parsedRateIds = []; // Default to empty if null/undefined from DB
+        parsedRateIds = []; 
       }
 
       return {
         ...row,
-        hotel_rate_id: parsedRateIds, // Ensure it's an array
+        hotel_rate_id: parsedRateIds, 
+        rate_names: row.rate_name ? [row.rate_name] : [], // Simplified, might need adjustment for multiple rates
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
       } as HotelRoom;

@@ -84,12 +84,18 @@ export interface HotelRoom {
   status: string; // '0' or '1' (for the room record itself, not booking status)
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
+  // Optional: to hold temporary active transaction info fetched for display
+  active_transaction_id?: number | null;
+  active_transaction_client_name?: string | null;
+  active_transaction_check_in_time?: string | null;
+  active_transaction_rate_name?: string | null;
 }
 
 // For simpler rate selection
 export interface SimpleRate {
   id: number;
   name: string;
+  price: number; // Added price
 }
 
 export interface Transaction {

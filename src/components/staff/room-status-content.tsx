@@ -5,12 +5,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it's used as child
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogOutIcon, User } from "lucide-react";
+import { BedDouble, Loader2, Info, User, LogOutIcon } from "lucide-react";
 import type { HotelRoom, Transaction, SimpleRate } from '@/lib/types';
 import { listRoomsForBranch, getRatesForBranchSimple } from '@/actions/admin'; // getRatesForBranchSimple is from admin actions
 import { createTransactionAndOccupyRoom, getActiveTransactionForRoom, checkOutGuestAndFreeRoom } from '@/actions/staff';
@@ -34,7 +34,7 @@ const defaultTransactionFormValues: TransactionCreateData = {
   client_name: '',
   client_payment_method: 'Cash',
   notes: '',
-  selected_rate_id: undefined as unknown as number, // Ensure it's undefined initially
+  selected_rate_id: undefined as unknown as number, 
 };
 
 export default function RoomStatusContent({ tenantId, branchId, staffUserId }: RoomStatusContentProps) {
@@ -117,6 +117,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [fetchRoomsAndRatesData]);
 
   const handleOpenBookingDialog = (room: HotelRoom) => {
+    console.log("[Staff/RoomStatus] handleOpenBookingDialog called for room:", room.room_name);
     if (!room.is_available) {
         toast({title: "Room Occupied", description: "This room is currently occupied.", variant: "default"});
         return;
@@ -129,11 +130,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     setSelectedRoomForBooking(room);
 
     const applicableRates = allBranchActiveRates.filter(branchRate => 
-        room.hotel_rate_id!.includes(branchRate.id)
+        (room.hotel_rate_id || []).includes(branchRate.id)
     );
     setApplicableRatesForBookingDialog(applicableRates);
     
-    console.log("[RoomStatusContent] Opening booking dialog for room:", room.room_name, "Applicable rates:", applicableRates);
+    console.log("[Staff/RoomStatus] Opening booking dialog for room:", room.room_name, "Applicable rates:", applicableRates);
 
     const defaultRateId = applicableRates.length > 0 ? applicableRates[0].id : undefined;
     bookingForm.reset({...defaultTransactionFormValues, selected_rate_id: defaultRateId });
@@ -141,9 +142,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
-    console.log("[RoomStatusContent] Booking submit data:", data);
-    console.log("[RoomStatusContent] Selected room for booking:", selectedRoomForBooking);
-    console.log("[RoomStatusContent] Staff User ID:", staffUserId);
+    console.log("[Staff/RoomStatus] Booking submit data:", data);
+    console.log("[Staff/RoomStatus] Selected room for booking:", selectedRoomForBooking);
+    console.log("[Staff/RoomStatus] Staff User ID:", staffUserId);
 
     if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId || !data.selected_rate_id) {
       let missingFields = [];
@@ -155,10 +156,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
 
       toast({ 
         title: "Booking Error", 
-        description: `Required information missing: ${missingFields.join(', ')}. Please try again.`, 
+        description: `Required information missing: ${missingFields.join(', ')}. Please try again. Selected Room: ${selectedRoomForBooking?.room_name}, Staff ID: ${staffUserId}, Rate ID: ${data.selected_rate_id}`, 
         variant: "destructive" 
       });
-      console.error("Booking submission failed prerequisites:", {selectedRoomForBooking, staffUserId, tenantId, branchId, selected_rate_id: data.selected_rate_id});
+      console.error("[Staff/RoomStatus] Booking submission failed prerequisites:", {selectedRoomForBooking, staffUserId, tenantId, branchId, selected_rate_id: data.selected_rate_id});
       return;
     }
     setIsSubmitting(true);
@@ -193,7 +194,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         setIsTransactionDetailsDialogOpen(true);
       } else {
         toast({ title: "No Active Transaction", description: "No active booking found for this room.", variant: "default" });
-        fetchRoomsAndRatesData(); // Refresh if data seems inconsistent
+        fetchRoomsAndRatesData(); 
       }
     } catch (error) {
       toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
@@ -255,7 +256,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     if (!room.hotel_rate_id || room.hotel_rate_id.length === 0 || allBranchActiveRates.length === 0) {
         return 'Rate N/A';
     }
-    // For simplicity, show the name of the first associated rate
     const firstRateId = room.hotel_rate_id[0];
     const rateDetails = allBranchActiveRates.find(rate => rate.id === firstRateId);
     return rateDetails ? rateDetails.name : 'Rate N/A';
@@ -279,7 +279,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
           <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {floorRooms.map(room => {
-               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Associated Rate IDs: ${room.hotel_rate_id?.join(', ')}`);
+               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Associated Rate IDs: ${room.hotel_rate_id?.join(', ')}, Active Tx ID: ${room.active_transaction_id}, Client Name: ${room.active_transaction_client_name}`);
               return (
                 <Card 
                   key={room.id} 
@@ -292,7 +292,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                   <CardHeader className="p-4">
                     <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name} ({room.room_code})</CardTitle>
                     <CardDescription className="text-xs">
-                      {room.is_available ? getRateNameForRoomCard(room) : (room.active_transaction_rate_name || 'Occupied')}
+                       {room.is_available ? getRateNameForRoomCard(room) : (room.active_transaction_rate_name || 'Occupied - Rate N/A')}
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
@@ -340,7 +340,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                         size="sm"
                                         className="w-full"
                                         title="Check-out Guest"
-                                        onClick={(e) => e.stopPropagation()} // Stop propagation for trigger
+                                        onClick={(e) => { e.stopPropagation(); handleOpenCheckoutConfirmation(room);}}
                                     >
                                         <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
                                     </Button>
@@ -354,7 +354,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                     </AlertDialogHeader>
                                     <AlertDialogFooter>
                                         <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setIsCheckoutConfirmOpen(false);}}>Cancel</AlertDialogCancel>
-                                        <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleOpenCheckoutConfirmation(room); }} disabled={isSubmitting}>
+                                        <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleConfirmCheckout(); }} disabled={isSubmitting}>
                                             {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
                                         </AlertDialogAction>
                                     </AlertDialogFooter>
@@ -389,8 +389,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                 <FormItem>
                     <FormLabel>Select Rate *</FormLabel>
                     <Select
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} // Ensure number is passed
-                        value={field.value?.toString()} // Ensure value is string for Select
+                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} 
+                        value={field.value?.toString()} 
                         disabled={applicableRatesForBookingDialog.length === 0}
                     >
                         <FormControl>
@@ -405,7 +405,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                         <SelectContent>
                             {applicableRatesForBookingDialog.map(rate => (
                                 <SelectItem key={rate.id} value={rate.id.toString()}>
-                                    {rate.name} (₱{rate.price ? Number(rate.price).toFixed(2) : 'N/A'})
+                                    {rate.name} (₱{Number(rate.price).toFixed(2)})
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -466,7 +466,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         </DialogContent>
       </Dialog>
 
-      {/* Checkout Confirmation Dialog (Separate from AlertDialogTrigger logic) */}
        <AlertDialog open={isCheckoutConfirmOpen} onOpenChange={setIsCheckoutConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -486,5 +485,3 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
-
-    
