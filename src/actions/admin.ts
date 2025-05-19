@@ -220,15 +220,15 @@ export async function updateBranchDetails(
     };
   }
 
-  const { branch_name, branch_address, contact_number, email_address } = validatedFields.data;
+  const { branch_name, branch_code, branch_address, contact_number, email_address } = validatedFields.data;
   const client = await pool.connect();
   try {
     const res = await client.query(
       `UPDATE tenant_branch 
-       SET branch_name = $1, branch_address = $2, contact_number = $3, email_address = $4, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $5
+       SET branch_name = $1, branch_code = $2, branch_address = $3, contact_number = $4, email_address = $5, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $6
        RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
-      [branch_name, branch_address, contact_number, email_address, branchId]
+      [branch_name, branch_code, branch_address, contact_number, email_address, branchId]
     );
 
     if (res.rows.length > 0) {
@@ -248,8 +248,12 @@ export async function updateBranchDetails(
   } catch (error) {
     console.error(`Failed to update branch ${branchId}:`, error);
      let errorMessage = "Database error occurred during branch update.";
-    if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenant_branch_email_address_key') {
-        errorMessage = "This email address is already in use by another branch.";
+    if (error instanceof Error && (error as any).code === '23505') {
+        if ((error as any).constraint === 'tenant_branch_branch_code_key') {
+            errorMessage = "This branch code is already in use by another branch.";
+        } else if ((error as any).constraint === 'tenant_branch_email_address_key') {
+            errorMessage = "This email address is already in use by another branch.";
+        }
     } else if (error instanceof Error) {
         errorMessage = `Database error: ${error.message}`;
     }
@@ -297,8 +301,12 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
   } catch (error) {
     console.error(`Failed to update branch ${branchId} by SysAd:`, error);
     let errorMessage = "Database error occurred during branch update.";
-     if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenant_branch_email_address_key') {
-        errorMessage = "This email address is already in use by another branch.";
+     if (error instanceof Error && (error as any).code === '23505') {
+        if ((error as any).constraint === 'tenant_branch_branch_code_key') {
+            errorMessage = "This branch code is already in use by another branch.";
+        } else if ((error as any).constraint === 'tenant_branch_email_address_key') {
+            errorMessage = "This email address is already in use by another branch.";
+        }
     } else if (error instanceof Error) {
         errorMessage = `Database error: ${error.message}`;
     }

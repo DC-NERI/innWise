@@ -33,6 +33,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
     resolver: zodResolver(branchUpdateSchema),
     defaultValues: {
       branch_name: '',
+      branch_code: '',
       branch_address: '',
       contact_number: '',
       email_address: '',
@@ -65,6 +66,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
     if (selectedBranch) {
       form.reset({
         branch_name: selectedBranch.branch_name,
+        branch_code: selectedBranch.branch_code,
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
@@ -154,7 +156,6 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
               <Edit3 className="h-6 w-6 text-primary" />
               <CardTitle>Edit Branch: {selectedBranch.branch_name}</CardTitle>
             </div>
-            <CardDescription>Branch Code: <span className="font-semibold">{selectedBranch.branch_code}</span> (cannot be changed)</CardDescription>
           </CardHeader>
           <CardContent>
             <Form {...form}>
@@ -167,6 +168,19 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                       <FormLabel>Branch Name</FormLabel>
                       <FormControl>
                         <Input placeholder="Main Branch" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="branch_code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Branch Code</FormLabel>
+                      <FormControl>
+                        <Input placeholder="BRANCH-001" {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
