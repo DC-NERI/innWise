@@ -23,7 +23,7 @@ export const tenantCreateSchema = z.object({
 export type TenantCreateData = z.infer<typeof tenantCreateSchema>;
 
 export const tenantUpdateSchema = tenantCreateSchema.extend({
-  status: z.enum(['0', '1']).default('1'), // Added status for updates
+  status: z.enum(['0', '1']).default('1'), 
 }); 
 export type TenantUpdateData = z.infer<typeof tenantUpdateSchema>;
 
@@ -70,6 +70,8 @@ export const branchUpdateSchemaSysAd = z.object({
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
   contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
   email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
-  // status: z.enum(['0', '1']).default('1'), // Status removed here due to potential missing DB column
+  status: z.enum(['0', '1']).default('1'),
 });
 export type BranchUpdateDataSysAd = z.infer<typeof branchUpdateSchemaSysAd>;
+
+    

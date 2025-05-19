@@ -85,7 +85,6 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  // Ensure status is part of the update if it's in the schema and data
   const { tenant_name, tenant_address, tenant_email, tenant_contact_info, status } = data; 
   const client = await pool.connect();
   try {
@@ -167,35 +166,18 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
   }
   const client = await pool.connect();
   try {
-    // Assuming 'status' column might exist or not. If it exists, we use it.
-    // For robustness, query status if available, otherwise assume '1'.
-    // This would ideally be handled by checking schema or a more complex query.
-    // For now, let's assume it exists for admin role, but might not for sysad listAllBranches.
     const res = await client.query(
       'SELECT id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
       [tenantId]
     );
     return res.rows.map(row => ({
         ...row,
-        status: row.status === undefined ? '1' : row.status, // Default if status column missing from this query result
+        status: row.status, 
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
     })) as Branch[];
   } catch (error) {
     console.error(`Failed to fetch branches for tenant ${tenantId}:`, error);
-    // If error is due to missing status column, return empty or handle
-    if (error instanceof Error && error.message.includes("column \"status\" does not exist")) {
-      const res = await client.query( // Fallback query without status
-        'SELECT id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
-        [tenantId]
-      );
-      return res.rows.map(row => ({
-          ...row,
-          status: '1', // Default to '1'
-          created_at: new Date(row.created_at).toISOString(),
-          updated_at: new Date(row.updated_at).toISOString(),
-      })) as Branch[];
-    }
     throw new Error(`Database error: Could not fetch branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
@@ -209,21 +191,16 @@ export async function getBranchesForTenantSimple(tenantId: number): Promise<Simp
   }
   const client = await pool.connect();
   try {
-    // Try to select active branches. If status column is missing, this might fail or need adjustment.
-    // For simplicity, assume 'status' exists for this specific selection component, or it filters active by default.
     const result = await client.query(
       "SELECT id, branch_name FROM tenant_branch WHERE tenant_id = $1 AND status = '1' ORDER BY branch_name ASC",
       [tenantId]
     );
     return result.rows as SimpleBranch[];
   } catch (error: any) {
-    console.warn(`Failed to fetch simple branches for tenant ${tenantId} (possibly missing status column):`, error.message);
-    // Fallback: Get all branches for the tenant if the status-based query fails
-    const fallbackResult = await client.query(
-      "SELECT id, branch_name FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC",
-      [tenantId]
-    );
-    return fallbackResult.rows as SimpleBranch[];
+     console.error(`Failed to fetch simple branches for tenant ${tenantId}:`, error.message);
+    // If status based query fails (e.g. column name typo, or it was actually missing before)
+    // we do not fallback here, as we assume status '1' filtering is critical for this function.
+    throw new Error(`Database error: Could not fetch simple active branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
   }
@@ -289,20 +266,16 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  // status is intentionally removed from data destructuring to prevent update if column is missing
-  const { tenant_id, branch_name, branch_address, contact_number, email_address } = validatedFields.data;
+
+  const { tenant_id, branch_name, branch_address, contact_number, email_address, status } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // Original query that updates status:
-    // SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = CURRENT_TIMESTAMP 
-    // WHERE id = $7
-    // Query without status update for workaround:
     const res = await client.query(
       `UPDATE tenant_branch 
-       SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $6
-       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`, // still try to return status
-      [tenant_id, branch_name, branch_address, contact_number, email_address, branchId]
+       SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $7
+       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
+      [tenant_id, branch_name, branch_address, contact_number, email_address, status, branchId]
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
@@ -315,7 +288,7 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
         branch: {
             ...updatedRow,
             tenant_name,
-            status: updatedRow.status === undefined ? '1' : updatedRow.status, // Default if status column missing
+            status: updatedRow.status,
             created_at: new Date(updatedRow.created_at).toISOString(),
             updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as Branch 
@@ -337,12 +310,6 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
 }
 
 export async function archiveBranch(branchId: number): Promise<{ success: boolean; message?: string }> {
-  // Check for status column implicitly. If DDL isn't updated, this feature is non-operational.
-  return { 
-    success: false, 
-    message: "Branch archiving is temporarily disabled. Please ensure the 'tenant_branch' table has a 'status' column." 
-  };
-  /*
   const client = await pool.connect();
   try {
     const res = await client.query(
@@ -355,14 +322,10 @@ export async function archiveBranch(branchId: number): Promise<{ success: boolea
     return { success: false, message: "Branch not found or already archived." };
   } catch (error) {
     console.error(`Failed to archive branch ${branchId}:`, error);
-    if (error instanceof Error && error.message.includes("column \"status\" does not exist")) {
-         return { success: false, message: "Branch archiving requires the 'status' column in the 'tenant_branch' table." };
-    }
     return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}. Ensure 'tenant_branch' table has a 'status' column.` };
   } finally {
     client.release();
   }
-  */
 }
 
 export async function createBranchForTenant(data: BranchCreateData): Promise<{ success: boolean; message?: string; branch?: Branch }> {
@@ -373,22 +336,23 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
   const { tenant_id, branch_name, branch_code, branch_address, contact_number, email_address } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // The status column is assumed to have a DEFAULT '1' in the DB.
-    // If not, this insert might need to specify status or the table needs a default.
     const res = await client.query(
-      `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
+      `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, '1') 
        RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [tenant_id, branch_name, branch_code, branch_address, contact_number, email_address]
     );
     if (res.rows.length > 0) {
       const newRow = res.rows[0];
+      const tenantRes = await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [newRow.tenant_id]);
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
       return { 
         success: true, 
         message: "Branch created successfully.", 
         branch: {
             ...newRow,
-            status: newRow.status === undefined ? '1' : newRow.status, // Default status if not returned
+            tenant_name,
+            status: newRow.status,
             created_at: new Date(newRow.created_at).toISOString(),
             updated_at: new Date(newRow.updated_at).toISOString(),
         } as Branch
@@ -416,22 +380,10 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
 export async function listAllBranches(): Promise<Branch[]> {
   const client = await pool.connect();
   try {
-    // Attempt to select status, but be ready for it to be missing.
-    const query = `
-      SELECT tb.id, tb.tenant_id, t.tenant_name, tb.branch_name, tb.branch_code, 
-             tb.branch_address, tb.contact_number, tb.email_address, 
-             tb.created_at, tb.updated_at 
-             ${process.env.TENANT_BRANCH_HAS_STATUS_COLUMN === 'true' ? ', tb.status' : ''}
-      FROM tenant_branch tb
-      JOIN tenants t ON tb.tenant_id = t.id
-      ORDER BY t.tenant_name ASC, tb.branch_name ASC
-    `;
-    // Fallback query if status column is confirmed missing or previous query fails due to it.
-    // For this fix, we'll just try the query without 'tb.status' directly.
     const res = await client.query(`
       SELECT tb.id, tb.tenant_id, t.tenant_name, tb.branch_name, tb.branch_code, 
-             tb.branch_address, tb.contact_number, tb.email_address,
-             tb.created_at, tb.updated_at 
+             tb.branch_address, tb.contact_number, tb.email_address, 
+             tb.created_at, tb.updated_at, tb.status
       FROM tenant_branch tb
       JOIN tenants t ON tb.tenant_id = t.id
       ORDER BY t.tenant_name ASC, tb.branch_name ASC
@@ -439,13 +391,12 @@ export async function listAllBranches(): Promise<Branch[]> {
     return res.rows.map(row => ({
         ...row,
         tenant_name: row.tenant_name, 
-        status: '1', // Default all branches to 'active' as status column is not reliably queried
+        status: row.status, 
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
     })) as Branch[];
   } catch (error) {
     console.error('Failed to fetch all branches:', error);
-    // This error will propagate to the component and show "Could not fetch data"
     throw new Error(`Database error: Could not fetch all branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
@@ -646,3 +597,5 @@ export async function archiveUser(userId: number): Promise<{ success: boolean; m
     client.release();
   }
 }
+
+    
