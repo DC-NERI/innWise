@@ -5,6 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from "@/components/ui/label"; // Import base Label
+import { Button } from '@/components/ui/button'; // Added import for Button
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, BedDouble, Building } from 'lucide-react';
 import type { SimpleBranch, HotelRoom, SimpleRate } from '@/lib/types';
@@ -144,3 +145,4 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 //     // This function would call listRoomsForBranch and getRatesForBranchSimple
 //     console.log("Fetching rooms and rates for branch: ", branchId);
 // }
+
