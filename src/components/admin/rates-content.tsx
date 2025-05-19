@@ -8,7 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form'; // Renamed to avoid conflict
+import { Label } from "@/components/ui/label"; // Import base Label
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, Edit, Trash2, ArchiveRestore, Tags, Building } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -193,16 +194,16 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
 
   const renderFormFields = () => (
     <React.Fragment>
-      <FormField control={form.control} name="name" render={({ field }) => (<FormItem><FormLabel>Rate Name *</FormLabel><FormControl><Input placeholder="Standard Rate" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="price" render={({ field }) => (<FormItem><FormLabel>Price *</FormLabel><FormControl><Input type="number" step="0.01" placeholder="100.00" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="hours" render={({ field }) => (<FormItem><FormLabel>Hours *</FormLabel><FormControl><Input type="number" placeholder="24" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="excess_hour_price" render={({ field }) => (<FormItem><FormLabel>Excess Hour Price (Optional)</FormLabel><FormControl><Input type="number" step="0.01" placeholder="10.00" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="description" render={({ field }) => (<FormItem><FormLabel>Description (Optional)</FormLabel><FormControl><Textarea placeholder="Rate details..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="name" render={({ field }) => (<FormItem><RHFFormLabel>Rate Name *</RHFFormLabel><FormControl><Input placeholder="Standard Rate" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="price" render={({ field }) => (<FormItem><RHFFormLabel>Price *</RHFFormLabel><FormControl><Input type="number" step="0.01" placeholder="100.00" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="hours" render={({ field }) => (<FormItem><RHFFormLabel>Hours *</RHFFormLabel><FormControl><Input type="number" placeholder="24" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="excess_hour_price" render={({ field }) => (<FormItem><RHFFormLabel>Excess Hour Price (Optional)</RHFFormLabel><FormControl><Input type="number" step="0.01" placeholder="10.00" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="description" render={({ field }) => (<FormItem><RHFFormLabel>Description (Optional)</RHFFormLabel><FormControl><Textarea placeholder="Rate details..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       {isEditing && (
         <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Status *</FormLabel>
+              <RHFFormLabel>Status *</RHFFormLabel>
               <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
@@ -225,25 +226,23 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-end space-x-4">
-            <FormItem className="flex-grow">
-                <FormLabel>Select Branch</FormLabel>
+            <div className="flex-grow space-y-2">
+                <Label htmlFor="branch-select-trigger-rates">Select Branch</Label>
                 <Select 
                     onValueChange={(value) => setSelectedBranchId(value ? parseInt(value) : null)}
                     value={selectedBranchId?.toString()}
                     disabled={isLoadingBranches || branches.length === 0}
                 >
-                    <FormControl>
-                        <SelectTrigger>
-                            <SelectValue placeholder={isLoadingBranches ? "Loading branches..." : (branches.length === 0 ? "No branches available" : "Select a branch")} />
-                        </SelectTrigger>
-                    </FormControl>
+                    <SelectTrigger id="branch-select-trigger-rates">
+                        <SelectValue placeholder={isLoadingBranches ? "Loading branches..." : (branches.length === 0 ? "No branches available" : "Select a branch")} />
+                    </SelectTrigger>
                     <SelectContent>
                         {branches.map(branch => (
                             <SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
-            </FormItem>
+            </div>
             <Dialog
                 key={isEditing ? `edit-rate-${selectedRate?.id}` : 'add-rate'}
                 open={isAddDialogOpen || isEditDialogOpen}
@@ -340,3 +339,4 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
     </Card>
   );
 }
+
