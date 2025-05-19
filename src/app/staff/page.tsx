@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"; // Added import
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Settings, LogOut, LogIn, BedDouble, Building } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin'; 
 import type { UserRole } from '@/lib/types';
@@ -22,7 +22,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'check-in' | 'room-status' | 'settings'>('check-in');
+  const [activeView, setActiveView] = useState<'check-in' | 'room-status' | 'settings'>('room-status'); // Default to room-status
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -33,6 +33,7 @@ const StaffDashboardPage: NextPage = () => {
   const [lastName, setLastName] = useState<string | null>(null);
   const [branchId, setBranchId] = useState<number | null>(null);
   const [branchName, setBranchName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<number | null>(null); // State for staff user ID
 
 
   const router = useRouter();
@@ -47,6 +48,7 @@ const StaffDashboardPage: NextPage = () => {
       const storedLastName = localStorage.getItem('userLastName');
       const storedBranchId = localStorage.getItem('userTenantBranchId');
       const storedBranchName = localStorage.getItem('userBranchName');
+      const storedUserId = localStorage.getItem('userId'); // Retrieve userId
 
 
       if (storedRole) {
@@ -66,6 +68,7 @@ const StaffDashboardPage: NextPage = () => {
       if (storedLastName) setLastName(storedLastName);
       if (storedBranchId) setBranchId(parseInt(storedBranchId, 10));
       if (storedBranchName) setBranchName(storedBranchName);
+      if (storedUserId) setUserId(parseInt(storedUserId, 10)); // Set userId state
 
 
       if (storedTenantName) {
@@ -115,6 +118,7 @@ const StaffDashboardPage: NextPage = () => {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
+      localStorage.removeItem('userId'); // Clear userId on logout
     }
     router.push('/');
   };
@@ -195,7 +199,7 @@ const StaffDashboardPage: NextPage = () => {
         <main className="p-4 lg:p-6">
           {activeView === 'check-in' && <GuestCheckInContent />}
           {activeView === 'room-status' && tenantId && branchId && (
-            <RoomStatusContent tenantId={tenantId} branchId={branchId} />
+            <RoomStatusContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
           {activeView === 'room-status' && (!tenantId || !branchId) && (
              <Card>

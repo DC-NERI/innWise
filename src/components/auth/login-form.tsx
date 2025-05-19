@@ -48,6 +48,7 @@ export function LoginForm() {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
+      localStorage.removeItem('userId'); // Also clear userId on login page load
     }
   }, []);
 
@@ -89,6 +90,9 @@ export function LoginForm() {
             }
             if (result.branchName) {
                 localStorage.setItem('userBranchName', result.branchName);
+            }
+            if (result.userId) { // Ensure userId is stored
+                localStorage.setItem('userId', String(result.userId));
             }
         }
         
@@ -198,4 +202,3 @@ export function LoginForm() {
     </Card>
   );
 }
-
