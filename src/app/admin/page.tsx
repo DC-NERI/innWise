@@ -103,8 +103,4 @@ const AdminDashboardPage: NextPage = () => {
   );
 };
 
-export const metadata = {
-  title: "Admin Dashboard - InnWise",
-};
-
 export default AdminDashboardPage;
