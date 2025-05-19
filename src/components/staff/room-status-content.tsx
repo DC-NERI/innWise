@@ -5,14 +5,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it's used as child
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogOutIcon, User } from "lucide-react"; // Changed LogOut to LogOutIcon
-import type { HotelRoom, Transaction } from '@/lib/types';
-import { listRoomsForBranch } from '@/actions/admin';
+import { BedDouble, Loader2, Info, LogOutIcon, User } from "lucide-react";
+import type { HotelRoom, Transaction, SimpleRate } from '@/lib/types';
+import { listRoomsForBranch, getRatesForBranchSimple } from '@/actions/admin'; // getRatesForBranchSimple is from admin actions
 import { createTransactionAndOccupyRoom, getActiveTransactionForRoom, checkOutGuestAndFreeRoom } from '@/actions/staff';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import { useForm } from 'react-hook-form';
@@ -34,6 +34,7 @@ const defaultTransactionFormValues: TransactionCreateData = {
   client_name: '',
   client_payment_method: 'Cash',
   notes: '',
+  selected_rate_id: undefined as unknown as number, // Ensure it's undefined initially
 };
 
 export default function RoomStatusContent({ tenantId, branchId, staffUserId }: RoomStatusContentProps) {
@@ -51,6 +52,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   const [roomForCheckoutConfirmation, setRoomForCheckoutConfirmation] = useState<HotelRoom | null>(null);
   const [activeTransactionIdForCheckout, setActiveTransactionIdForCheckout] = useState<number | null>(null);
 
+  const [allBranchActiveRates, setAllBranchActiveRates] = useState<SimpleRate[]>([]);
+  const [applicableRatesForBookingDialog, setApplicableRatesForBookingDialog] = useState<SimpleRate[]>([]);
+
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
@@ -59,17 +64,27 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     defaultValues: defaultTransactionFormValues,
   });
 
-  const fetchRoomsData = useCallback(async () => {
+  const fetchRoomsAndRatesData = useCallback(async () => {
     if (!tenantId || !branchId) {
       setIsLoading(false);
       setRooms([]);
       setGroupedRooms({});
+      setAllBranchActiveRates([]);
       return;
     }
     setIsLoading(true);
     try {
-      const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
-      setRooms(fetchedRooms); // These are active rooms (room.status='1')
+      console.log(`[RoomStatusContent] Fetching rooms and rates for tenant: ${tenantId}, branch: ${branchId}`);
+      const [fetchedRooms, fetchedBranchRates] = await Promise.all([
+        listRoomsForBranch(branchId, tenantId),
+        getRatesForBranchSimple(branchId, tenantId) 
+      ]);
+      
+      console.log("[RoomStatusContent] Fetched Rooms:", fetchedRooms);
+      console.log("[RoomStatusContent] Fetched Branch Rates:", fetchedBranchRates);
+
+      setRooms(fetchedRooms);
+      setAllBranchActiveRates(fetchedBranchRates);
 
       const grouped = fetchedRooms.reduce((acc, room) => {
         const floorKey = room.floor?.toString() ?? 'Ground Floor / Other';
@@ -90,44 +105,73 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       setGroupedRooms(sortedGroupedRooms);
 
     } catch (error) {
-      console.error("Failed to fetch rooms for staff dashboard:", error);
-      toast({ title: "Error", description: `Could not fetch room statuses. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
+      console.error("Failed to fetch rooms and rates for staff dashboard:", error);
+      toast({ title: "Error", description: `Could not fetch room statuses or rates. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   }, [tenantId, branchId, toast]);
 
   useEffect(() => {
-    fetchRoomsData();
-  }, [fetchRoomsData]);
+    fetchRoomsAndRatesData();
+  }, [fetchRoomsAndRatesData]);
 
   const handleOpenBookingDialog = (room: HotelRoom) => {
     if (!room.is_available) {
         toast({title: "Room Occupied", description: "This room is currently occupied.", variant: "default"});
         return;
     }
+    if (!room.hotel_rate_id || room.hotel_rate_id.length === 0) {
+        toast({title: "No Rates Assigned", description: "This room has no rates assigned. Please contact an administrator.", variant: "destructive"});
+        return;
+    }
+
     setSelectedRoomForBooking(room);
-    bookingForm.reset(defaultTransactionFormValues);
+
+    const applicableRates = allBranchActiveRates.filter(branchRate => 
+        room.hotel_rate_id!.includes(branchRate.id)
+    );
+    setApplicableRatesForBookingDialog(applicableRates);
+    
+    console.log("[RoomStatusContent] Opening booking dialog for room:", room.room_name, "Applicable rates:", applicableRates);
+
+    const defaultRateId = applicableRates.length > 0 ? applicableRates[0].id : undefined;
+    bookingForm.reset({...defaultTransactionFormValues, selected_rate_id: defaultRateId });
     setIsBookingDialogOpen(true);
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
-    if (!selectedRoomForBooking || !selectedRoomForBooking.hotel_rate_id || !staffUserId || !tenantId || !branchId) {
-      toast({ title: "Booking Error", description: "Required information for booking is missing. Please try again.", variant: "destructive" });
-      console.error("Booking submission failed prerequisites:", {selectedRoomForBooking, staffUserId, tenantId, branchId});
+    console.log("[RoomStatusContent] Booking submit data:", data);
+    console.log("[RoomStatusContent] Selected room for booking:", selectedRoomForBooking);
+    console.log("[RoomStatusContent] Staff User ID:", staffUserId);
+
+    if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId || !data.selected_rate_id) {
+      let missingFields = [];
+      if (!selectedRoomForBooking) missingFields.push("room details");
+      if (!staffUserId) missingFields.push("staff ID");
+      if (!tenantId) missingFields.push("tenant ID");
+      if (!branchId) missingFields.push("branch ID");
+      if (!data.selected_rate_id) missingFields.push("selected rate");
+
+      toast({ 
+        title: "Booking Error", 
+        description: `Required information missing: ${missingFields.join(', ')}. Please try again.`, 
+        variant: "destructive" 
+      });
+      console.error("Booking submission failed prerequisites:", {selectedRoomForBooking, staffUserId, tenantId, branchId, selected_rate_id: data.selected_rate_id});
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await createTransactionAndOccupyRoom(
-        data, tenantId, branchId, selectedRoomForBooking.id, selectedRoomForBooking.hotel_rate_id, staffUserId
+        data, tenantId, branchId, selectedRoomForBooking.id, data.selected_rate_id, staffUserId
       );
       if (result.success) {
-        toast({ title: "Success", description: result.message });
+        toast({ title: "Success", description: result.message || "Guest checked in successfully." });
         setIsBookingDialogOpen(false);
-        fetchRoomsData(); // Refresh room list
+        fetchRoomsAndRatesData(); 
       } else {
-        toast({ title: "Booking Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Booking Failed", description: result.message || "Could not complete booking.", variant: "destructive" });
       }
     } catch (error) {
       toast({ title: "Error", description: "An unexpected error occurred during booking.", variant: "destructive" });
@@ -136,30 +180,29 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     }
   };
 
-  const handleViewDetails = async (room: HotelRoom) => {
-     if (!tenantId || !branchId) {
-        toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
-        return;
+ const handleOpenTransactionInfoDialog = useCallback(async (roomId: number) => {
+    if (!tenantId || !branchId) {
+      toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
+      return;
     }
-    setIsSubmitting(true); // Use isSubmitting as a general loading indicator for this action
+    setIsSubmitting(true);
     try {
-        const transaction = await getActiveTransactionForRoom(room.id, tenantId, branchId);
-        if (transaction) {
-            setTransactionDetails(transaction);
-            setIsTransactionDetailsDialogOpen(true);
-        } else {
-            toast({ title: "No Active Transaction", description: "No active booking found for this room.", variant: "default" });
-            // If no active transaction, but room is marked occupied, refresh data as it might be an inconsistency
-            fetchRoomsData();
-        }
+      const transaction = await getActiveTransactionForRoom(roomId, tenantId, branchId);
+      if (transaction) {
+        setTransactionDetails(transaction);
+        setIsTransactionDetailsDialogOpen(true);
+      } else {
+        toast({ title: "No Active Transaction", description: "No active booking found for this room.", variant: "default" });
+        fetchRoomsAndRatesData(); // Refresh if data seems inconsistent
+      }
     } catch (error) {
-        toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
     } finally {
-        setIsSubmitting(false);
+      setIsSubmitting(false);
     }
-  };
+  }, [tenantId, branchId, toast, fetchRoomsAndRatesData]);
   
-  const handleOpenCheckoutConfirmation = async (room: HotelRoom) => {
+  const handleOpenCheckoutConfirmation = useCallback(async (room: HotelRoom) => {
     if (!tenantId || !branchId) {
         toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
         return;
@@ -173,14 +216,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
             setIsCheckoutConfirmOpen(true);
         } else {
             toast({ title: "No Active Transaction", description: "Cannot checkout, no active booking found for this room.", variant: "default" });
-            fetchRoomsData(); // Refresh if data seems inconsistent
+            fetchRoomsAndRatesData();
         }
     } catch (error) {
          toast({ title: "Error", description: "Failed to get transaction details for checkout.", variant: "destructive" });
     } finally {
         setIsSubmitting(false);
     }
-  };
+  }, [tenantId, branchId, toast, fetchRoomsAndRatesData]);
 
   const handleConfirmCheckout = async () => {
     if (!activeTransactionIdForCheckout || !roomForCheckoutConfirmation || !staffUserId || !tenantId || !branchId) {
@@ -193,10 +236,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         activeTransactionIdForCheckout, staffUserId, tenantId, branchId, roomForCheckoutConfirmation.id
       );
       if (result.success) {
-        toast({ title: "Success", description: result.message });
-        fetchRoomsData(); // Refresh room list
+        toast({ title: "Success", description: result.message || "Guest checked out successfully." });
+        fetchRoomsAndRatesData(); 
       } else {
-        toast({ title: "Check-out Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Check-out Failed", description: result.message || "Could not complete check-out.", variant: "destructive" });
       }
     } catch (error) {
       toast({ title: "Error", description: "An unexpected error occurred during check-out.", variant: "destructive" });
@@ -206,6 +249,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       setRoomForCheckoutConfirmation(null);
       setActiveTransactionIdForCheckout(null);
     }
+  };
+
+  const getRateNameForRoomCard = (room: HotelRoom) => {
+    if (!room.hotel_rate_id || room.hotel_rate_id.length === 0 || allBranchActiveRates.length === 0) {
+        return 'Rate N/A';
+    }
+    // For simplicity, show the name of the first associated rate
+    const firstRateId = room.hotel_rate_id[0];
+    const rateDetails = allBranchActiveRates.find(rate => rate.id === firstRateId);
+    return rateDetails ? rateDetails.name : 'Rate N/A';
   };
 
 
@@ -225,7 +278,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         <div key={floor}>
           <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {floorRooms.map(room => (
+            {floorRooms.map(room => {
+               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Associated Rate IDs: ${room.hotel_rate_id?.join(', ')}`);
+              return (
                 <Card 
                   key={room.id} 
                   className={cn(
@@ -236,7 +291,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                 >
                   <CardHeader className="p-4">
                     <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name} ({room.room_code})</CardTitle>
-                    <CardDescription className="text-xs">{room.rate_name || 'Rate not set'}</CardDescription>
+                    <CardDescription className="text-xs">
+                      {room.is_available ? getRateNameForRoomCard(room) : (room.active_transaction_rate_name || 'Occupied')}
+                    </CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
                     <div className="mb-3 space-y-1">
@@ -246,13 +303,23 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                           <span className="text-sm font-medium text-green-600">Available</span>
                         </div>
                       ) : (
-                        <div className="flex items-center space-x-2">
-                          <span className="h-3 w-3 rounded-full bg-red-500"></span>
-                          <span className="text-sm font-medium text-red-600">Occupied</span>
-                        </div>
+                        <>
+                          <div className="flex items-center space-x-2">
+                            <span className="h-3 w-3 rounded-full bg-red-500"></span>
+                            <span className="text-sm font-medium text-red-600">Occupied</span>
+                          </div>
+                          {room.active_transaction_client_name && (
+                            <div className="flex items-center text-xs text-muted-foreground mt-1">
+                                <User className="h-3 w-3 mr-1 flex-shrink-0 text-primary" />
+                                <span className="font-medium text-foreground mr-1">Guest:</span>
+                                {room.active_transaction_client_name}
+                            </div>
+                          )}
+                          {room.active_transaction_check_in_time && (
+                             <p className="text-xs text-muted-foreground">Checked-in: {new Date(room.active_transaction_check_in_time).toLocaleTimeString()}</p>
+                          )}
+                        </>
                       )}
-                       {room.room_type && <p className="text-xs text-muted-foreground">Type: {room.room_type}</p>}
-                       {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                     </div>
                     
                     {!room.is_available && (
@@ -261,42 +328,92 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                 variant="outline"
                                 size="sm"
                                 className="w-full"
-                                onClick={(e) => { e.stopPropagation(); handleViewDetails(room); }}
-                                disabled={isSubmitting}
+                                title="View Transaction Details"
+                                onClick={(e) => { e.stopPropagation(); handleOpenTransactionInfoDialog(room.id); }}
                             >
                                 <Info className="mr-2 h-4 w-4" /> View Details
                             </Button>
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                className="w-full"
-                                onClick={(e) => { e.stopPropagation(); handleOpenCheckoutConfirmation(room);}}
-                                disabled={isSubmitting}
-                            >
-                                <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
-                            </Button>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                    <Button
+                                        variant="destructive"
+                                        size="sm"
+                                        className="w-full"
+                                        title="Check-out Guest"
+                                        onClick={(e) => e.stopPropagation()} // Stop propagation for trigger
+                                    >
+                                        <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                        Are you sure you want to check out the guest from room {room.room_name} ({room.room_code})?
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setIsCheckoutConfirmOpen(false);}}>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleOpenCheckoutConfirmation(room); }} disabled={isSubmitting}>
+                                            {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
                         </div>
                     )}
                   </CardContent>
                 </Card>
               )
-            )}
+            })}
           </div>
         </div>
       ))}
 
       {/* Booking Dialog */}
-      <Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
+      <Dialog open={isBookingDialogOpen} onOpenChange={(isOpen) => {
+          if (!isOpen) setSelectedRoomForBooking(null);
+          setIsBookingDialogOpen(isOpen);
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Book Room: {selectedRoomForBooking?.room_name} ({selectedRoomForBooking?.room_code})</DialogTitle>
-            <CardDescription>Rate: {selectedRoomForBooking?.rate_name}</CardDescription>
           </DialogHeader>
           <Form {...bookingForm}>
             <form onSubmit={bookingForm.handleSubmit(handleBookingSubmit)} className="space-y-4 py-4">
               <FormField control={bookingForm.control} name="client_name" render={({ field }) => (
                 <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="John Doe" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
+              
+              <FormField control={bookingForm.control} name="selected_rate_id" render={({ field }) => (
+                <FormItem>
+                    <FormLabel>Select Rate *</FormLabel>
+                    <Select
+                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} // Ensure number is passed
+                        value={field.value?.toString()} // Ensure value is string for Select
+                        disabled={applicableRatesForBookingDialog.length === 0}
+                    >
+                        <FormControl>
+                            <SelectTrigger>
+                                <SelectValue placeholder={
+                                    applicableRatesForBookingDialog.length === 0 
+                                    ? "No rates for this room" 
+                                    : "Select a rate"
+                                } />
+                            </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                            {applicableRatesForBookingDialog.map(rate => (
+                                <SelectItem key={rate.id} value={rate.id.toString()}>
+                                    {rate.name} (₱{rate.price ? Number(rate.price).toFixed(2) : 'N/A'})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <FormMessage />
+                </FormItem>
+              )} />
+
               <FormField control={bookingForm.control} name="client_payment_method" render={({ field }) => (
                 <FormItem><FormLabel>Payment Method *</FormLabel>
                   <Select onValueChange={field.onChange} defaultValue={field.value}>
@@ -315,7 +432,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
               )} />
               <DialogFooter className="pt-4">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Booking"}</Button>
+                <Button type="submit" disabled={isSubmitting || applicableRatesForBookingDialog.length === 0}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Booking"}
+                </Button>
               </DialogFooter>
             </form>
           </Form>
@@ -336,7 +455,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
               <p><strong>Check-in:</strong> {new Date(transactionDetails.check_in_time).toLocaleString()}</p>
               {transactionDetails.check_out_time && (<p><strong>Check-out:</strong> {new Date(transactionDetails.check_out_time).toLocaleString()}</p>)}
               {transactionDetails.hours_used !== undefined && transactionDetails.hours_used !== null && (<p><strong>Hours Used:</strong> {transactionDetails.hours_used}</p>)}
-              {transactionDetails.total_amount !== undefined && transactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> {transactionDetails.total_amount.toFixed(2)}</p>)}
+              {transactionDetails.total_amount !== undefined && transactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> ₱{Number(transactionDetails.total_amount).toFixed(2)}</p>)}
               {transactionDetails.notes && <p><strong>Notes:</strong> {transactionDetails.notes}</p>}
               <p><strong>Status:</strong> {transactionDetails.status === '0' ? 'Active' : 'Completed'}</p>
             </div>
@@ -347,8 +466,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         </DialogContent>
       </Dialog>
 
-      {/* Checkout Confirmation Dialog */}
-      <AlertDialog open={isCheckoutConfirmOpen} onOpenChange={setIsCheckoutConfirmOpen}>
+      {/* Checkout Confirmation Dialog (Separate from AlertDialogTrigger logic) */}
+       <AlertDialog open={isCheckoutConfirmOpen} onOpenChange={setIsCheckoutConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
@@ -357,7 +476,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setRoomForCheckoutConfirmation(null); setActiveTransactionIdForCheckout(null);}}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => { setRoomForCheckoutConfirmation(null); setActiveTransactionIdForCheckout(null); setIsCheckoutConfirmOpen(false);}}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmCheckout} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
             </AlertDialogAction>

@@ -188,6 +188,7 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
+  room_code: z.string().min(1, "Room code is required").max(50), // Ensure room_code is here for edit
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
@@ -197,6 +198,9 @@ export const transactionCreateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
   client_payment_method: z.string().min(1, "Payment method is required").max(50),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
+  selected_rate_id: z.coerce.number().int().positive("A valid rate must be selected."),
 });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
+    
+
     
