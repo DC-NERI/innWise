@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Added for status
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -31,13 +32,16 @@ export default function TenantsManagement() {
   const [activeTab, setActiveTab] = useState("active");
   const { toast } = useToast();
 
+  const isEditing = !!selectedTenant;
+
   const form = useForm<TenantFormValues>({
-    resolver: zodResolver(selectedTenant ? tenantUpdateSchema : tenantCreateSchema),
+    resolver: zodResolver(isEditing ? tenantUpdateSchema : tenantCreateSchema),
     defaultValues: {
       tenant_name: '',
       tenant_address: '',
       tenant_email: '',
       tenant_contact_info: '',
+      status: '1',
     },
   });
 
@@ -63,12 +67,16 @@ export default function TenantsManagement() {
   }, [fetchTenants]);
 
   useEffect(() => {
-    if (selectedTenant) {
+    const currentIsEditing = !!selectedTenant;
+    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? tenantUpdateSchema : tenantCreateSchema)} as any);
+
+    if (currentIsEditing && selectedTenant) {
       form.reset({
         tenant_name: selectedTenant.tenant_name,
         tenant_address: selectedTenant.tenant_address || '',
         tenant_email: selectedTenant.tenant_email || '',
         tenant_contact_info: selectedTenant.tenant_contact_info || '',
+        status: selectedTenant.status || '1',
       });
     } else {
       form.reset({
@@ -76,6 +84,7 @@ export default function TenantsManagement() {
         tenant_address: '',
         tenant_email: '',
         tenant_contact_info: '',
+        status: '1',
       });
     }
   }, [selectedTenant, form, isEditDialogOpen, isAddDialogOpen]);
@@ -86,9 +95,8 @@ export default function TenantsManagement() {
       const result = await createTenant(data);
       if (result.success && result.tenant) {
         toast({ title: "Success", description: "Tenant created successfully." });
-        form.reset();
+        setTenants(prev => [...prev, result.tenant!].sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsAddDialogOpen(false);
-        fetchTenants();
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create tenant.", variant: "destructive" });
       }
@@ -106,10 +114,9 @@ export default function TenantsManagement() {
       const result = await updateTenant(selectedTenant.id, data);
       if (result.success && result.tenant) {
         toast({ title: "Success", description: "Tenant updated successfully." });
-        form.reset();
+        setTenants(prev => prev.map(t => t.id === result.tenant!.id ? result.tenant! : t).sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsEditDialogOpen(false);
         setSelectedTenant(null);
-        fetchTenants();
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update tenant.", variant: "destructive" });
       }
@@ -120,13 +127,13 @@ export default function TenantsManagement() {
     }
   };
 
-  const handleArchive = async (tenantId: number) => {
+  const handleArchive = async (tenantId: number, tenantName: string) => {
     setIsSubmitting(true);
     try {
       const result = await archiveTenant(tenantId);
       if (result.success) {
-        toast({ title: "Success", description: result.message });
-        fetchTenants();
+        toast({ title: "Success", description: `Tenant "${tenantName}" archived.` });
+        setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: '0'} : t));
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
       }
@@ -137,29 +144,28 @@ export default function TenantsManagement() {
     }
   };
   
-  // Placeholder for restore, similar to archive but sets status to '1'
-  const handleRestore = async (tenantId: number) => {
-    // This would be a new server action: restoreTenant(tenantId)
-    // For now, we can simulate it by calling updateTenant with status '1' if schema supports it, or create a dedicated action.
-    // For demo, just show a toast.
-    const updatedTenant = tenants.find(t => t.id === tenantId);
-    if (updatedTenant) {
-        setIsSubmitting(true);
-        const result = await updateTenant(tenantId, { ...updatedTenant, status: '1' } as TenantUpdateData); // Assuming status can be updated
-        if (result.success) {
-            toast({ title: "Success", description: "Tenant restored successfully." });
-            fetchTenants();
-        } else {
-            toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
-        }
-        setIsSubmitting(false);
+  const handleRestore = async (tenant: Tenant) => {
+    setIsSubmitting(true);
+    const payload: TenantUpdateData = {
+        tenant_name: tenant.tenant_name,
+        tenant_address: tenant.tenant_address,
+        tenant_email: tenant.tenant_email,
+        tenant_contact_info: tenant.tenant_contact_info,
+        status: '1', 
+    };
+    const result = await updateTenant(tenant.id, payload);
+    if (result.success && result.tenant) {
+        toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" restored.` });
+        setTenants(prev => prev.map(t => t.id === tenant.id ? result.tenant! : t));
+    } else {
+        toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
     }
+    setIsSubmitting(false);
   };
-
 
   const filteredTenants = tenants.filter(tenant => activeTab === "active" ? tenant.status === '1' : tenant.status === '0');
 
-  if (isLoading && tenants.length === 0) { // Show loader only on initial load
+  if (isLoading && tenants.length === 0) { 
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -214,6 +220,25 @@ export default function TenantsManagement() {
           </FormItem>
         )}
       />
+      {isEditing && (
+        <FormField
+          control={form.control}
+          name="status"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Status *</FormLabel>
+               <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
+                <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                <SelectContent>
+                  <SelectItem value="1">Active</SelectItem>
+                  <SelectItem value="0">Archived</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      )}
     </>
   );
 
@@ -227,20 +252,32 @@ export default function TenantsManagement() {
           </div>
           <CardDescription>View, add, edit, and archive tenants.</CardDescription>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={(open) => {setIsAddDialogOpen(open); if (!open) form.reset();}}>
+        <Dialog 
+            key={isEditing ? `edit-tenant-${selectedTenant?.id}` : 'add-tenant'}
+            open={isAddDialogOpen || isEditDialogOpen} 
+            onOpenChange={(open) => {
+                if (!open) {
+                    setIsAddDialogOpen(false);
+                    setIsEditDialogOpen(false);
+                    setSelectedTenant(null);
+                } else {
+                    // Logic for opening add/edit is handled by triggers
+                }
+            }}
+        >
           <DialogTrigger asChild>
-            <Button onClick={() => {setSelectedTenant(null); setIsAddDialogOpen(true);}}>
+            <Button onClick={() => {setSelectedTenant(null); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Tenant
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader><DialogTitle>Add New Tenant</DialogTitle></DialogHeader>
+          <DialogContent className="sm:max-w-lg p-3">
+            <DialogHeader><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleAddSubmit)} className="space-y-4 py-4">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="space-y-3 py-2">
                 {renderFormFields()}
                 <DialogFooter>
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                  <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Create Tenant"}</Button>
+                  <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Tenant")}</Button>
                 </DialogFooter>
               </form>
             </Form>
@@ -254,45 +291,28 @@ export default function TenantsManagement() {
             <TabsTrigger value="archive">Archive</TabsTrigger>
           </TabsList>
           <TabsContent value="active">
-             {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+             {isLoading && filteredTenants.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
             {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No active tenants found.</p>}
             {!isLoading && filteredTenants.length > 0 && (
               <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Contact</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Contact</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredTenants.map(tenant => (
                     <TableRow key={tenant.id}>
                       <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
                       <TableCell>{tenant.tenant_email || '-'}</TableCell>
                       <TableCell>{tenant.tenant_contact_info || '-'}</TableCell>
-                      <TableCell>{tenant.status === '1' ? 'Active' : 'Archived'}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Dialog open={isEditDialogOpen && selectedTenant?.id === tenant.id} onOpenChange={(open) => {if(!open)setSelectedTenant(null); setIsEditDialogOpen(open);}}>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="sm" onClick={() => { setSelectedTenant(tenant); setIsEditDialogOpen(true); }}>
-                              <Edit className="mr-1 h-3 w-3" /> Edit
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="sm:max-w-lg">
-                            <DialogHeader><DialogTitle>Edit Tenant: {selectedTenant?.tenant_name}</DialogTitle></DialogHeader>
-                            <Form {...form}>
-                              <form onSubmit={form.handleSubmit(handleEditSubmit)} className="space-y-4 py-4">
-                                {renderFormFields()}
-                                <DialogFooter>
-                                  <DialogClose asChild><Button type="button" variant="outline" onClick={() => setSelectedTenant(null)}>Cancel</Button></DialogClose>
-                                  <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}</Button>
-                                </DialogFooter>
-                              </form>
-                            </Form>
-                          </DialogContent>
-                        </Dialog>
+                        <Button variant="outline" size="sm" onClick={() => { setSelectedTenant(tenant); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}>
+                            <Edit className="mr-1 h-3 w-3" /> Edit
+                        </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive tenant "{tenant.tenant_name}"?</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(tenant.id)} disabled={isSubmitting}>Archive</AlertDialogAction></AlertDialogFooter>
+                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(tenant.id, tenant.tenant_name)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
                       </TableCell>
@@ -303,19 +323,18 @@ export default function TenantsManagement() {
             )}
           </TabsContent>
           <TabsContent value="archive">
-            {isLoading && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+            {isLoading && filteredTenants.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
             {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No archived tenants found.</p>}
             {!isLoading && filteredTenants.length > 0 && (
               <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredTenants.map(tenant => (
                     <TableRow key={tenant.id}>
                       <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
                       <TableCell>{tenant.tenant_email || '-'}</TableCell>
-                      <TableCell>{tenant.status === '1' ? 'Active' : 'Archived'}</TableCell>
                       <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => handleRestore(tenant.id)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
+                        <Button variant="outline" size="sm" onClick={() => handleRestore(tenant)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -328,3 +347,4 @@ export default function TenantsManagement() {
     </Card>
   );
 }
+

@@ -74,13 +74,14 @@ export default function AllBranchesManagement() {
       form.reset({
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
+        // branch_code is not directly part of the form for edit, shown as read-only
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
         status: selectedBranch.status || '1', 
       } as BranchUpdateDataSysAd); 
     } else {
-      form.reset({
+      form.reset({ // Default for add form
         tenant_id: undefined, branch_name: '', branch_code: '',
         branch_address: '', contact_number: '', email_address: '', status: '1',
       } as BranchCreateData);
@@ -95,8 +96,8 @@ export default function AllBranchesManagement() {
       const result = await createBranchForTenant(payload);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch created." });
-        setBranches(prev => [...prev, result.branch!]);
-        form.reset(); setIsAddDialogOpen(false); 
+        setBranches(prev => [...prev, result.branch!].sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
+        setIsAddDialogOpen(false); 
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -112,8 +113,8 @@ export default function AllBranchesManagement() {
       const result = await updateBranchSysAd(selectedBranch.id, payload);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch updated." });
-        setBranches(prev => prev.map(b => b.id === result.branch!.id ? result.branch! : b));
-        form.reset(); setIsEditDialogOpen(false); setSelectedBranch(null);
+        setBranches(prev => prev.map(b => b.id === result.branch!.id ? result.branch! : b).sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
+        setIsEditDialogOpen(false); setSelectedBranch(null);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -121,11 +122,11 @@ export default function AllBranchesManagement() {
     finally { setIsSubmitting(false); }
   };
   
-  const handleArchive = async (branchId: number) => {
+  const handleArchive = async (branchId: number, branchName: string) => {
     setIsSubmitting(true);
     const result = await archiveBranch(branchId); 
     if (result.success) {
-        toast({ title: "Success", description: result.message });
+        toast({ title: "Success", description: `Branch "${branchName}" archived.` });
         setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: '0'} : b));
     } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
@@ -141,11 +142,11 @@ export default function AllBranchesManagement() {
         branch_address: branch.branch_address,
         contact_number: branch.contact_number,
         email_address: branch.email_address,
-        status: '1', // Explicitly set status to '1' for restore
+        status: '1', 
     };
     const result = await updateBranchSysAd(branch.id, payload);
     if (result.success && result.branch) {
-        toast({ title: "Success", description: "Branch restored successfully." });
+        toast({ title: "Success", description: `Branch "${branch.branch_name}" restored.` });
         setBranches(prev => prev.map(b => b.id === branch.id ? result.branch! : b));
     } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
@@ -153,8 +154,8 @@ export default function AllBranchesManagement() {
     setIsSubmitting(false);
   };
 
-  const activeBranches = branches.filter(branch => branch.status === '1');
-  const archivedBranches = branches.filter(branch => branch.status === '0');
+  const filteredBranches = branches.filter(branch => activeTab === "active" ? branch.status === '1' : branch.status === '0');
+
 
   if (isLoading && branches.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading branches...</p></div>;
@@ -208,19 +209,15 @@ export default function AllBranchesManagement() {
                     setIsEditDialogOpen(false);
                     setSelectedBranch(null); 
                 } else {
-                     if (isEditing && selectedBranch) {
-                        setIsEditDialogOpen(true);
-                    } else {
-                        setSelectedBranch(null); 
-                        setIsAddDialogOpen(true);
-                    }
+                     // Logic for opening add/edit is handled by triggers
                 }
             }}
         >
-          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset(); setIsAddDialogOpen(true);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
-          <DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
+          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
+          <DialogContent className="sm:max-w-lg p-3">
+            <DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2">
                     {renderFormFields(isEditing)}
               <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button></DialogFooter>
             </form></Form>
@@ -231,17 +228,17 @@ export default function AllBranchesManagement() {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
           <TabsContent value="active">
-            {isLoading && activeBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-            {!isLoading && activeBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No active branches found.</p>}
-            {!isLoading && activeBranches.length > 0 && (
+            {isLoading && filteredBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+            {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No active branches found.</p>}
+            {!isLoading && filteredBranches.length > 0 && (
               <Table><TableHeader><TableRow><TableHead>Branch</TableHead><TableHead>Code</TableHead><TableHead>Tenant</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                <TableBody>{activeBranches.map(b => (
+                <TableBody>{filteredBranches.map(b => (
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">{b.branch_name}</TableCell><TableCell>{b.branch_code}</TableCell><TableCell>{b.tenant_name || 'N/A'}</TableCell><TableCell>{b.email_address || '-'}</TableCell>
                     <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => {setSelectedBranch(b); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                       <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
-                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive branch "{b.branch_name}"?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(b.id)} disabled={isSubmitting}>Archive</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
+                        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive branch "{b.branch_name}"?</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(b.id, b.branch_name)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent>
                       </AlertDialog>
                     </TableCell>
                   </TableRow>))}
@@ -249,12 +246,12 @@ export default function AllBranchesManagement() {
               </Table>)}
           </TabsContent>
           <TabsContent value="archive">
-            {isLoading && archivedBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-            {!isLoading && archivedBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No archived branches found.</p>}
-            {!isLoading && archivedBranches.length > 0 && (
+            {isLoading && filteredBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+            {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No archived branches found.</p>}
+            {!isLoading && filteredBranches.length > 0 && (
               <Table>
                 <TableHeader><TableRow><TableHead>Branch</TableHead><TableHead>Code</TableHead><TableHead>Tenant</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                <TableBody>{archivedBranches.map(b => (
+                <TableBody>{filteredBranches.map(b => (
                   <TableRow key={b.id}>
                     <TableCell className="font-medium">{b.branch_name}</TableCell><TableCell>{b.branch_code}</TableCell><TableCell>{b.tenant_name || 'N/A'}</TableCell>
                     <TableCell className="text-right">

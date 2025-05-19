@@ -54,7 +54,6 @@ export default function UsersManagement() {
   const selectedTenantIdInForm = useWatch({ control: form.control, name: 'tenant_id' });
   const selectedRoleInForm = useWatch({ control: form.control, name: 'role' });
 
-
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -79,7 +78,7 @@ export default function UsersManagement() {
       newDefaults = {
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
-        password: '',
+        password: '', // Always empty for edit, user can type new if they want
         email: selectedUser.email || '',
         role: selectedUser.role,
         tenant_id: selectedUser.tenant_id || undefined,
@@ -97,9 +96,9 @@ export default function UsersManagement() {
       }
     } else {
       newDefaults = defaultFormValuesCreate;
-      setAvailableBranches([]);
+      setAvailableBranches([]); // Clear branches if it's an add form or user is cleared
     }
-    form.reset(newDefaults, { resolver: newResolver } as any);
+    form.reset(newDefaults, { resolver: newResolver } as any); // Use as any if TS complains about resolver type mismatch
   }, [selectedUser, form, toast]);
 
 
@@ -108,6 +107,7 @@ export default function UsersManagement() {
 
     if (currentTenantId) {
       const isTenantChanged = isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id;
+      // If tenant ID changed in form, or if it's a new form, or if it's edit mode and tenant changed:
       if (form.formState.dirtyFields.tenant_id || !isEditing || isTenantChanged) {
         form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
       }
@@ -117,8 +117,9 @@ export default function UsersManagement() {
         .catch(() => toast({ title: "Error", description: "Could not fetch branches for the selected tenant.", variant: "destructive" }))
         .finally(() => setIsLoadingBranches(false));
     } else if (!currentTenantId && (form.formState.dirtyFields.tenant_id || !isEditing)) {
+      // If tenant_id is cleared in the form (or it's a new form without a tenant yet)
       setAvailableBranches([]);
-      if (form.getValues('tenant_branch_id')) {
+      if (form.getValues('tenant_branch_id')) { // Check if there was a branch selected
           form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
       }
     }
@@ -137,7 +138,7 @@ export default function UsersManagement() {
       if (result.success && result.user) {
         toast({ title: "Success", description: "User created." });
         setUsers(prev => [...prev, result.user!].sort((a,b) => a.last_name.localeCompare(b.last_name)));
-        setIsAddDialogOpen(false);
+        setIsAddDialogOpen(false); // Close dialog on success
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -151,22 +152,24 @@ export default function UsersManagement() {
   const handleEditSubmit = async (data: UserUpdateDataSysAd) => {
     if (!selectedUser) return;
     setIsSubmitting(true);
+    // Create a mutable copy of data to potentially delete the password
     let payload: Partial<UserUpdateDataSysAd> = {
       ...data,
       tenant_id: data.tenant_id ? Number(data.tenant_id) : null,
       tenant_branch_id: data.tenant_branch_id ? Number(data.tenant_branch_id) : null
     };
 
+    // If password is empty, null, or undefined, remove it from payload so it's not updated
     if (data.password === '' || data.password === null || data.password === undefined) {
       delete payload.password;
     }
 
     try {
-      const result = await updateUserSysAd(Number(selectedUser.id), payload as UserUpdateDataSysAd);
+      const result = await updateUserSysAd(Number(selectedUser.id), payload as UserUpdateDataSysAd); // Cast needed if password was deleted
       if (result.success && result.user) {
         toast({ title: "Success", description: "User updated." });
         setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => a.last_name.localeCompare(b.last_name)));
-        setIsEditDialogOpen(false);
+        setIsEditDialogOpen(false); // Close dialog on success
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -195,14 +198,16 @@ export default function UsersManagement() {
 
   const handleRestore = async (user: User) => {
     setIsSubmitting(true);
+    // Construct payload for update, ensuring all required fields for UserUpdateDataSysAd are present
     const payload: UserUpdateDataSysAd = {
       first_name: user.first_name,
       last_name: user.last_name,
-      email: user.email || '',
+      // password: '', // Don't send password for restore, or set a specific policy
+      email: user.email || '', // Ensure email is a string
       role: user.role,
       tenant_id: user.tenant_id,
       tenant_branch_id: user.tenant_branch_id,
-      status: '1',
+      status: '1', // Explicitly set status to '1'
     };
     try {
       const result = await updateUserSysAd(Number(user.id), payload);
@@ -218,6 +223,7 @@ export default function UsersManagement() {
     }
     finally { setIsSubmitting(false); }
   };
+
 
   const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
 
@@ -389,35 +395,29 @@ export default function UsersManagement() {
             key={isEditing ? `edit-user-sysad-${selectedUser?.id}` : 'add-user-sysad'}
             open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
-                if (!open) {
-                    setSelectedUser(null);
+                if (!open) { // When dialog is closing
+                    setSelectedUser(null); // This will trigger form reset to 'add' defaults via useEffect
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
-                    setAvailableBranches([]);
-                } else {
-                  if (isEditing && selectedUser) {
-                    // useEffect will handle form reset and branch loading for edit
-                    setIsEditDialogOpen(true);
-                  } else {
-                    // Setting up for "Add" dialog
-                    setSelectedUser(null);
-                    setAvailableBranches([]);
-                    // useEffect will set up form for 'add' based on selectedUser being null
-                    setIsAddDialogOpen(true);
-                  }
+                    setAvailableBranches([]); // Clear branches
+                } else { // When dialog is opening
+                  // The decision to open 'add' or 'edit' is handled by the trigger buttons
+                  // If selectedUser is set, useEffect will configure form for 'edit'
+                  // If selectedUser is null, useEffect will configure form for 'add'
                 }
             }}
         >
           <DialogTrigger asChild>
             <Button onClick={() => {
-              setSelectedUser(null); // This will trigger useEffect to reset form for 'add'
+              setSelectedUser(null); // Ensure form is reset for 'add'
               setIsAddDialogOpen(true);
+              setIsEditDialogOpen(false);
             }}><PlusCircle className="mr-2 h-4 w-4" /> Add User</Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg p-3">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2">
                 {renderFormFields()}
                 <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -472,3 +472,4 @@ export default function UsersManagement() {
     </Card>
   );
 }
+
