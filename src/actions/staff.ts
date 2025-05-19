@@ -67,7 +67,6 @@ export async function createTransactionAndOccupyRoom(
       return { success: false, message: "Failed to update room status to occupied. Room not found or already in desired state." };
     }
 
-    // Fetch rate name for the updatedRoomData
     const rateNameRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [rateId]);
     const rate_name = rateNameRes.rows.length > 0 ? rateNameRes.rows[0].name : null;
 
@@ -125,9 +124,10 @@ export async function createReservation(
   try {
     await client.query('BEGIN');
 
+    // Use CURRENT_TIMESTAMP for check_in_time as the reservation is being made now
     const transactionRes = await client.query(
       `INSERT INTO transactions (tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8, $9) 
        RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id`,
       [tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes, TRANSACTION_STATUS.ADVANCE_PAID, staffUserId]
     );
@@ -149,7 +149,6 @@ export async function createReservation(
       return { success: false, message: "Failed to update room status to reserved. Room not found or already in desired state." };
     }
     
-    // Fetch rate name for the updatedRoomData
     const rateNameRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [rateId]);
     const rate_name = rateNameRes.rows.length > 0 ? rateNameRes.rows[0].name : null;
 
@@ -245,7 +244,6 @@ export async function updateTransactionNotes(
     );
     if (res.rows.length > 0) {
        const updatedRow = res.rows[0];
-       // Fetch room_name and rate_name again
        const detailsRes = await client.query(
         `SELECT hr.room_name, hrt.name as rate_name
          FROM hotel_room hr
@@ -300,7 +298,6 @@ export async function updateReservedTransactionDetails(
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
-      // Fetch room_name and rate_name again as they are not part of the direct update
       const roomDetailsRes = await client.query(
         `SELECT hr.room_name, hrt.name as rate_name
          FROM hotel_room hr
@@ -458,7 +455,6 @@ export async function cancelReservation(
   try {
     await client.query('BEGIN');
 
-    // Update transaction status to Cancelled
     const transactionUpdateRes = await client.query(
       `UPDATE transactions
        SET status = $1, updated_at = CURRENT_TIMESTAMP
@@ -471,7 +467,6 @@ export async function cancelReservation(
       return { success: false, message: "Reservation not found, not in 'Advance Paid' status, or already cancelled." };
     }
 
-    // Update room status to Available
     const roomUpdateRes = await client.query(
       `UPDATE hotel_room SET is_available = $1, updated_at = CURRENT_TIMESTAMP
        WHERE id = $2 AND tenant_id = $3 AND branch_id = $4`,
@@ -479,12 +474,7 @@ export async function cancelReservation(
     );
 
     if (roomUpdateRes.rowCount === 0) {
-      // This case is problematic as the transaction was updated.
-      // For safety, we might rollback, but the room status could be manually fixed.
-      // For now, proceed and let the user know.
       console.warn(`Reservation ${transactionId} cancelled, but failed to update room ${roomId} status to available.`);
-      // await client.query('ROLLBACK');
-      // return { success: false, message: "Reservation cancelled, but failed to update room status. Please check manually." };
     }
 
     await client.query('COMMIT');
@@ -510,3 +500,88 @@ export async function cancelReservation(
   }
 }
 
+
+export async function checkInReservedGuest(
+  transactionId: number,
+  roomId: number,
+  tenantId: number,
+  branchId: number,
+  staffUserId: number 
+): Promise<{
+  success: boolean;
+  message?: string;
+  updatedRoomData?: Partial<HotelRoom> & { id: number };
+}> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Verify the transaction exists, is for this room, and is in 'Advance Paid' status
+    const transactionCheckRes = await client.query(
+      `SELECT client_name, hotel_rate_id FROM transactions 
+       WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id = $4 AND status = $5`,
+      [transactionId, tenantId, branchId, roomId, TRANSACTION_STATUS.ADVANCE_PAID]
+    );
+
+    if (transactionCheckRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return { success: false, message: "Reservation not found, already checked in, or not in 'Advance Paid' status." };
+    }
+    const { client_name, hotel_rate_id } = transactionCheckRes.rows[0];
+
+
+    // Update the transaction to 'Unpaid' (checked-in) and update check_in_time
+    const newCheckInTime = new Date();
+    const updateTransactionRes = await client.query(
+      `UPDATE transactions 
+       SET status = $1, check_in_time = $2, updated_at = CURRENT_TIMESTAMP, created_by_user_id = $3
+       WHERE id = $4`,
+      [TRANSACTION_STATUS.UNPAID, newCheckInTime.toISOString(), staffUserId, transactionId]
+    );
+
+    if (updateTransactionRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { success: false, message: "Failed to update transaction status for check-in." };
+    }
+
+    // Update the room status to 'Occupied'
+    const roomUpdateRes = await client.query(
+      `UPDATE hotel_room 
+       SET is_available = $1, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4`,
+      [ROOM_AVAILABILITY_STATUS.OCCUPIED, roomId, tenantId, branchId]
+    );
+
+    if (roomUpdateRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      // This is more critical, as the transaction might have been updated
+      return { success: false, message: "Failed to update room status to occupied. Please check manually." };
+    }
+
+    const rateNameRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [hotel_rate_id]);
+    const rate_name = rateNameRes.rows.length > 0 ? rateNameRes.rows[0].name : null;
+
+    await client.query('COMMIT');
+    return {
+      success: true,
+      message: "Reserved guest checked in successfully.",
+      updatedRoomData: {
+        id: roomId,
+        is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
+        active_transaction_id: transactionId,
+        active_transaction_client_name: client_name,
+        active_transaction_check_in_time: newCheckInTime.toISOString(),
+        active_transaction_rate_name: rate_name,
+      }
+    };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Failed to check in reserved guest:', error);
+    return { success: false, message: `Database error during reserved check-in: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+    
