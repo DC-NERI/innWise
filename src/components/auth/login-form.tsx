@@ -156,9 +156,6 @@ export function LoginForm() {
             </Button>
           </form>
         </Form>
-        <p className="mt-4 text-xs text-center text-muted-foreground">
-          Test with: admin/password, sysad/password, or staff/password
-        </p>
       </CardContent>
     </Card>
   );
