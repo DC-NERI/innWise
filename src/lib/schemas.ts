@@ -190,3 +190,11 @@ export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
+
+// Transaction Schemas
+export const transactionCreateSchema = z.object({
+  client_name: z.string().min(1, "Client name is required").max(255),
+  client_payment_method: z.string().min(1, "Payment method is required").max(50),
+  notes: z.string().max(1000, "Notes too long").optional().nullable(),
+});
+export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
