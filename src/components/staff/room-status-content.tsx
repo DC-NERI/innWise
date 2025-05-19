@@ -20,7 +20,12 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, TRANSACTION_STATUS_TEXT } from '@/lib/constants';
+import { 
+  ROOM_AVAILABILITY_STATUS, 
+  ROOM_AVAILABILITY_STATUS_TEXT, 
+  TRANSACTION_STATUS,
+  TRANSACTION_STATUS_TEXT 
+} from '@/lib/constants';
 
 interface RoomStatusContentProps {
   tenantId: number | null;
@@ -77,6 +82,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   });
 
   const fetchRoomsAndRatesData = useCallback(async () => {
+    console.log("[RoomStatusContent] fetchRoomsAndRatesData called with tenantId:", tenantId, "branchId:", branchId);
     if (!tenantId || !branchId) {
       setIsLoading(false);
       setRooms([]);
@@ -91,6 +97,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         getRatesForBranchSimple(branchId, tenantId)
       ]);
       
+      console.log("[RoomStatusContent] Fetched rooms:", fetchedRooms);
+      console.log("[RoomStatusContent] Fetched branch rates:", fetchedBranchRates);
       setRooms(fetchedRooms);
       setAllBranchActiveRates(fetchedBranchRates);
 
@@ -113,6 +121,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       setGroupedRooms(sortedGroupedRooms);
 
     } catch (error) {
+      console.error("[RoomStatusContent] Error fetching room/rate data:", error);
       toast({ title: "Error", description: `Could not fetch room statuses or rates. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -124,6 +133,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [fetchRoomsAndRatesData]);
 
   const handleOpenBookingDialog = (room: HotelRoom, mode: 'book' | 'reserve') => {
+    console.log("[RoomStatusContent] handleOpenBookingDialog called with room:", room, "mode:", mode);
     if (!Array.isArray(room.hotel_rate_id) || room.hotel_rate_id.length === 0) {
         toast({title: "No Rates Assigned", description: "This room has no rates assigned. Please contact an administrator.", variant: "destructive"});
         return;
@@ -134,6 +144,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     const applicableRates = allBranchActiveRates.filter(branchRate =>
         (room.hotel_rate_id || []).includes(branchRate.id)
     );
+    console.log("[RoomStatusContent] Applicable rates for booking dialog:", applicableRates);
     setApplicableRatesForBookingDialog(applicableRates);
     const defaultRateId = applicableRates.length > 0 ? applicableRates[0].id : undefined;
     
@@ -142,8 +153,17 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
+    console.log("[RoomStatusContent] handleBookingSubmit called with data:", data);
+    console.log("[RoomStatusContent] Current selectedRoomForBooking:", selectedRoomForBooking);
+    console.log("[RoomStatusContent] Current staffUserId:", staffUserId);
+    console.log("[RoomStatusContent] Current bookingMode:", bookingMode);
+
     if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId || !data.selected_rate_id || !bookingMode) {
-      toast({ title: "Submission Error", description: "Selected room, rate, mode, or staff details are missing.", variant: "destructive" });
+      toast({ 
+        title: "Submission Error", 
+        description: `Booking details are missing. Room: ${!!selectedRoomForBooking}, Staff: ${!!staffUserId}, Tenant: ${!!tenantId}, Branch: ${!!branchId}, Rate: ${!!data.selected_rate_id}, Mode: ${!!bookingMode}`, 
+        variant: "destructive" 
+      });
       return;
     }
     setIsSubmitting(true);
@@ -171,6 +191,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         toast({ title: `${bookingMode === 'book' ? "Booking" : "Reservation"} Failed`, description: result.message, variant: "destructive" });
       }
     } catch (error) {
+      console.error(`[RoomStatusContent] Error during ${bookingMode}:`, error);
       toast({ title: "Error", description: `An unexpected error occurred during ${bookingMode}.`, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
@@ -178,6 +199,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
  const handleOpenTransactionInfoDialog = useCallback(async (roomId: number) => {
+    console.log(`[RoomStatusContent:handleOpenTransactionInfoDialog] Called for room ID: ${roomId}`);
     if (!tenantId || !branchId) {
       toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
       return;
@@ -185,6 +207,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     setIsSubmitting(true); 
     try {
       const transaction = await getActiveTransactionForRoom(roomId, tenantId, branchId);
+      console.log(`[RoomStatusContent:handleOpenTransactionInfoDialog] Fetched transaction:`, transaction);
       if (transaction) {
         setTransactionDetails(transaction);
         notesForm.reset({ notes: transaction.notes || '' });
@@ -192,10 +215,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         setIsTransactionDetailsDialogOpen(true);
       } else {
         toast({ title: "No Active Transaction", description: "No active booking or reservation found for this room.", variant: "default" });
-        // Optionally, refresh data if a transaction was expected but not found
-        // fetchRoomsAndRatesData(); 
       }
     } catch (error) {
+      console.error(`[RoomStatusContent:handleOpenTransactionInfoDialog] Error fetching transaction for room ${roomId}:`, error);
       toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
@@ -203,23 +225,30 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [tenantId, branchId, toast, notesForm]);
   
   const handleOpenCheckoutConfirmation = useCallback(async (room: HotelRoom) => {
+    console.log(`[RoomStatusContent:handleOpenCheckoutConfirmation] Called for room:`, room);
     if (!tenantId || !branchId) {
-        toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
+        toast({ title: "Error", description: "Tenant or branch information missing for checkout prep.", variant: "destructive" });
+        return;
+    }
+    if (room.is_available !== ROOM_AVAILABILITY_STATUS.OCCUPIED) {
+        toast({ title: "Action Not Allowed", description: "Room is not currently occupied.", variant: "default" });
         return;
     }
     setIsSubmitting(true);
     try {
         const transaction = await getActiveTransactionForRoom(room.id, tenantId, branchId);
-        // Only allow checkout for OCCUPIED rooms with UNPAID transactions
-        if (transaction && transaction.id && transaction.status === TRANSACTION_STATUS.UNPAID && room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED) {
+        console.log(`[RoomStatusContent:handleOpenCheckoutConfirmation] Transaction for checkout:`, transaction);
+        if (transaction && transaction.id && transaction.status === TRANSACTION_STATUS.UNPAID) {
             setRoomForCheckoutConfirmation(room);
             setActiveTransactionIdForCheckout(transaction.id);
             setIsCheckoutConfirmOpen(true);
         } else {
-            toast({ title: "No Active Check-in", description: "Cannot checkout: no active unpaid check-in found, or room is not occupied.", variant: "default" });
-            fetchRoomsAndRatesData(); 
+            toast({ title: "No Active Check-in", description: "Cannot checkout: no active unpaid check-in found, or room is not in an occupied state with an unpaid transaction.", variant: "default" });
+            // Optionally refresh if data seems stale
+            // fetchRoomsAndRatesData(); 
         }
     } catch (error) {
+         console.error(`[RoomStatusContent:handleOpenCheckoutConfirmation] Error fetching transaction for checkout:`, error);
          toast({ title: "Error", description: "Failed to get transaction details for checkout.", variant: "destructive" });
     } finally {
         setIsSubmitting(false);
@@ -227,6 +256,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [tenantId, branchId, toast, fetchRoomsAndRatesData]);
 
   const handleConfirmCheckout = async () => {
+    console.log(`[RoomStatusContent:handleConfirmCheckout] Confirming checkout for transaction ID: ${activeTransactionIdForCheckout}, Room:`, roomForCheckoutConfirmation);
     if (!activeTransactionIdForCheckout || !roomForCheckoutConfirmation || !staffUserId || !tenantId || !branchId) {
       toast({ title: "Checkout Error", description: "Required information for checkout is missing.", variant: "destructive" });
       return;
@@ -243,6 +273,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         toast({ title: "Check-out Failed", description: result.message || "Could not complete check-out.", variant: "destructive" });
       }
     } catch (error) {
+      console.error(`[RoomStatusContent:handleConfirmCheckout] Error during checkout:`, error);
       toast({ title: "Error", description: "An unexpected error occurred during check-out.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
@@ -253,6 +284,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleUpdateNotes = async (data: TransactionUpdateNotesData) => {
+    console.log(`[RoomStatusContent:handleUpdateNotes] Updating notes for transaction:`, transactionDetails);
     if (!transactionDetails || !transactionDetails.id || !tenantId || !branchId) {
         toast({ title: "Error", description: "Missing details to update notes.", variant: "destructive" });
         return;
@@ -260,14 +292,15 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     setIsSubmitting(true);
     try {
         const result = await updateTransactionNotes(transactionDetails.id, data.notes, tenantId, branchId);
-        if (result.success) {
+        if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Notes updated." });
-            setTransactionDetails(prev => prev ? { ...prev, notes: data.notes || null } : null);
-            setIsEditNotesMode(false); // Exit edit mode after saving
+            setTransactionDetails(prev => prev ? { ...prev, notes: result.updatedTransaction!.notes || null } : null);
+            setIsEditNotesMode(false);
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update notes.", variant: "destructive" });
         }
     } catch (error) {
+        console.error(`[RoomStatusContent:handleUpdateNotes] Error updating notes:`, error);
         toast({ title: "Error", description: "Unexpected error updating notes.", variant: "destructive" });
     } finally {
         setIsSubmitting(false);
@@ -275,11 +308,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const getRoomRateNameForCard = (room: HotelRoom): string => {
-    if (room.is_available !== ROOM_AVAILABILITY_STATUS.AVAILABLE && room.rate_name) {
-      return room.rate_name; // This comes from the join in listRoomsForBranch
+    if (room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED) {
+      if (room.rate_name) return room.rate_name; // This comes from the join in listRoomsForBranch
     }
     if (Array.isArray(room.hotel_rate_id) && room.hotel_rate_id.length > 0 && allBranchActiveRates.length > 0) {
-      const firstRateId = room.hotel_rate_id[0]; // For available rooms, just show the first assigned rate as an example
+      const firstRateId = room.hotel_rate_id[0];
       const rateDetails = allBranchActiveRates.find(rate => rate.id === firstRateId);
       return rateDetails ? `${rateDetails.name} (₱${rateDetails.price.toFixed(2)})` : 'Rate N/A';
     }
@@ -304,7 +337,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
           <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {floorRooms.map(room => {
-               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Active Tx ID: ${room.active_transaction_id}, Client Name: ${room.active_transaction_client_name}`);
+               console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Client Name: ${room.active_transaction_client_name}`);
               return (
                 <Card 
                   key={room.id} 
@@ -604,3 +637,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
+
+
+    
