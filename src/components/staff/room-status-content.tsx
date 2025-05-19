@@ -253,16 +253,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleViewDetails = useCallback(async (room: HotelRoom) => {
-    if (!tenantId || !branchId) {
-      toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
+    if (!tenantId || !branchId || !room.id) {
+      toast({ title: "Error", description: "Missing details for viewing transaction.", variant: "destructive" });
       return;
     }
-    if (!room || !room.id) { 
-        toast({title: "Error", description: "Room ID is missing.", variant: "destructive"});
-        return;
-    }
     console.log(`[RoomStatusContent] Opening transaction info for room ID: ${room.id}`);
-    setIsSubmitting(true); 
+    setIsSubmitting(true);
     try {
       const transaction = await getActiveTransactionForRoom(room.id, tenantId, branchId);
       console.log(`[RoomStatusContent] Fetched transaction for room ${room.id}:`, transaction);
@@ -420,7 +416,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Notes updated." });
             setTransactionDetails(result.updatedTransaction); 
-            setEditingModeForDialog(null);
+            setEditingModeForDialog(null); // Exit edit mode
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update notes.", variant: "destructive" });
         }
@@ -463,17 +459,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     }
   };
 
-  const getRoomRateNameForCard = (room: HotelRoom): string => {
-     if (room.active_transaction_rate_name) return room.active_transaction_rate_name; 
-    
-    if (Array.isArray(room.hotel_rate_id) && room.hotel_rate_id.length > 0 && allBranchActiveRates.length > 0) {
-      const firstRateId = room.hotel_rate_id[0];
-      const rateDetails = allBranchActiveRates.find(rate => rate.id === firstRateId);
-      return rateDetails ? `${rateDetails.name}` : 'Rate N/A';
-    }
-    return 'Rate N/A';
-  };
-
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room statuses...</p></div>;
   }
@@ -499,8 +484,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
               <AccordionTrigger className="text-xl font-semibold px-4 py-3 hover:no-underline">
                 <div className="flex justify-between items-center w-full">
                   <span>Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</span>
-                  <span className="text-xs font-normal text-muted-foreground ml-4">
-                    (Available: {availableCount}, Occupied: {occupiedCount}, Reserved: {reservedCount})
+                  <span className="text-xs font-normal ml-4">
+                    (<span className="text-green-600">Available: {availableCount}</span>, <span className="text-orange-600">Occupied: {occupiedCount}</span>, <span className="text-blue-600">Reserved: {reservedCount}</span>)
                   </span>
                 </div>
               </AccordionTrigger>
@@ -520,13 +505,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                           room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && "bg-blue-500 text-white"
                         )}>
                           <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name}</CardTitle>
-                          <CardDescription className={cn(
-                              "text-xs",
-                              (room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE || 
-                                room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || 
-                                room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED) && "text-white/90"
-                          )}>
-                            Room # : {room.room_code}
+                          <CardDescription className="text-xs text-white/90">
+                             Room # : {room.room_code}
                           </CardDescription>
                         </CardHeader>
                         <CardContent className="p-4 pt-2 flex-grow flex flex-col justify-between">
@@ -570,7 +550,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                 )}
                               </>
                             )}
-                            <p className="text-xs text-muted-foreground">Rate: {getRoomRateNameForCard(room)}</p>
+                            <p className="text-xs text-muted-foreground">Rate: {room.rate_name || 'N/A'}</p>
                           </div>
                           
                           <div className="mt-auto pt-3 space-y-2 border-t flex flex-col">
@@ -832,7 +812,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                         notes: transactionDetails.notes || '',
                                     });
                                 }
-                            }}><Edit3 className="h-3 w-3 mr-1" /> Edit</Button>
+                            }}><Edit3 className="h-3 w-3 mr-1" /> Edit Details</Button>
                         )}
                     </div>
                     <p className="text-muted-foreground whitespace-pre-wrap min-h-[40px] p-2 border rounded-md bg-accent/10">
@@ -852,10 +832,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                             setIsCancelReservationConfirmOpen(false); 
                             setRoomForActionConfirmation(null);
                             setActiveTransactionIdForAction(null);
-                        } else {
-                           // This case should ideally be handled by the button that sets these states
-                           // For safety, let's keep it, or consider if setIsCancelReservationConfirmOpen(open) is needed.
-                           // If the trigger button directly sets state, this might not be needed.
                         }
                     }}
                 >
@@ -904,3 +880,5 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   );
 }
 
+
+    
