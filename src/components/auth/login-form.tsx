@@ -46,6 +46,8 @@ export function LoginForm() {
       localStorage.removeItem('username');
       localStorage.removeItem('userFirstName');
       localStorage.removeItem('userLastName');
+      localStorage.removeItem('userTenantBranchId');
+      localStorage.removeItem('userBranchName');
     }
   }, []);
 
@@ -82,6 +84,12 @@ export function LoginForm() {
             if (result.lastName) {
                 localStorage.setItem('userLastName', result.lastName);
             }
+            if (result.tenantBranchId) {
+                localStorage.setItem('userTenantBranchId', String(result.tenantBranchId));
+            }
+            if (result.branchName) {
+                localStorage.setItem('userBranchName', result.branchName);
+            }
         }
         
         setTimeout(() => {
@@ -90,7 +98,7 @@ export function LoginForm() {
               router.push("/admin");
               break;
             case "sysad":
-              router.push("/sysad"); // Changed redirection for sysad
+              router.push("/sysad"); 
               break;
             case "staff":
               router.push("/staff");

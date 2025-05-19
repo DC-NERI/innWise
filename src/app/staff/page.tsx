@@ -6,24 +6,11 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Settings, LogOut, LogIn, BedDouble } from 'lucide-react';
-import { getTenantDetails } from '@/actions/admin'; // Re-use admin action if appropriate
+import { Settings, LogOut, LogIn, BedDouble, Building } from 'lucide-react';
+import { getTenantDetails } from '@/actions/admin'; 
 import type { UserRole } from '@/lib/types';
-
-// Placeholder content components
-const GuestCheckInContent = () => (
-  <div>
-    <h2 className="text-2xl font-semibold">Guest Check-in</h2>
-    <p className="text-muted-foreground">Manage guest arrivals and departures here.</p>
-  </div>
-);
-
-const RoomStatusContent = () => (
-  <div>
-    <h2 className="text-2xl font-semibold">Room Status</h2>
-    <p className="text-muted-foreground">View and update room availability and cleanliness.</p>
-  </div>
-);
+import GuestCheckInContent from '@/components/staff/guest-checkin-content';
+import RoomStatusContent from '@/components/staff/room-status-content';
 
 const StaffSettingsContent = () => (
   <div>
@@ -43,6 +30,9 @@ const StaffDashboardPage: NextPage = () => {
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
+  const [branchId, setBranchId] = useState<number | null>(null);
+  const [branchName, setBranchName] = useState<string | null>(null);
+
 
   const router = useRouter();
 
@@ -54,15 +44,18 @@ const StaffDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
+      const storedBranchId = localStorage.getItem('userTenantBranchId');
+      const storedBranchName = localStorage.getItem('userBranchName');
+
 
       if (storedRole) {
         setUserRole(storedRole);
         if (storedRole !== 'staff') { 
-            router.push('/'); // Redirect if not staff
+            router.push('/'); 
             return;
         }
       } else {
-        router.push('/'); // Redirect if no role
+        router.push('/'); 
         return;
       }
 
@@ -70,6 +63,9 @@ const StaffDashboardPage: NextPage = () => {
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
+      if (storedBranchId) setBranchId(parseInt(storedBranchId, 10));
+      if (storedBranchName) setBranchName(storedBranchName);
+
 
       if (storedTenantName) {
         setTenantName(storedTenantName);
@@ -116,19 +112,22 @@ const StaffDashboardPage: NextPage = () => {
       localStorage.removeItem('username');
       localStorage.removeItem('userFirstName');
       localStorage.removeItem('userLastName');
+      localStorage.removeItem('userTenantBranchId');
+      localStorage.removeItem('userBranchName');
     }
     router.push('/');
   };
 
   const displayName = firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : username;
+  const displayTenantInfo = branchName ? `${tenantName} - ${branchName}` : tenantName;
 
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
           <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
-            <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
-              {tenantName}
+            <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={displayTenantInfo}>
+              {displayTenantInfo}
             </h2>
             {displayName && (
               <p className="text-sm text-sidebar-foreground truncate" title={displayName}>
@@ -194,7 +193,25 @@ const StaffDashboardPage: NextPage = () => {
         </header>
         <main className="p-4 lg:p-6">
           {activeView === 'check-in' && <GuestCheckInContent />}
-          {activeView === 'room-status' && <RoomStatusContent />}
+          {activeView === 'room-status' && tenantId && branchId && (
+            <RoomStatusContent tenantId={tenantId} branchId={branchId} />
+          )}
+          {activeView === 'room-status' && (!tenantId || !branchId) && (
+             <Card>
+              <CardHeader>
+                <div className="flex items-center space-x-2">
+                  <Building className="h-6 w-6 text-primary" />
+                  <CardTitle>Room Status</CardTitle>
+                </div>
+                 <CardDescription>View and update room availability and cleanliness.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">
+                  Branch information not available. Please ensure you are assigned to a branch.
+                </p>
+              </CardContent>
+            </Card>
+          )}
           {activeView === 'settings' && <StaffSettingsContent />}
         </main>
       </SidebarInset>

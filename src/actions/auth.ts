@@ -15,6 +15,8 @@ export type LoginResult = {
   username?: string;
   firstName?: string;
   lastName?: string;
+  tenantBranchId?: number;
+  branchName?: string;
 };
 
 const pool = new Pool({
@@ -44,12 +46,15 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     const client = await pool.connect();
     try {
       const userResult = await client.query(
-        'SELECT id, username, password_hash, role, tenant_id, first_name, last_name FROM users WHERE username = $1',
+        `SELECT u.id, u.username, u.password_hash, u.role, u.tenant_id, u.first_name, u.last_name, u.tenant_branch_id, tb.branch_name 
+         FROM users u
+         LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id AND u.tenant_id = tb.tenant_id
+         WHERE u.username = $1 AND u.status = '1'`, // Ensure user is active
         [username]
       );
 
       if (userResult.rows.length === 0) {
-        return { message: "Invalid username or password.", success: false };
+        return { message: "Invalid username, password, or inactive account.", success: false };
       }
 
       const user = userResult.rows[0];
@@ -67,19 +72,37 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         return { message: "Login successful, but user role is not recognized for dashboard access.", success: false };
       }
 
+      // Check tenant status if user is not sysad
+      if (user.tenant_id && userRole !== 'sysad') {
+        const tenantStatusRes = await client.query('SELECT status FROM tenants WHERE id = $1', [user.tenant_id]);
+        if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status !== '1') {
+          return { message: "Login failed: Tenant account is inactive or does not exist.", success: false };
+        }
+      }
+
+      // Check branch status if user is staff and assigned to a branch
+      if (user.tenant_branch_id && userRole === 'staff') {
+        const branchStatusRes = await client.query('SELECT status FROM tenant_branch WHERE id = $1', [user.tenant_branch_id]);
+         if (branchStatusRes.rows.length === 0 || branchStatusRes.rows[0].status !== '1') {
+          return { message: "Login failed: Assigned branch is inactive or does not exist.", success: false };
+        }
+      }
+
+
       let tenantId: number | undefined = undefined;
       let tenantName: string | undefined = undefined;
 
       if (user.tenant_id && userRole !== 'sysad') {
         tenantId = user.tenant_id;
         const tenantResult = await client.query(
-          'SELECT tenant_name FROM tenants WHERE id = $1',
+          'SELECT tenant_name FROM tenants WHERE id = $1 AND status = \'1\'',
           [user.tenant_id]
         );
         if (tenantResult.rows.length > 0) {
           tenantName = tenantResult.rows[0].tenant_name;
         } else {
-          console.warn(`Tenant ID ${user.tenant_id} found for user ${username}, but no matching tenant in tenants table.`);
+          console.warn(`Tenant ID ${user.tenant_id} found for user ${username}, but no matching active tenant in tenants table.`);
+           return { message: "Login failed: Associated tenant is inactive or not found.", success: false };
         }
       }
 
@@ -88,7 +111,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         [user.id]
       );
       
-      console.log(`User ${user.username} (Role: ${userRole}, Tenant ID: ${tenantId || 'N/A'}) logged in at ${new Date().toISOString()}.`);
+      console.log(`User ${user.username} (Role: ${userRole}, Tenant ID: ${tenantId || 'N/A'}, Branch ID: ${user.tenant_branch_id || 'N/A'}) logged in at ${new Date().toISOString()}.`);
       return { 
         message: "Login successful!", 
         success: true, 
@@ -98,6 +121,8 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         username: user.username,
         firstName: user.first_name,
         lastName: user.last_name,
+        tenantBranchId: user.tenant_branch_id,
+        branchName: user.branch_name,
       };
 
     } catch (dbError) {
