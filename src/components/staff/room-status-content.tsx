@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogIn, LogOut, User } from "lucide-react"; // Added User icon
+import { BedDouble, Loader2, Info, LogIn, LogOut, User } from "lucide-react";
 import type { HotelRoom, Transaction } from '@/lib/types';
 import { listRoomsForBranch } from '@/actions/admin';
 import { createTransactionAndOccupyRoom, getActiveTransactionDetails, checkOutGuestAndFreeRoom } from '@/actions/staff';
@@ -125,7 +125,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         tenantId: tenantId,
         branchId: branchId
       });
-      toast({ title: "Error", description: "Selected room, staff details, tenant, or branch information is missing. Please ensure you are logged in correctly and have selected a room.", variant: "destructive" });
+      toast({ title: "Error", description: `Selected room, staff details, tenant, or branch information is missing. Debug Info: Room Selected? ${!!selectedRoomForBooking}, StaffID? ${staffUserId}, TenantID? ${tenantId}, BranchID? ${branchId}`, variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -148,13 +148,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleOpenTransactionInfoDialog = async (transactionId: number | null | undefined) => {
+     if (!tenantId || !branchId) {
+        toast({ title: "Error", description: "Tenant or branch information is missing for fetching transaction details.", variant: "destructive" });
+        return;
+    }
     if (!transactionId) {
       toast({ title: "Info", description: "No active transaction for this room.", variant: "default" });
       return;
-    }
-    if (!tenantId || !branchId) {
-         toast({ title: "Error", description: "Tenant or branch information is missing.", variant: "destructive" });
-        return;
     }
     setIsLoading(true); 
     try {
@@ -163,7 +163,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         setCurrentTransactionDetails(details);
         setIsTransactionInfoDialogOpen(true);
       } else {
-        // Attempt to fetch again in case of a race condition or if listRoomsForBranch didn't pick up a very recent transaction
         const freshDetails = await getActiveTransactionDetails(transactionId, tenantId, branchId);
         if (freshDetails) {
             setCurrentTransactionDetails(freshDetails);
@@ -180,8 +179,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleCheckout = async () => {
-    if (!roomToCheckout || !roomToCheckout.active_transaction_id || !staffUserId || !tenantId || !branchId) {
-      toast({ title: "Error", description: "Room, transaction, staff, tenant or branch details missing for checkout.", variant: "destructive" });
+    if (!tenantId || !branchId) {
+        toast({ title: "Error", description: "Tenant or branch information is missing for checkout.", variant: "destructive" });
+        return;
+    }
+    if (!roomToCheckout || !roomToCheckout.active_transaction_id || !staffUserId ) {
+      toast({ title: "Error", description: "Room, transaction, or staff details missing for checkout.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -360,6 +363,3 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
-
-
-    
