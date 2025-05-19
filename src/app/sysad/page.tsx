@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building2, Settings, LogOut, Users, Network } from 'lucide-react'; // Added Building2 and Network
+import { Building2, Settings, LogOut, Users, Network } from 'lucide-react';
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
@@ -17,7 +17,7 @@ const SysAdDashboardPage: NextPage = () => {
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [tenantName, setTenantName] = useState<string>("System Administrator");
+  const [tenantName, setTenantName] = useState<string>("System Administrator"); // SysAd always sees this
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
@@ -33,9 +33,11 @@ const SysAdDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole === 'sysad') {
-          setTenantName("System Administrator");
-        }
+        // SysAd specific tenant name is hardcoded, so no need to fetch from localStorage
+      } else {
+        // If no role, redirect to login or handle as unauthorized
+        router.push('/');
+        return;
       }
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
@@ -56,7 +58,7 @@ const SysAdDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [router]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {

@@ -90,8 +90,7 @@ export function LoginForm() {
               router.push("/admin");
               break;
             case "sysad":
-              // For sysad, admin page is fine, or can be a specific sysad page if created
-              router.push("/admin"); 
+              router.push("/sysad"); // Changed redirection for sysad
               break;
             case "staff":
               router.push("/staff");
@@ -191,3 +190,4 @@ export function LoginForm() {
     </Card>
   );
 }
+
