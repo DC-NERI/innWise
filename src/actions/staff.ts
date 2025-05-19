@@ -2,8 +2,9 @@
 "use server";
 
 import { Pool } from 'pg';
-import type { Transaction, HotelRoom } from '@/lib/types'; // Added HotelRoom
+import type { Transaction, HotelRoom } from '@/lib/types';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
+import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -47,11 +48,11 @@ export async function createTransactionAndOccupyRoom(
     }
     const newTransaction = transactionRes.rows[0];
 
-    // Update the room to be unavailable
+    // Update the room to be occupied
     const roomUpdateRes = await client.query(
-      `UPDATE hotel_room SET is_available = FALSE, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND tenant_id = $2 AND branch_id = $3`,
-      [roomId, tenantId, branchId]
+      `UPDATE hotel_room SET is_available = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4`,
+      [ROOM_AVAILABILITY_STATUS.OCCUPIED, roomId, tenantId, branchId]
     );
 
     if (roomUpdateRes.rowCount === 0) {
@@ -94,7 +95,7 @@ export async function getActiveTransactionForRoom(
        FROM transactions t
        JOIN hotel_room hr ON t.hotel_room_id = hr.id
        JOIN hotel_rates hrt ON t.hotel_rate_id = hrt.id
-       WHERE t.hotel_room_id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status = '0'`,
+       WHERE t.hotel_room_id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status = '0'`, // status '0' is Unpaid (active)
       [roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
@@ -102,7 +103,7 @@ export async function getActiveTransactionForRoom(
       console.log(`[staff.ts:getActiveTransactionForRoom] Found transaction: ${JSON.stringify(row)}`);
       return {
         ...row,
-        price: row.price ? parseFloat(row.price) : undefined, // price might not be directly on transaction, but from rate
+        price: row.price ? parseFloat(row.price) : undefined,
         total_amount: row.total_amount ? parseFloat(row.total_amount) : undefined,
         check_in_time: new Date(row.check_in_time).toISOString(),
         check_out_time: row.check_out_time ? new Date(row.check_out_time).toISOString() : null,
@@ -167,6 +168,7 @@ export async function checkOutGuestAndFreeRoom(
         total_amount = parseFloat(transactionDetails.rate_price);
     }
 
+    // Assuming status '1' means 'Paid' after checkout. Adjust if needed.
     const updatedTransactionRes = await client.query(
       `UPDATE transactions
        SET check_out_time = $1, hours_used = $2, total_amount = $3, check_out_by_user_id = $4, status = '1', updated_at = CURRENT_TIMESTAMP
@@ -182,9 +184,9 @@ export async function checkOutGuestAndFreeRoom(
     const updatedTransaction = updatedTransactionRes.rows[0];
 
     const roomUpdateRes = await client.query(
-      `UPDATE hotel_room SET is_available = TRUE, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND tenant_id = $2 AND branch_id = $3`,
-      [roomId, tenantId, branchId]
+      `UPDATE hotel_room SET is_available = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4`,
+      [ROOM_AVAILABILITY_STATUS.AVAILABLE, roomId, tenantId, branchId]
     );
 
     if (roomUpdateRes.rowCount === 0) {

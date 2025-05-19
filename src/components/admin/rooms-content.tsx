@@ -7,7 +7,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
@@ -21,6 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
 import type { SimpleBranch, HotelRoom, SimpleRate } from '@/lib/types';
 import { getBranchesForTenantSimple, listRoomsForBranch, getRatesForBranchSimple, createRoom, updateRoom, archiveRoom } from '@/actions/admin';
+import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT } from '@/lib/constants';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -32,7 +32,7 @@ const defaultFormValuesCreate: HotelRoomCreateData = {
   room_type: '',
   bed_type: '',
   capacity: 2,
-  is_available: true,
+  is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
 };
 
 interface RoomsContentProps {
@@ -119,13 +119,14 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: selectedRoom.is_available,
+        is_available: selectedRoom.is_available, // This will be a number
         status: selectedRoom.status || '1',
       };
     } else {
       newDefaults = { 
         ...defaultFormValuesCreate, 
         hotel_rate_ids: [], 
+        is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
         status: '1' 
       };
     }
@@ -246,7 +247,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                         }}
                       />
                     </FormControl>
-                    <Label className="font-normal">{rate.name}</Label>
+                    <Label className="font-normal">{rate.name} (₱{rate.price.toFixed(2)})</Label>
                   </FormItem>
                 ))}
               </div>
@@ -260,21 +261,31 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       <FormField control={form.control} name="room_type" render={({ field }) => (<FormItem><RHFFormLabel>Room Type</RHFFormLabel><FormControl><Input placeholder="Deluxe" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="bed_type" render={({ field }) => (<FormItem><RHFFormLabel>Bed Type</RHFFormLabel><FormControl><Input placeholder="King" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="capacity" render={({ field }) => (<FormItem><RHFFormLabel>Capacity</RHFFormLabel><FormControl><Input type="number" placeholder="2" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      
       <FormField control={form.control} name="is_available"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm w-[90%]">
-              <div className="space-y-0.5"><RHFFormLabel>Is Available</RHFFormLabel></div>
-              <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-            </FormItem>
-          )}
-        />
+        render={({ field }) => (
+          <FormItem>
+            <RHFFormLabel>Availability Status *</RHFFormLabel>
+            <Select onValueChange={(value) => field.onChange(parseInt(value))} value={field.value?.toString()}>
+              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select availability status" /></SelectTrigger></FormControl>
+              <SelectContent>
+                <SelectItem value={ROOM_AVAILABILITY_STATUS.AVAILABLE.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
+                <SelectItem value={ROOM_AVAILABILITY_STATUS.OCCUPIED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.OCCUPIED]}</SelectItem>
+                <SelectItem value={ROOM_AVAILABILITY_STATUS.RESERVED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.RESERVED]}</SelectItem>
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
       {isEditing && (
         <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
-              <RHFFormLabel>Status *</RHFFormLabel>
+              <RHFFormLabel>Room Record Status *</RHFFormLabel>
               <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
-                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select record status" /></SelectTrigger></FormControl>
                 <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -303,10 +314,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 key={isEditing ? `edit-room-${selectedRoom?.id}` : 'add-room'}
                 open={isAddDialogOpen || isEditDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1' }); }
+                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE }); }
                 }}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
+                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                 </Button>
               </DialogTrigger>
@@ -333,10 +344,11 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
             <TabsContent value="active">
               {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
               {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Available</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell><TableCell>{r.is_available ? 'Yes' : 'No'}</TableCell>
+                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
+                      <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[r.is_available] || 'Unknown'}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>

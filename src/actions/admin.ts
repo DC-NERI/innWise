@@ -14,6 +14,8 @@ import {
   hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
+import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
+
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -1146,15 +1148,13 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         r.hotel_rate_id, -- This is JSONB
         r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity, 
         r.is_available, r.status, r.created_at, r.updated_at,
-        (SELECT hr.name FROM hotel_rates hr WHERE hr.id = (r.hotel_rate_id->>0)::int AND hr.tenant_id = r.tenant_id AND hr.branch_id = r.branch_id LIMIT 1) as rate_name -- Fetch name of first rate if available
+        (SELECT hr.name FROM hotel_rates hr WHERE hr.id = (r.hotel_rate_id->>0)::int AND hr.tenant_id = r.tenant_id AND hr.branch_id = r.branch_id AND hr.status = '1' LIMIT 1) as rate_name
       FROM hotel_room r
       JOIN tenant_branch tb ON r.branch_id = tb.id
       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
       ORDER BY r.floor ASC, r.room_name ASC;
     `;
-    // Note: The above subquery for rate_name is simplified. If multiple rates, you might want a different approach or handle it client-side.
-    // For full support of multiple rate_names, you'd typically fetch all rates and map names client-side, or use array aggregation in SQL.
-
+    
     const res = await client.query(query, [branchId, tenantId]);
     
     return res.rows.map(row => {
@@ -1177,7 +1177,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       return {
         ...row,
         hotel_rate_id: parsedRateIds, 
-        rate_names: row.rate_name ? [row.rate_name] : [], // Simplified, might need adjustment for multiple rates
+        rate_names: row.rate_name ? [row.rate_name] : [], 
+        is_available: Number(row.is_available), // Ensure it's a number
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
       } as HotelRoom;
@@ -1202,7 +1203,6 @@ export async function createRoom(
   const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // Ensure hotel_rate_ids is an array, even if empty from Zod default
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
@@ -1234,6 +1234,7 @@ export async function createRoom(
           ...newRow,
           branch_name,
           hotel_rate_id: parsedRateIds,
+          is_available: Number(newRow.is_available),
           created_at: new Date(newRow.created_at).toISOString(),
           updated_at: new Date(newRow.updated_at).toISOString(),
         } as HotelRoom
@@ -1295,6 +1296,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           ...updatedRow,
           branch_name,
           hotel_rate_id: parsedRateIds,
+          is_available: Number(updatedRow.is_available),
           created_at: new Date(updatedRow.created_at).toISOString(),
           updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as HotelRoom

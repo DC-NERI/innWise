@@ -72,7 +72,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number[] | null; // Changed to array of numbers, or null if column is nullable
+  hotel_rate_id: number[] | null; 
   rate_names?: string[]; // For display, derived from hotel_rate_id
   room_name: string;
   room_code: string;
@@ -80,11 +80,10 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: boolean; // Source of truth for booking status
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
   status: string; // '0' or '1' (for the room record itself, not booking status)
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
-  // Optional: to hold temporary active transaction info fetched for display
   active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
@@ -95,7 +94,7 @@ export interface HotelRoom {
 export interface SimpleRate {
   id: number;
   name: string;
-  price: number; // Added price
+  price: number;
 }
 
 export interface Transaction {
@@ -103,22 +102,21 @@ export interface Transaction {
     tenant_id: number;
     branch_id: number;
     hotel_room_id: number;
-    hotel_rate_id: number; // This remains a single ID for a specific transaction
+    hotel_rate_id: number; 
     client_name: string;
     client_payment_method: string;
     notes?: string | null;
     check_in_time: string; // ISO date string
     check_out_time?: string | null; // ISO date string
     hours_used?: number | null;
-    total_amount?: number | null; // Stored as numeric, handle as number
+    total_amount?: number | null; 
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; // '0' for active, '1' for completed/checked-out
+    status: string; // '0': Unpaid, '1': Paid, '2': Advance Paid
     created_at: string; // ISO date string
     updated_at: string; // ISO date string
-    // Optional joined data for display
-    room_name?: string; // From joining hotel_room
-    rate_name?: string; // From joining hotel_rates
+    room_name?: string; 
+    rate_name?: string; 
     checked_out_by_username?: string;
 }
     

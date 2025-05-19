@@ -1,5 +1,6 @@
 
 import { z } from "zod";
+import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
 
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -183,12 +184,13 @@ export const hotelRoomCreateSchema = z.object({
   room_type: z.string().max(50).optional().nullable(),
   bed_type: z.string().max(50).optional().nullable(),
   capacity: z.coerce.number().int().min(1, "Capacity must be at least 1").optional().nullable().default(2),
-  is_available: z.boolean().default(true),
+  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
 });
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  room_code: z.string().min(1, "Room code is required").max(50), // Ensure room_code is here for edit
+  room_code: z.string().min(1, "Room code is required").max(50),
+  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
