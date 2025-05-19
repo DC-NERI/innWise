@@ -3,8 +3,8 @@
 
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
-import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
-import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
+import { transactionCreateSchema, TransactionCreateData, transactionUpdateNotesSchema, TransactionUpdateNotesData } from '@/lib/schemas';
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS } from '@/lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -37,14 +37,14 @@ export async function createTransactionAndOccupyRoom(
     // Create the transaction
     const transactionRes = await client.query(
       `INSERT INTO transactions (tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, '0', $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8, $9)
        RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id`,
-      [tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes, staffUserId]
+      [tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes, TRANSACTION_STATUS.UNPAID, staffUserId]
     );
 
     if (transactionRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return { success: false, message: "Transaction creation failed." };
+      return { success: false, message: "Transaction creation failed (booking)." };
     }
     const newTransaction = transactionRes.rows[0];
 
@@ -57,7 +57,7 @@ export async function createTransactionAndOccupyRoom(
 
     if (roomUpdateRes.rowCount === 0) {
       await client.query('ROLLBACK');
-      return { success: false, message: "Failed to update room status. Room not found or already in desired state." };
+      return { success: false, message: "Failed to update room status to occupied. Room not found or already in desired state." };
     }
 
     await client.query('COMMIT');
@@ -81,6 +81,74 @@ export async function createTransactionAndOccupyRoom(
   }
 }
 
+
+export async function createReservation(
+  data: TransactionCreateData,
+  tenantId: number,
+  branchId: number,
+  roomId: number,
+  rateId: number,
+  staffUserId: number
+): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
+  const validatedFields = transactionCreateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data for reservation: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+
+  const { client_name, client_payment_method, notes } = validatedFields.data;
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Create the transaction for reservation
+    const transactionRes = await client.query(
+      `INSERT INTO transactions (tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, $8, $9)
+       RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_at, updated_at, created_by_user_id`,
+      [tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes, TRANSACTION_STATUS.ADVANCE_PAID, staffUserId] // Using ADVANCE_PAID for reservations
+    );
+
+    if (transactionRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return { success: false, message: "Transaction creation failed (reservation)." };
+    }
+    const newTransaction = transactionRes.rows[0];
+
+    // Update the room to be reserved
+    const roomUpdateRes = await client.query(
+      `UPDATE hotel_room SET is_available = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4`,
+      [ROOM_AVAILABILITY_STATUS.RESERVED, roomId, tenantId, branchId]
+    );
+
+    if (roomUpdateRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return { success: false, message: "Failed to update room status to reserved. Room not found or already in desired state." };
+    }
+
+    await client.query('COMMIT');
+    return {
+      success: true,
+      message: "Room reserved successfully.",
+      transaction: {
+        ...newTransaction,
+        check_in_time: new Date(newTransaction.check_in_time).toISOString(), // Check-in time might be more like reservation_time here
+        created_at: new Date(newTransaction.created_at).toISOString(),
+        updated_at: new Date(newTransaction.updated_at).toISOString(),
+      } as Transaction,
+    };
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Failed to create reservation:', error);
+    return { success: false, message: `Database error during reservation: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+
 export async function getActiveTransactionForRoom(
   roomId: number,
   tenantId: number,
@@ -90,6 +158,7 @@ export async function getActiveTransactionForRoom(
 
   const client = await pool.connect();
   try {
+    // Fetch transactions that are 'Unpaid' (occupied) or 'Advance Paid' (reserved)
     const res = await client.query(
       `SELECT t.*, hr.room_name, hrt.name as rate_name
        FROM transactions t
@@ -98,8 +167,9 @@ export async function getActiveTransactionForRoom(
        WHERE t.hotel_room_id = $1 
          AND t.tenant_id = $2 
          AND t.branch_id = $3 
-         AND (t.status = '0' OR t.status = '2')`, // '0' for Unpaid/Occupied, '2' for Advance Paid/Reserved
-      [roomId, tenantId, branchId]
+         AND (t.status = $4 OR t.status = $5)
+       ORDER BY t.created_at DESC LIMIT 1`, // Get the most recent if multiple (should ideally be one)
+      [roomId, tenantId, branchId, TRANSACTION_STATUS.UNPAID, TRANSACTION_STATUS.ADVANCE_PAID]
     );
     if (res.rows.length > 0) {
       const row = res.rows[0];
@@ -172,13 +242,14 @@ export async function checkOutGuestAndFreeRoom(
       `SELECT t.*, h_rates.price as rate_price, h_rates.hours as rate_hours, h_rates.excess_hour_price as rate_excess_hour_price
        FROM transactions t
        JOIN hotel_rates h_rates ON t.hotel_rate_id = h_rates.id
-       WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.hotel_room_id = $4 AND t.status = '0' AND t.check_out_time IS NULL`,
-      [transactionId, tenantId, branchId, roomId]
+       WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.hotel_room_id = $4 
+       AND t.status = $5 AND t.check_out_time IS NULL`, // Ensure it's an unpaid/occupied transaction
+      [transactionId, tenantId, branchId, roomId, TRANSACTION_STATUS.UNPAID]
     );
 
     if (transactionAndRateRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return { success: false, message: "Active transaction for this room not found or already checked out." };
+      return { success: false, message: "Active transaction for this room not found, already checked out, or not in correct state for check-out." };
     }
     const transactionDetails = transactionAndRateRes.rows[0];
 
@@ -206,10 +277,10 @@ export async function checkOutGuestAndFreeRoom(
 
     const updatedTransactionRes = await client.query(
       `UPDATE transactions
-       SET check_out_time = $1, hours_used = $2, total_amount = $3, check_out_by_user_id = $4, status = '1', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5
+       SET check_out_time = $1, hours_used = $2, total_amount = $3, check_out_by_user_id = $4, status = $5, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6
        RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, check_out_time, hours_used, total_amount, check_out_by_user_id, status, created_at, updated_at, created_by_user_id`,
-      [check_out_time.toISOString(), hours_used, total_amount, staffUserId, transactionId]
+      [check_out_time.toISOString(), hours_used, total_amount, staffUserId, TRANSACTION_STATUS.PAID, transactionId]
     );
 
     if (updatedTransactionRes.rows.length === 0) {
