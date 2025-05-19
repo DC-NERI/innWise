@@ -72,22 +72,18 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number;
-  rate_name?: string | null; // For display
+  hotel_rate_id: number; // This is NOT NULL in DB
+  rate_name?: string | null; // For display, from joined hotel_rates
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: boolean;
-  status: string; // '0' or '1'
+  is_available: boolean; // Source of truth for booking status
+  status: string; // '0' or '1' (for the room record itself, not booking status)
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
-  // Fields for active transaction display
-  active_transaction_id?: number | null;
-  active_transaction_check_in_time?: string | null;
-  active_transaction_client_name?: string | null;
 }
 
 // For simpler rate selection
@@ -109,12 +105,15 @@ export interface Transaction {
     check_out_time?: string | null; // ISO date string
     hours_used?: number | null;
     total_amount?: number | null; // Stored as numeric, handle as number
+    created_by_user_id: number; // Not nullable based on DDL if we track who created it
     check_out_by_user_id?: number | null;
     status: string; // '0' for active, '1' for completed/checked-out
     created_at: string; // ISO date string
     updated_at: string; // ISO date string
     // Optional joined data for display
-    room_name?: string;
-    rate_name?: string;
+    room_name?: string; // From joining hotel_room
+    rate_name?: string; // From joining hotel_rates
     checked_out_by_username?: string;
 }
+
+    

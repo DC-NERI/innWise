@@ -31,6 +31,8 @@ export async function listTenants(): Promise<Tenant[]> {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
     return res.rows.map(row => ({
         ...row,
+        max_branch_count: row.max_branch_count,
+        max_user_count: row.max_user_count,
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
     })) as Tenant[];
@@ -63,6 +65,8 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
         message: "Tenant created successfully.", 
         tenant: {
             ...newRow,
+            max_branch_count: newRow.max_branch_count,
+            max_user_count: newRow.max_user_count,
             created_at: new Date(newRow.created_at).toISOString(),
             updated_at: new Date(newRow.updated_at).toISOString(),
         } as Tenant 
@@ -100,7 +104,7 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
-      return { success: true, message: "Tenant updated successfully.", tenant: { ...updatedRow, created_at: new Date(updatedRow.created_at).toISOString(), updated_at: new Date(updatedRow.updated_at).toISOString() } as Tenant };
+      return { success: true, message: "Tenant updated successfully.", tenant: { ...updatedRow, max_branch_count: updatedRow.max_branch_count, max_user_count: updatedRow.max_user_count, created_at: new Date(updatedRow.created_at).toISOString(), updated_at: new Date(updatedRow.updated_at).toISOString() } as Tenant };
     }
     return { success: false, message: "Tenant not found or no changes made." };
   } catch (error) {
@@ -148,6 +152,8 @@ export async function getTenantDetails(tenantId: number): Promise<Tenant | null>
       const row = res.rows[0];
       return {
         ...row,
+        max_branch_count: row.max_branch_count,
+        max_user_count: row.max_user_count,
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
       } as Tenant;
@@ -283,14 +289,14 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
             const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [branchTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_branch_count = tenantDetails.rows[0].max_branch_count;
-                if (max_branch_count !== null && max_branch_count > 0) {
+                if (max_branch_count !== null && max_branch_count > 0) { // Only check if limit is set
                     const currentBranchCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
                         [branchTenantId]
                     );
                     const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
                     if (currentBranchCount >= max_branch_count) {
-                        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To restore this branch, please archive an existing active branch first.` };
+                        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To restore this branch, please archive an existing active branch first or increase the tenant's limit.` };
                     }
                 }
             }
@@ -382,14 +388,14 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
     }
     const max_branch_count = tenantDetails.rows[0].max_branch_count;
 
-    if (max_branch_count !== null && max_branch_count > 0) {
+    if (max_branch_count !== null && max_branch_count > 0) { // Only check if limit is set (not null and > 0)
       const currentBranchCountRes = await client.query(
         "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'", 
         [tenant_id]
       );
       const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
       if (currentBranchCount >= max_branch_count) {
-        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To add a new active branch, please archive an existing one first.` };
+        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To add a new active branch, please archive an existing one first or increase the tenant's limit.` };
       }
     }
 
@@ -508,21 +514,21 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
   
   const client = await pool.connect();
   try {
-    if (tenant_id) {
+    if (tenant_id) { // Only check limit if user is assigned to a tenant
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
         if (tenantDetails.rows.length === 0) {
             return { success: false, message: "Assigned tenant not found." };
         }
         const max_user_count = tenantDetails.rows[0].max_user_count;
 
-        if (max_user_count !== null && max_user_count > 0) {
+        if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
             const currentUserCountRes = await client.query(
                 "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", 
                 [tenant_id]
             );
             const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
             if (currentUserCount >= max_user_count) {
-                return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first.` };
+                return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first or increase the tenant's limit.` };
             }
         }
     }
@@ -594,19 +600,30 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
   const client = await pool.connect();
   try {
     if (status === '1' && tenant_id) { 
-        const currentUserRes = await client.query('SELECT status FROM users WHERE id = $1', [userId]);
+        const currentUserRes = await client.query('SELECT status, tenant_id as current_tenant_id FROM users WHERE id = $1', [userId]);
         if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') { 
-            const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
+            const userCurrentTenantId = currentUserRes.rows[0].current_tenant_id;
+            const targetTenantId = tenant_id; 
+            
+            // If user is being moved to a new tenant or restored to the same tenant, check the target tenant's limit
+            const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [targetTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_user_count = tenantDetails.rows[0].max_user_count;
-                if (max_user_count !== null && max_user_count > 0) {
+                if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
                     const currentUserCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
-                        [tenant_id]
+                        [targetTenantId]
                     );
                     const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
                     if (currentUserCount >= max_user_count) {
-                        return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first.` };
+                         // If user is being moved to a new tenant, and that tenant is full
+                        if (userCurrentTenantId !== targetTenantId) {
+                             return { success: false, message: `Target tenant (ID: ${targetTenantId}) has reached the maximum active user limit of ${max_user_count}.` };
+                        }
+                        // If user is being restored in the same tenant, and that tenant is full
+                        else {
+                             return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first or increase the tenant's limit.` };
+                        }
                     }
                 }
             }
@@ -708,7 +725,7 @@ export async function getUsersForTenant(tenantId: number): Promise<User[]> {
               u.email, u.role, u.status, u.created_at, u.updated_at, u.last_log_in
        FROM users u
        JOIN tenants t ON u.tenant_id = t.id
-       LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id
+       LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id AND u.tenant_id = tb.tenant_id
        WHERE u.tenant_id = $1 AND u.role != 'sysad'
        ORDER BY CASE u.role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, u.last_name ASC, u.first_name ASC`,
       [tenantId]
@@ -760,14 +777,14 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
     }
     const max_user_count = tenantDetails.rows[0].max_user_count;
 
-    if (max_user_count !== null && max_user_count > 0) {
+    if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
         const currentUserCountRes = await client.query(
             "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", 
             [callingTenantId]
         );
         const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
         if (currentUserCount >= max_user_count) {
-            return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first.` };
+            return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first or increase the tenant's limit.` };
         }
     }
 
@@ -848,18 +865,18 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
     }
     const currentUserStatus = userCheck.rows[0].current_status;
 
-    if (status === '1' && currentUserStatus === '0') { 
+    if (status === '1' && currentUserStatus === '0') { // If restoring user
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
         if (tenantDetails.rows.length > 0) {
             const max_user_count = tenantDetails.rows[0].max_user_count;
-            if (max_user_count !== null && max_user_count > 0) {
+            if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
                 const currentUserCountRes = await client.query(
                     "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                     [callingTenantId]
                 );
                 const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
                 if (currentUserCount >= max_user_count) {
-                    return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first.` };
+                    return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first or increase the tenant's limit.` };
                 }
             }
         }
@@ -1117,6 +1134,8 @@ export async function getRatesForBranchSimple(branchId: number, tenantId: number
 
 
 // Hotel Room Actions
+// Modified listRoomsForBranch to only fetch active rooms (room.status='1')
+// and join with hotel_rates to get rate_name.
 export async function listRoomsForBranch(branchId: number, tenantId: number): Promise<HotelRoom[]> {
   if (isNaN(branchId) || branchId <= 0 || isNaN(tenantId) || tenantId <= 0) {
     return [];
@@ -1129,9 +1148,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
               r.status, r.created_at, r.updated_at 
        FROM hotel_room r
        JOIN tenant_branch tb ON r.branch_id = tb.id
-       LEFT JOIN hotel_rates hr ON r.hotel_rate_id = hr.id AND hr.tenant_id = r.tenant_id AND hr.branch_id = r.branch_id
-       WHERE r.branch_id = $1 AND r.tenant_id = $2 
-       ORDER BY r.room_name ASC`,
+       JOIN hotel_rates hr ON r.hotel_rate_id = hr.id 
+       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1' AND hr.status = '1'
+       ORDER BY r.floor ASC, r.room_name ASC`,
       [branchId, tenantId]
     );
     return res.rows.map(row => ({

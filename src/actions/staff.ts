@@ -2,7 +2,7 @@
 "use server";
 
 import { Pool } from 'pg';
-import type { Transaction } from '@/lib/types';
+import type { Transaction, HotelRoom } from '@/lib/types'; // Added HotelRoom
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 
 const pool = new Pool({
@@ -21,7 +21,7 @@ export async function createTransactionAndOccupyRoom(
   roomId: number,
   rateId: number,
   staffUserId: number
-): Promise<{ success: boolean; message?: string; transaction?: Transaction; room?: any }> {
+): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
   const validatedFields = transactionCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
@@ -62,14 +62,13 @@ export async function createTransactionAndOccupyRoom(
     await client.query('COMMIT');
     return {
       success: true,
-      message: "Guest checked in successfully.",
+      message: "Guest checked in successfully and room occupied.",
       transaction: {
         ...newTransaction,
         check_in_time: new Date(newTransaction.check_in_time).toISOString(),
         created_at: new Date(newTransaction.created_at).toISOString(),
         updated_at: new Date(newTransaction.updated_at).toISOString(),
       } as Transaction,
-      room: roomUpdateRes.rows[0],
     };
 
   } catch (error) {
@@ -81,13 +80,12 @@ export async function createTransactionAndOccupyRoom(
   }
 }
 
-export async function getActiveTransactionDetails(
-  transactionId: number,
+export async function getActiveTransactionForRoom(
+  roomId: number,
   tenantId: number,
   branchId: number
 ): Promise<Transaction | null> {
-  // Log the received parameters
-  console.log(`[staff.ts:getActiveTransactionDetails] Called with: transactionId=${transactionId}, tenantId=${tenantId}, branchId=${branchId}`);
+  console.log(`[staff.ts:getActiveTransactionForRoom] Called with: roomId=${roomId}, tenantId=${tenantId}, branchId=${branchId}`);
 
   const client = await pool.connect();
   try {
@@ -96,15 +94,15 @@ export async function getActiveTransactionDetails(
        FROM transactions t
        JOIN hotel_room hr ON t.hotel_room_id = hr.id
        JOIN hotel_rates hrt ON t.hotel_rate_id = hrt.id
-       WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status = '0'`,
-      [transactionId, tenantId, branchId]
+       WHERE t.hotel_room_id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status = '0'`,
+      [roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
       const row = res.rows[0];
-      console.log(`[staff.ts:getActiveTransactionDetails] Found transaction: ${JSON.stringify(row)}`);
+      console.log(`[staff.ts:getActiveTransactionForRoom] Found transaction: ${JSON.stringify(row)}`);
       return {
         ...row,
-        price: row.price ? parseFloat(row.price) : undefined,
+        price: row.price ? parseFloat(row.price) : undefined, // price might not be directly on transaction, but from rate
         total_amount: row.total_amount ? parseFloat(row.total_amount) : undefined,
         check_in_time: new Date(row.check_in_time).toISOString(),
         check_out_time: row.check_out_time ? new Date(row.check_out_time).toISOString() : null,
@@ -112,10 +110,10 @@ export async function getActiveTransactionDetails(
         updated_at: new Date(row.updated_at).toISOString(),
       } as Transaction;
     }
-    console.log(`[staff.ts:getActiveTransactionDetails] No active transaction found for ID ${transactionId} with tenant ${tenantId}, branch ${branchId}, status '0'.`);
+    console.log(`[staff.ts:getActiveTransactionForRoom] No active transaction found for room ID ${roomId} with tenant ${tenantId}, branch ${branchId}, status '0'.`);
     return null;
   } catch (error) {
-    console.error(`[staff.ts:getActiveTransactionDetails] Error fetching transaction details for ID ${transactionId}:`, error);
+    console.error(`[staff.ts:getActiveTransactionForRoom] Error fetching transaction details for room ID ${roomId}:`, error);
     throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
@@ -134,9 +132,9 @@ export async function checkOutGuestAndFreeRoom(
     await client.query('BEGIN');
 
     const transactionAndRateRes = await client.query(
-      `SELECT t.*, hr.price as rate_price, hr.hours as rate_hours, hr.excess_hour_price as rate_excess_hour_price
+      `SELECT t.*, h_rates.price as rate_price, h_rates.hours as rate_hours, h_rates.excess_hour_price as rate_excess_hour_price
        FROM transactions t
-       JOIN hotel_rates hr ON t.hotel_rate_id = hr.id
+       JOIN hotel_rates h_rates ON t.hotel_rate_id = h_rates.id
        WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.hotel_room_id = $4 AND t.status = '0' AND t.check_out_time IS NULL`,
       [transactionId, tenantId, branchId, roomId]
     );
@@ -198,7 +196,7 @@ export async function checkOutGuestAndFreeRoom(
     await client.query('COMMIT');
     return {
       success: true,
-      message: "Guest checked out successfully.",
+      message: "Guest checked out successfully and room is now available.",
       transaction: {
         ...updatedTransaction,
         check_in_time: new Date(updatedTransaction.check_in_time).toISOString(),
@@ -216,3 +214,5 @@ export async function checkOutGuestAndFreeRoom(
     client.release();
   }
 }
+
+    

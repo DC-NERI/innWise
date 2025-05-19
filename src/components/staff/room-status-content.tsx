@@ -10,10 +10,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogOut, User } from "lucide-react";
+import { BedDouble, Loader2, Info, LogOutIcon, User } from "lucide-react"; // Changed LogOut to LogOutIcon
 import type { HotelRoom, Transaction } from '@/lib/types';
 import { listRoomsForBranch } from '@/actions/admin';
-import { createTransactionAndOccupyRoom, getActiveTransactionDetails, checkOutGuestAndFreeRoom } from '@/actions/staff';
+import { createTransactionAndOccupyRoom, getActiveTransactionForRoom, checkOutGuestAndFreeRoom } from '@/actions/staff';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -40,13 +40,18 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
   const [groupedRooms, setGroupedRooms] = useState<GroupedRooms>({});
   const [isLoading, setIsLoading] = useState(true);
+  
   const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false);
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<HotelRoom | null>(null);
-  const [isTransactionInfoDialogOpen, setIsTransactionInfoDialogOpen] = useState(false);
-  const [currentTransactionDetails, setCurrentTransactionDetails] = useState<Transaction | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [roomToCheckout, setRoomToCheckout] = useState<HotelRoom | null>(null);
+  
+  const [isTransactionDetailsDialogOpen, setIsTransactionDetailsDialogOpen] = useState(false);
+  const [transactionDetails, setTransactionDetails] = useState<Transaction | null>(null);
+  
+  const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
+  const [roomForCheckoutConfirmation, setRoomForCheckoutConfirmation] = useState<HotelRoom | null>(null);
+  const [activeTransactionIdForCheckout, setActiveTransactionIdForCheckout] = useState<number | null>(null);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
 
   const bookingForm = useForm<TransactionCreateData>({
@@ -64,10 +69,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     setIsLoading(true);
     try {
       const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
-      const activeDisplayRooms = fetchedRooms.filter(room => room.status === '1');
-      setRooms(activeDisplayRooms);
+      setRooms(fetchedRooms); // These are active rooms (room.status='1')
 
-      const grouped = activeDisplayRooms.reduce((acc, room) => {
+      const grouped = fetchedRooms.reduce((acc, room) => {
         const floorKey = room.floor?.toString() ?? 'Ground Floor / Other';
         if (!acc[floorKey]) acc[floorKey] = [];
         acc[floorKey].push(room);
@@ -84,9 +88,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       const sortedGroupedRooms: GroupedRooms = {};
       for (const floor of sortedFloors) sortedGroupedRooms[floor] = grouped[floor];
       setGroupedRooms(sortedGroupedRooms);
+
     } catch (error) {
-      console.error("Failed to fetch rooms:", error);
-      toast({ title: "Error", description: "Could not fetch room statuses.", variant: "destructive" });
+      console.error("Failed to fetch rooms for staff dashboard:", error);
+      toast({ title: "Error", description: `Could not fetch room statuses. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -97,21 +102,19 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [fetchRoomsData]);
 
   const handleOpenBookingDialog = (room: HotelRoom) => {
-    console.log("[RoomStatusContent] Opening booking dialog for room:", room);
+    if (!room.is_available) {
+        toast({title: "Room Occupied", description: "This room is currently occupied.", variant: "default"});
+        return;
+    }
     setSelectedRoomForBooking(room);
     bookingForm.reset(defaultTransactionFormValues);
     setIsBookingDialogOpen(true);
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
-    console.log("[RoomStatusContent] Booking submit called. Selected room:", selectedRoomForBooking, "Staff ID:", staffUserId, "Tenant ID:", tenantId, "Branch ID:", branchId );
-    if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId) {
-      toast({ 
-        title: "Booking Check Failed", 
-        description: `Required details missing. Room Selected: ${!!selectedRoomForBooking}, Staff ID: ${staffUserId}, Tenant ID: ${tenantId}, Branch ID: ${branchId}`, 
-        variant: "destructive" 
-      });
-      console.error("Booking check failed. Details:", { selectedRoomForBooking, staffUserId, tenantId, branchId });
+    if (!selectedRoomForBooking || !selectedRoomForBooking.hotel_rate_id || !staffUserId || !tenantId || !branchId) {
+      toast({ title: "Booking Error", description: "Required information for booking is missing. Please try again.", variant: "destructive" });
+      console.error("Booking submission failed prerequisites:", {selectedRoomForBooking, staffUserId, tenantId, branchId});
       return;
     }
     setIsSubmitting(true);
@@ -122,7 +125,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       if (result.success) {
         toast({ title: "Success", description: result.message });
         setIsBookingDialogOpen(false);
-        fetchRoomsData(); 
+        fetchRoomsData(); // Refresh room list
       } else {
         toast({ title: "Booking Failed", description: result.message, variant: "destructive" });
       }
@@ -133,50 +136,65 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     }
   };
 
-  const handleOpenTransactionInfoDialog = async (transactionId: number | null | undefined) => {
+  const handleViewDetails = async (room: HotelRoom) => {
      if (!tenantId || !branchId) {
-        toast({ title: "Error", description: "Tenant or branch information is missing for fetching transaction details.", variant: "destructive" });
+        toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
         return;
     }
-    if (!transactionId) {
-      toast({ title: "Info", description: "No active transaction ID found for this room.", variant: "default" });
-      return;
-    }
-    setIsLoading(true); 
+    setIsSubmitting(true); // Use isSubmitting as a general loading indicator for this action
     try {
-      const details = await getActiveTransactionDetails(transactionId, tenantId, branchId);
-      if (details) {
-        setCurrentTransactionDetails(details);
-        setIsTransactionInfoDialogOpen(true);
-      } else {
-        toast({ title: "Transaction Not Found", description: "Could not find active transaction details. It might have been recently checked out or an error occurred. (ID: " + transactionId + ")", variant: "destructive" });
-      }
+        const transaction = await getActiveTransactionForRoom(room.id, tenantId, branchId);
+        if (transaction) {
+            setTransactionDetails(transaction);
+            setIsTransactionDetailsDialogOpen(true);
+        } else {
+            toast({ title: "No Active Transaction", description: "No active booking found for this room.", variant: "default" });
+            // If no active transaction, but room is marked occupied, refresh data as it might be an inconsistency
+            fetchRoomsData();
+        }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
+        toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+        setIsSubmitting(false);
+    }
+  };
+  
+  const handleOpenCheckoutConfirmation = async (room: HotelRoom) => {
+    if (!tenantId || !branchId) {
+        toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
+        return;
+    }
+    setIsSubmitting(true);
+    try {
+        const transaction = await getActiveTransactionForRoom(room.id, tenantId, branchId);
+        if (transaction && transaction.id) {
+            setRoomForCheckoutConfirmation(room);
+            setActiveTransactionIdForCheckout(transaction.id);
+            setIsCheckoutConfirmOpen(true);
+        } else {
+            toast({ title: "No Active Transaction", description: "Cannot checkout, no active booking found for this room.", variant: "default" });
+            fetchRoomsData(); // Refresh if data seems inconsistent
+        }
+    } catch (error) {
+         toast({ title: "Error", description: "Failed to get transaction details for checkout.", variant: "destructive" });
+    } finally {
+        setIsSubmitting(false);
     }
   };
 
-  const handleCheckout = async () => {
-    if (!tenantId || !branchId) {
-        toast({ title: "Error", description: "Tenant or branch information is missing for checkout.", variant: "destructive" });
-        setRoomToCheckout(null);
-        return;
-    }
-    if (!roomToCheckout || !roomToCheckout.active_transaction_id || !staffUserId ) {
-      toast({ title: "Error", description: "Room, transaction, or staff details missing for checkout.", variant: "destructive" });
-      setRoomToCheckout(null);
+  const handleConfirmCheckout = async () => {
+    if (!activeTransactionIdForCheckout || !roomForCheckoutConfirmation || !staffUserId || !tenantId || !branchId) {
+      toast({ title: "Checkout Error", description: "Required information for checkout is missing.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
       const result = await checkOutGuestAndFreeRoom(
-        roomToCheckout.active_transaction_id, staffUserId, tenantId, branchId, roomToCheckout.id
+        activeTransactionIdForCheckout, staffUserId, tenantId, branchId, roomForCheckoutConfirmation.id
       );
       if (result.success) {
         toast({ title: "Success", description: result.message });
-        fetchRoomsData(); 
+        fetchRoomsData(); // Refresh room list
       } else {
         toast({ title: "Check-out Failed", description: result.message, variant: "destructive" });
       }
@@ -184,11 +202,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       toast({ title: "Error", description: "An unexpected error occurred during check-out.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
-      setRoomToCheckout(null); 
+      setIsCheckoutConfirmOpen(false);
+      setRoomForCheckoutConfirmation(null);
+      setActiveTransactionIdForCheckout(null);
     }
   };
 
-  if (isLoading && Object.keys(groupedRooms).length === 0) {
+
+  if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room statuses...</p></div>;
   }
   if (!branchId && !isLoading) { 
@@ -204,10 +225,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         <div key={floor}>
           <h2 className="text-xl font-semibold mb-3 pb-2 border-b">Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {floorRooms.map(room => {
-              console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Active Tx ID: ${room.active_transaction_id}, Client Name: ${room.active_transaction_client_name}`);
-              
-              return (
+            {floorRooms.map(room => (
                 <Card 
                   key={room.id} 
                   className={cn(
@@ -217,14 +235,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                   onClick={room.is_available ? () => handleOpenBookingDialog(room) : undefined}
                 >
                   <CardHeader className="p-4">
-                    <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name}</CardTitle>
-                    <CardDescription className="text-xs">{room.room_code}</CardDescription>
+                    <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name} ({room.room_code})</CardTitle>
+                    <CardDescription className="text-xs">{room.rate_name || 'Rate not set'}</CardDescription>
                   </CardHeader>
                   <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
-                    <div className="mb-2 space-y-1">
+                    <div className="mb-3 space-y-1">
                       {room.is_available ? (
                         <div className="flex items-center space-x-2">
-                          <span className="h-3 w-3 rounded-full bg-green-500"></span>
+                          <span className="h-3 w-3 rounded-full bg-green-500 animate-pulse"></span>
                           <span className="text-sm font-medium text-green-600">Available</span>
                         </div>
                       ) : (
@@ -233,94 +251,49 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                           <span className="text-sm font-medium text-red-600">Occupied</span>
                         </div>
                       )}
-
-                      {!room.is_available && room.active_transaction_client_name && (
-                        <div className="flex items-center text-xs text-muted-foreground mt-1">
-                          <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-primary" />
-                          <span className="font-medium text-foreground">Guest:</span>
-                          <span className="ml-1 truncate" title={room.active_transaction_client_name}>
-                             {room.active_transaction_client_name}
-                          </span>
-                        </div>
-                      )}
-                      {!room.is_available && room.active_transaction_check_in_time && (
-                        <p className="text-xs text-muted-foreground">
-                          Checked-in: {new Date(room.active_transaction_check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}
-                        </p>
-                      )}
-                      {room.room_type && <p className="text-xs text-muted-foreground">Type: {room.room_type}</p>}
-                      {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
+                       {room.room_type && <p className="text-xs text-muted-foreground">Type: {room.room_type}</p>}
+                       {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                     </div>
                     
-                    <div className="mt-auto pt-2 space-y-2 border-t border-border/50">
-                      {!room.is_available && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="w-full flex items-center justify-center"
-                            onClick={(e) => {
-                              e.stopPropagation(); 
-                              if (room.active_transaction_id) {
-                                handleOpenTransactionInfoDialog(room.active_transaction_id);
-                              } else {
-                                toast({ title: "Info", description: "No active transaction details available for this room. (ID not found on room object)", variant: "default" });
-                              }
-                            }}
-                            title="View Guest/Transaction Info"
-                          >
-                            <Info className="h-4 w-4 mr-2" />
-                            View Details
-                          </Button>
-
-                          <AlertDialog
-                            open={!!roomToCheckout && roomToCheckout.id === room.id}
-                            onOpenChange={(open) => { if (!open) setRoomToCheckout(null);}}
-                          >
-                            <AlertDialogTrigger asChild>
-                              <Button
+                    {!room.is_available && (
+                        <div className="mt-auto pt-3 space-y-2 border-t">
+                           <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full"
+                                onClick={(e) => { e.stopPropagation(); handleViewDetails(room); }}
+                                disabled={isSubmitting}
+                            >
+                                <Info className="mr-2 h-4 w-4" /> View Details
+                            </Button>
+                            <Button
                                 variant="destructive"
                                 size="sm"
-                                className="w-full flex items-center justify-center"
-                                onClick={(e) => { e.stopPropagation(); setRoomToCheckout(room); }}
-                                title="Check-out Guest"
-                              >
-                                <LogOut className="h-3 w-3 mr-1" /> Check-out
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  Are you sure you want to check out the guest from room {room.room_name} ({room.room_code})?
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setRoomToCheckout(null);}}>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={(e) => {e.stopPropagation(); handleCheckout();}} disabled={isSubmitting}>
-                                  {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </>
-                      )}
-                    </div>
+                                className="w-full"
+                                onClick={(e) => { e.stopPropagation(); handleOpenCheckoutConfirmation(room);}}
+                                disabled={isSubmitting}
+                            >
+                                <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
+                            </Button>
+                        </div>
+                    )}
                   </CardContent>
                 </Card>
               )
-            })}
+            )}
           </div>
         </div>
       ))}
 
+      {/* Booking Dialog */}
       <Dialog open={isBookingDialogOpen} onOpenChange={setIsBookingDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Book Room: {selectedRoomForBooking?.room_name} ({selectedRoomForBooking?.room_code})</DialogTitle>
+            <CardDescription>Rate: {selectedRoomForBooking?.rate_name}</CardDescription>
           </DialogHeader>
           <Form {...bookingForm}>
-            <form onSubmit={bookingForm.handleSubmit(handleBookingSubmit)} className="space-y-4">
+            <form onSubmit={bookingForm.handleSubmit(handleBookingSubmit)} className="space-y-4 py-4">
               <FormField control={bookingForm.control} name="client_name" render={({ field }) => (
                 <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="John Doe" {...field} /></FormControl><FormMessage /></FormItem>
               )} />
@@ -340,7 +313,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
               <FormField control={bookingForm.control} name="notes" render={({ field }) => (
                 <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Any special requests or notes..." {...field} /></FormControl><FormMessage /></FormItem>
               )} />
-              <DialogFooter>
+              <DialogFooter className="pt-4">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                 <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Booking"}</Button>
               </DialogFooter>
@@ -349,25 +322,50 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isTransactionInfoDialogOpen} onOpenChange={setIsTransactionInfoDialogOpen}>
+      {/* Transaction Details Dialog */}
+      <Dialog open={isTransactionDetailsDialogOpen} onOpenChange={setIsTransactionDetailsDialogOpen}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Transaction Details - Room {currentTransactionDetails?.room_name}</DialogTitle></DialogHeader>
-          {currentTransactionDetails ? (
-            <div className="space-y-2 text-sm">
-              <p><strong>Client:</strong> {currentTransactionDetails.client_name}</p>
-              <p><strong>Rate:</strong> {currentTransactionDetails.rate_name || 'N/A'}</p>
-              <p><strong>Payment Method:</strong> {currentTransactionDetails.client_payment_method}</p>
-              <p><strong>Check-in:</strong> {new Date(currentTransactionDetails.check_in_time).toLocaleString()}</p>
-              {currentTransactionDetails.check_out_time && (<p><strong>Check-out:</strong> {new Date(currentTransactionDetails.check_out_time).toLocaleString()}</p>)}
-              {currentTransactionDetails.hours_used !== undefined && currentTransactionDetails.hours_used !== null && (<p><strong>Hours Used:</strong> {currentTransactionDetails.hours_used}</p>)}
-              {currentTransactionDetails.total_amount !== undefined && currentTransactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> {currentTransactionDetails.total_amount.toFixed(2)}</p>)}
-              {currentTransactionDetails.notes && <p><strong>Notes:</strong> {currentTransactionDetails.notes}</p>}
-              <p><strong>Status:</strong> {currentTransactionDetails.status === '0' ? 'Active' : 'Completed'}</p>
+          <DialogHeader>
+            <DialogTitle>Transaction Details</DialogTitle>
+            {transactionDetails?.room_name && <CardDescription>Room: {transactionDetails.room_name} ({transactionDetails.rate_name || 'N/A'})</CardDescription>}
+          </DialogHeader>
+          {transactionDetails ? (
+            <div className="space-y-2 text-sm py-4">
+              <p><strong>Client:</strong> {transactionDetails.client_name}</p>
+              <p><strong>Payment Method:</strong> {transactionDetails.client_payment_method}</p>
+              <p><strong>Check-in:</strong> {new Date(transactionDetails.check_in_time).toLocaleString()}</p>
+              {transactionDetails.check_out_time && (<p><strong>Check-out:</strong> {new Date(transactionDetails.check_out_time).toLocaleString()}</p>)}
+              {transactionDetails.hours_used !== undefined && transactionDetails.hours_used !== null && (<p><strong>Hours Used:</strong> {transactionDetails.hours_used}</p>)}
+              {transactionDetails.total_amount !== undefined && transactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> {transactionDetails.total_amount.toFixed(2)}</p>)}
+              {transactionDetails.notes && <p><strong>Notes:</strong> {transactionDetails.notes}</p>}
+              <p><strong>Status:</strong> {transactionDetails.status === '0' ? 'Active' : 'Completed'}</p>
             </div>
-          ) : <p>Loading details...</p>}
-          <DialogFooter><DialogClose asChild><Button variant="outline">Close</Button></DialogClose></DialogFooter>
+          ) : <p className="py-4">Loading details or no active transaction...</p>}
+          <DialogFooter className="pt-4">
+            <DialogClose asChild><Button variant="outline">Close</Button></DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Checkout Confirmation Dialog */}
+      <AlertDialog open={isCheckoutConfirmOpen} onOpenChange={setIsCheckoutConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to check out the guest from room {roomForCheckoutConfirmation?.room_name} ({roomForCheckoutConfirmation?.room_code})?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setRoomForCheckoutConfirmation(null); setActiveTransactionIdForCheckout(null);}}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmCheckout} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-out"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
+    

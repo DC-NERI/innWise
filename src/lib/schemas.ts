@@ -149,7 +149,7 @@ export type BranchCreateData = z.infer<typeof branchCreateSchema>;
 export const branchUpdateSchemaSysAd = z.object({
   tenant_id: z.coerce.number().int().positive({ message: "Tenant ID is required" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
-  // branch_code: z.string().min(1, "Branch code is required").max(50), // Branch code usually not editable
+  // branch_code is not editable by design here for SysAd, can be changed if needed
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
   contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
   email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
@@ -182,7 +182,7 @@ export const hotelRoomCreateSchema = z.object({
   room_type: z.string().max(50).optional().nullable(),
   bed_type: z.string().max(50).optional().nullable(),
   capacity: z.coerce.number().int().min(1, "Capacity must be at least 1").optional().nullable().default(2),
-  is_available: z.boolean().default(true), // This will be a Switch in the form
+  is_available: z.boolean().default(true),
 });
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
@@ -198,3 +198,5 @@ export const transactionCreateSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
+
+    
