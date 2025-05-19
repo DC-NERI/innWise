@@ -353,12 +353,12 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
 
     if (max_branch_count !== null && max_branch_count > 0) {
       const currentBranchCountRes = await client.query(
-        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
+        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'", // Count only active branches
         [tenant_id]
       );
       const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
       if (currentBranchCount >= max_branch_count) {
-        return { success: false, message: `Tenant has reached the maximum branch limit of ${max_branch_count}.` };
+        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To add a new active branch, please archive an existing one first.` };
       }
     }
 
@@ -486,12 +486,12 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
 
         if (max_user_count !== null && max_user_count > 0) {
             const currentUserCountRes = await client.query(
-                "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+                "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", // Count only active users
                 [tenant_id]
             );
             const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
             if (currentUserCount >= max_user_count) {
-                return { success: false, message: `Tenant has reached the maximum user limit of ${max_user_count}.` };
+                return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first.` };
             }
         }
     }
@@ -500,8 +500,8 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
     const password_hash = bcrypt.hashSync(password, salt);
 
     const res = await client.query(
-      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1') 
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       [first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id]
     );
@@ -712,12 +712,12 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
 
     if (max_user_count !== null && max_user_count > 0) {
         const currentUserCountRes = await client.query(
-            "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+            "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", // Count only active users
             [callingTenantId]
         );
         const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
         if (currentUserCount >= max_user_count) {
-            return { success: false, message: `Tenant has reached the maximum user limit of ${max_user_count}.` };
+            return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To add a new active user, please archive an existing one first.` };
         }
     }
 
@@ -726,8 +726,8 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
     const password_hash = bcrypt.hashSync(password, salt);
 
     const res = await client.query(
-      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1') 
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       [first_name, last_name, username, password_hash, email, role, callingTenantId, tenant_branch_id]
     );
@@ -888,4 +888,3 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
   }
 }
     
-
