@@ -60,10 +60,10 @@ export default function UsersManagement() {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([listAllUsers(), listTenants()]);
       setUsers(fetchedUsers);
-      setTenants(fetchedTenants.filter(t => t.status === '1')); 
-    } catch (error) { 
+      setTenants(fetchedTenants.filter(t => t.status === '1'));
+    } catch (error) {
       console.error("Failed to fetch user data:", error);
-      toast({ title: "Error", description: "Could not fetch user data.", variant: "destructive" }); 
+      toast({ title: "Error", description: "Could not fetch user data.", variant: "destructive" });
     }
     finally { setIsLoading(false); }
   }, [toast]);
@@ -79,7 +79,7 @@ export default function UsersManagement() {
       newDefaults = {
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
-        password: '', 
+        password: '',
         email: selectedUser.email || '',
         role: selectedUser.role,
         tenant_id: selectedUser.tenant_id || undefined,
@@ -105,7 +105,7 @@ export default function UsersManagement() {
 
   useEffect(() => {
     const currentTenantId = typeof selectedTenantIdInForm === 'number' ? selectedTenantIdInForm : undefined;
-    
+
     if (currentTenantId) {
       const isTenantChanged = isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id;
       if (form.formState.dirtyFields.tenant_id || !isEditing || isTenantChanged) {
@@ -136,14 +136,14 @@ export default function UsersManagement() {
       const result = await createUserSysAd(payload);
       if (result.success && result.user) {
         toast({ title: "Success", description: "User created." });
+        setUsers(prev => [...prev, result.user!].sort((a,b) => a.last_name.localeCompare(b.last_name)));
         setIsAddDialogOpen(false);
-        fetchData(); // Refresh user list
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
+    } catch (e) {
       console.error("Add user error:", e);
-      toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" }); 
+      toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -165,14 +165,14 @@ export default function UsersManagement() {
       const result = await updateUserSysAd(Number(selectedUser.id), payload as UserUpdateDataSysAd);
       if (result.success && result.user) {
         toast({ title: "Success", description: "User updated." });
+        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => a.last_name.localeCompare(b.last_name)));
         setIsEditDialogOpen(false);
-        fetchData(); // Refresh user list
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
+    } catch (e) {
       console.error("Edit user error:", e);
-      toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" }); 
+      toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -181,11 +181,14 @@ export default function UsersManagement() {
     setIsSubmitting(true);
     try {
       const result = await archiveUser(userId);
-      if (result.success) { toast({ title: "Success", description: `User "${username}" archived.` }); fetchData(); }
+      if (result.success) {
+        toast({ title: "Success", description: `User "${username}" archived.` });
+        setUsers(prev => prev.map(u => u.id === userId ? {...u, status: '0'} : u));
+      }
       else { toast({ title: "Archive Failed", description: result.message, variant: "destructive" }); }
-    } catch (e) { 
+    } catch (e) {
       console.error("Archive user error:", e);
-      toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" }); 
+      toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -199,19 +202,19 @@ export default function UsersManagement() {
       role: user.role,
       tenant_id: user.tenant_id,
       tenant_branch_id: user.tenant_branch_id,
-      status: '1', 
+      status: '1',
     };
     try {
       const result = await updateUserSysAd(Number(user.id), payload);
-      if (result.success) {
+      if (result.success && result.user) {
         toast({ title: "Success", description: `User "${user.username}" restored.` });
-        fetchData();
+        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u));
       } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
+    } catch (e) {
       console.error("Restore user error:", e);
-      toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" }); 
+      toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -325,9 +328,9 @@ export default function UsersManagement() {
             const { field } = controllerRenderProps;
             return (
               <FormItem>
-                <FormLabel>Tenant {selectedRoleInForm === 'staff' ? '*' : '(Optional)'}</FormLabel>
+                <FormLabel>Tenant {selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? '*' : '(Optional)'}</FormLabel>
                 <Select onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)} value={field.value?.toString()}>
-                  <FormControl><SelectTrigger><SelectValue placeholder={selectedRoleInForm === 'staff' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger><SelectValue placeholder={selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
                   <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
                 </Select>
                 <FormMessage />
@@ -383,24 +386,23 @@ export default function UsersManagement() {
       <CardHeader className="flex flex-row items-center justify-between">
         <div><div className="flex items-center space-x-2"><UsersIcon className="h-6 w-6 text-primary" /><CardTitle>Users Management</CardTitle></div><CardDescription>Manage system users, roles, and assignments.</CardDescription></div>
         <Dialog
-            key={isEditing ? `edit-user-${selectedUser?.id}` : 'add-user'}
+            key={isEditing ? `edit-user-sysad-${selectedUser?.id}` : 'add-user-sysad'}
             open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
                 if (!open) {
-                    setSelectedUser(null); 
+                    setSelectedUser(null);
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setAvailableBranches([]);
-                    form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
                 } else {
                   if (isEditing && selectedUser) {
-                    // useEffect will handle form reset and branch loading
+                    // useEffect will handle form reset and branch loading for edit
                     setIsEditDialogOpen(true);
                   } else {
                     // Setting up for "Add" dialog
-                    setSelectedUser(null); 
+                    setSelectedUser(null);
                     setAvailableBranches([]);
-                    form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
+                    // useEffect will set up form for 'add' based on selectedUser being null
                     setIsAddDialogOpen(true);
                   }
                 }
@@ -408,9 +410,7 @@ export default function UsersManagement() {
         >
           <DialogTrigger asChild>
             <Button onClick={() => {
-              setSelectedUser(null); 
-              setAvailableBranches([]);
-              form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
+              setSelectedUser(null); // This will trigger useEffect to reset form for 'add'
               setIsAddDialogOpen(true);
             }}><PlusCircle className="mr-2 h-4 w-4" /> Add User</Button>
           </DialogTrigger>
@@ -438,7 +438,7 @@ export default function UsersManagement() {
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Tenant</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredUsers.map(u => (
                   <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell>{u.role}</TableCell><TableCell>{u.tenant_name || 'N/A'}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
+                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.tenant_name || 'N/A'}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button variant="outline" size="sm" onClick={() => { setSelectedUser(u); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                       <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
@@ -459,7 +459,7 @@ export default function UsersManagement() {
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Tenant</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredUsers.map(u => (
                   <TableRow key={u.id}>
-                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell>{u.role}</TableCell><TableCell>{u.tenant_name || 'N/A'}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
+                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.tenant_name || 'N/A'}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
                     <TableCell className="text-right">
                       <Button variant="outline" size="sm" onClick={() => handleRestore(u)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                     </TableCell>
@@ -472,6 +472,3 @@ export default function UsersManagement() {
     </Card>
   );
 }
-
-
-    

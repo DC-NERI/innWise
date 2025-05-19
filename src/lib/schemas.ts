@@ -23,8 +23,8 @@ export const tenantCreateSchema = z.object({
 export type TenantCreateData = z.infer<typeof tenantCreateSchema>;
 
 export const tenantUpdateSchema = tenantCreateSchema.extend({
-  status: z.enum(['0', '1']).default('1'), 
-}); 
+  status: z.enum(['0', '1']).default('1'),
+});
 export type TenantUpdateData = z.infer<typeof tenantUpdateSchema>;
 
 
@@ -38,14 +38,16 @@ export const userCreateSchema = z.object({
   tenant_id: z.number().int().positive().optional().nullable(),
   tenant_branch_id: z.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
-  if (data.role === 'staff') {
+  if (data.role === 'admin' || data.role === 'staff') {
     if (data.tenant_id === null || data.tenant_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Tenant is required for staff members.",
+        message: "Tenant is required for admin and staff members.",
         path: ["tenant_id"],
       });
     }
+  }
+  if (data.role === 'staff') {
     if (data.tenant_branch_id === null || data.tenant_branch_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -88,14 +90,16 @@ export const userUpdateSchemaSysAd = z.object({
   tenant_branch_id: z.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
-  if (data.role === 'staff') {
+  if (data.role === 'admin' || data.role === 'staff') {
     if (data.tenant_id === null || data.tenant_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Tenant is required for staff members.",
+        message: "Tenant is required for admin and staff members.",
         path: ["tenant_id"],
       });
     }
+  }
+  if (data.role === 'staff') {
     if (data.tenant_branch_id === null || data.tenant_branch_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -140,7 +144,7 @@ export type BranchCreateData = z.infer<typeof branchCreateSchema>;
 
 // For SysAd updating any branch
 export const branchUpdateSchemaSysAd = z.object({
-  tenant_id: z.number().int().positive({ message: "Tenant ID is required" }), 
+  tenant_id: z.number().int().positive({ message: "Tenant ID is required" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
   // branch_code is not updatable by design here, so it's omitted.
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
@@ -149,5 +153,3 @@ export const branchUpdateSchemaSysAd = z.object({
   status: z.enum(['0', '1']).default('1'),
 });
 export type BranchUpdateDataSysAd = z.infer<typeof branchUpdateSchemaSysAd>;
-
-    
