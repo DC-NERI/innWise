@@ -1,28 +1,362 @@
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Users } from "lucide-react";
+"use client";
 
-export default function UsersContent() {
+import React, { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { useToast } from '@/hooks/use-toast';
+import { Loader2, PlusCircle, Users as UsersIcon, Edit, Trash2, ArchiveRestore } from 'lucide-react';
+import { useForm, useWatch } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin } from '@/lib/schemas';
+import type { User, SimpleBranch } from '@/lib/types';
+import { getUsersForTenant, createUserAdmin, updateUserAdmin, archiveUserAdmin, getBranchesForTenantSimple } from '@/actions/admin';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+type UserFormValues = UserCreateDataAdmin | UserUpdateDataAdmin;
+
+interface UsersContentProps {
+  tenantId: number;
+}
+
+const defaultFormValuesCreate: UserCreateDataAdmin = {
+  first_name: '',
+  last_name: '',
+  username: '',
+  password: '',
+  email: '',
+  role: 'staff',
+  tenant_branch_id: undefined,
+};
+
+export default function UsersContent({ tenantId }: UsersContentProps) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [availableBranches, setAvailableBranches] = useState<SimpleBranch[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [isLoadingBranches, setIsLoadingBranches] = useState(false);
+  const [activeTab, setActiveTab] = useState("active");
+  const { toast } = useToast();
+
+  const isEditing = !!selectedUser;
+
+  const form = useForm<UserFormValues>({
+    resolver: zodResolver(isEditing ? userUpdateSchemaAdmin : userCreateSchemaAdmin),
+    defaultValues: defaultFormValuesCreate,
+  });
+  
+  const fetchData = useCallback(async () => {
+    if (!tenantId) {
+        setIsLoading(false);
+        return;
+    }
+    setIsLoading(true);
+    try {
+      const [fetchedUsers, fetchedBranches] = await Promise.all([
+        getUsersForTenant(tenantId),
+        getBranchesForTenantSimple(tenantId)
+      ]);
+      setUsers(fetchedUsers);
+      setAvailableBranches(fetchedBranches);
+    } catch (error) { 
+      console.error("Failed to fetch user data for admin:", error);
+      toast({ title: "Error", description: "Could not fetch user data for your tenant.", variant: "destructive" }); 
+    }
+    finally { setIsLoading(false); }
+  }, [tenantId, toast]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    const currentIsEditing = !!selectedUser;
+    const newResolver = zodResolver(currentIsEditing ? userUpdateSchemaAdmin : userCreateSchemaAdmin);
+    let newDefaults: UserFormValues;
+
+    if (currentIsEditing && selectedUser) {
+      newDefaults = {
+        first_name: selectedUser.first_name,
+        last_name: selectedUser.last_name,
+        password: '', 
+        email: selectedUser.email || '',
+        role: selectedUser.role as 'admin' | 'staff', // Ensure role is one of the allowed
+        tenant_branch_id: selectedUser.tenant_branch_id || undefined,
+        status: selectedUser.status || '1',
+      };
+    } else {
+      newDefaults = defaultFormValuesCreate;
+    }
+    form.reset(newDefaults, { resolver: newResolver } as any);
+  }, [selectedUser, form, toast, isAddDialogOpen, isEditDialogOpen]);
+
+
+  const handleAddSubmit = async (data: UserCreateDataAdmin) => {
+    setIsSubmitting(true);
+    try {
+      const result = await createUserAdmin(data, tenantId);
+      if (result.success && result.user) {
+        toast({ title: "Success", description: "User created." });
+        setUsers(prev => [...prev, result.user!].sort((a, b) => {
+            if (a.role === 'admin' && b.role !== 'admin') return -1;
+            if (a.role !== 'admin' && b.role === 'admin') return 1;
+            if (a.role === 'staff' && b.role !== 'staff') return -1;
+            if (a.role !== 'staff' && b.role === 'staff') return 1;
+            return a.last_name.localeCompare(b.last_name);
+        }));
+        setIsAddDialogOpen(false);
+      } else {
+        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+      }
+    } catch (e) { 
+      console.error("Add user error (admin):", e);
+      toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" }); 
+    }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleEditSubmit = async (data: UserUpdateDataAdmin) => {
+    if (!selectedUser) return;
+    setIsSubmitting(true);
+    let payload: Partial<UserUpdateDataAdmin> = { ...data };
+    if (data.password === '' || data.password === null || data.password === undefined) {
+      delete payload.password;
+    }
+
+    try {
+      const result = await updateUserAdmin(Number(selectedUser.id), payload as UserUpdateDataAdmin, tenantId);
+      if (result.success && result.user) {
+        toast({ title: "Success", description: "User updated." });
+        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => {
+             if (a.role === 'admin' && b.role !== 'admin') return -1;
+            if (a.role !== 'admin' && b.role === 'admin') return 1;
+            if (a.role === 'staff' && b.role !== 'staff') return -1;
+            if (a.role !== 'staff' && b.role === 'staff') return 1;
+            return a.last_name.localeCompare(b.last_name);
+        }));
+        setIsEditDialogOpen(false);
+      } else {
+        toast({ title: "Update Failed", description: result.message, variant: "destructive" });
+      }
+    } catch (e) { 
+      console.error("Edit user error (admin):", e);
+      toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" }); 
+    }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleArchive = async (userId: number, username: string) => {
+    setIsSubmitting(true);
+    try {
+      const result = await archiveUserAdmin(userId, tenantId);
+      if (result.success) { 
+          toast({ title: "Success", description: `User "${username}" archived.` }); 
+          setUsers(prev => prev.map(u => u.id === userId ? {...u, status: '0'} : u));
+      }
+      else { toast({ title: "Archive Failed", description: result.message, variant: "destructive" }); }
+    } catch (e) { 
+      console.error("Archive user error (admin):", e);
+      toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" }); 
+    }
+    finally { setIsSubmitting(false); }
+  };
+
+  const handleRestore = async (user: User) => {
+    setIsSubmitting(true);
+    const payload: UserUpdateDataAdmin = {
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email || '',
+      role: user.role as 'admin' | 'staff',
+      tenant_branch_id: user.tenant_branch_id,
+      status: '1', 
+    };
+    try {
+      const result = await updateUserAdmin(Number(user.id), payload, tenantId);
+      if (result.success && result.user) {
+        toast({ title: "Success", description: `User "${user.username}" restored.` });
+        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u));
+      } else {
+        toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
+      }
+    } catch (e) { 
+      console.error("Restore user error (admin):", e);
+      toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" }); 
+    }
+    finally { setIsSubmitting(false); }
+  };
+
+  const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
+
+  const renderFormFields = () => {
+    const usernameField = (() => {
+        if (isEditing && selectedUser) {
+          return (
+            <FormItem>
+              <FormLabel>Username (Read-only)</FormLabel>
+              <FormControl><Input readOnly value={selectedUser.username} /></FormControl>
+            </FormItem>
+          );
+        }
+        return (
+          <FormField
+            control={form.control}
+            name="username"
+            render={( { field } ) => {
+              return (
+                <FormItem>
+                  <FormLabel>Username *</FormLabel>
+                  <FormControl><Input placeholder="johndoe" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
+          />
+        );
+      })();
+
+    return (
+      <React.Fragment>
+        <FormField control={form.control} name="first_name" render={({ field }) => (<FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="last_name" render={({ field }) => (<FormItem><FormLabel>Last Name *</FormLabel><FormControl><Input placeholder="Doe" {...field} /></FormControl><FormMessage /></FormItem>)} />
+        {usernameField}
+        <FormField control={form.control} name="password" render={({ field }) => (<FormItem><FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>)} />
+        <FormField control={form.control} name="role"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Role *</FormLabel>
+              <Select onValueChange={field.onChange} value={field.value as 'admin' | 'staff'}>
+                <FormControl><SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
+                <SelectContent>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select><FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField control={form.control} name="tenant_branch_id"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Branch</FormLabel>
+              <Select
+                onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)}
+                value={field.value?.toString()}
+                disabled={isLoadingBranches || availableBranches.length === 0}
+              >
+                <FormControl><SelectTrigger><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : "Assign to branch (Optional)"} /></SelectTrigger></FormControl>
+                <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
+              </Select><FormMessage />
+            </FormItem>
+          )}
+        />
+        {isEditing && (
+          <FormField control={form.control} name="status"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Status *</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value?.toString()}>
+                  <FormControl><SelectTrigger><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                  <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
+                </Select><FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+      </React.Fragment>
+    );
+  }
+
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading users...</p></div>;
+  }
+  if (!tenantId) {
+    return <Card><CardHeader><CardTitle>User Management</CardTitle><CardDescription>Tenant ID is not available.</CardDescription></CardHeader><CardContent><p>Cannot load users without a valid tenant identifier.</p></CardContent></Card>;
+  }
+
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center space-x-2">
-          <Users className="h-6 w-6 text-primary" />
-          <CardTitle>User Management</CardTitle>
-        </div>
-        <CardDescription>
-          View, add, edit, or remove users. (Functionality to be implemented)
-        </CardDescription>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div><div className="flex items-center space-x-2"><UsersIcon className="h-6 w-6 text-primary" /><CardTitle>User Management</CardTitle></div><CardDescription>Manage users within your tenant.</CardDescription></div>
+        <Dialog
+            key={isEditing ? `edit-user-admin-${selectedUser?.id}` : 'add-user-admin'}
+            open={isAddDialogOpen || isEditDialogOpen}
+            onOpenChange={(open) => {
+                if (!open) {
+                    setIsAddDialogOpen(false);
+                    setIsEditDialogOpen(false);
+                    setSelectedUser(null); 
+                } else {
+                    if (isEditing && selectedUser) setIsEditDialogOpen(true);
+                    else { setSelectedUser(null); setIsAddDialogOpen(true); }
+                }
+            }}
+        >
+          <DialogTrigger asChild>
+            <Button onClick={() => { setSelectedUser(null); setIsAddDialogOpen(true); }}>
+              <PlusCircle className="mr-2 h-4 w-4" /> Add User
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
+                {renderFormFields()}
+                <DialogFooter className="sticky bottom-0 bg-background py-4 border-t z-10">
+                  <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                  <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
       </CardHeader>
       <CardContent>
-        <p className="text-muted-foreground">
-          User management features will be available here. This section allows administrators
-          to manage user accounts, roles, and permissions within the system.
-        </p>
-        {/* Placeholder for user list table or other UI elements */}
-        <div className="mt-4 p-8 border border-dashed rounded-md text-center text-muted-foreground">
-          User List & Actions Placeholder
-        </div>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
+          <TabsContent value="active">
+            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No active users found.</p>}
+            {!isLoading && filteredUsers.length > 0 && (
+              <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{filteredUsers.map(u => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
+                    <TableCell className="text-right space-x-2">
+                      <Button variant="outline" size="sm" onClick={() => { setSelectedUser(u); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
+                      <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive user "{u.username}"?</AlertDialogDescription></AlertDialogHeader>
+                          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(Number(u.id), u.username)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </TableCell>
+                  </TableRow>))}
+                </TableBody>
+              </Table>)}
+          </TabsContent>
+          <TabsContent value="archive">
+            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No archived users found.</p>}
+            {!isLoading && filteredUsers.length > 0 && (
+              <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>{filteredUsers.map(u => (
+                  <TableRow key={u.id}>
+                    <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => handleRestore(u)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
+                    </TableCell>
+                  </TableRow>))}
+                </TableBody>
+              </Table>)}
+          </TabsContent>
+        </Tabs>
       </CardContent>
     </Card>
   );

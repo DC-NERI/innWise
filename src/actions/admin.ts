@@ -8,7 +8,8 @@ import {
   branchUpdateSchema, 
   tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData,
   userCreateSchema, UserCreateData, userUpdateSchemaSysAd, UserUpdateDataSysAd,
-  branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd
+  branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd,
+  userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin
 } from '@/lib/schemas';
 import type { z } from 'zod';
 
@@ -198,8 +199,6 @@ export async function getBranchesForTenantSimple(tenantId: number): Promise<Simp
     return result.rows as SimpleBranch[];
   } catch (error: any) {
      console.error(`Failed to fetch simple branches for tenant ${tenantId}:`, error.message);
-    // If status based query fails (e.g. column name typo, or it was actually missing before)
-    // we do not fallback here, as we assume status '1' filtering is critical for this function.
     throw new Error(`Database error: Could not fetch simple active branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
@@ -526,7 +525,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
       password_hash_update_string = `, password_hash = $${queryParams.length + 1}`;
       queryParams.push(new_password_hash);
     }
-    queryParams.push(userId); // Add userId as the last parameter for WHERE clause
+    queryParams.push(userId); 
 
     const res = await client.query(
       `UPDATE users 
@@ -598,4 +597,229 @@ export async function archiveUser(userId: number): Promise<{ success: boolean; m
   }
 }
 
+// User Actions (for Admin role, scoped to their tenant)
+export async function getUsersForTenant(tenantId: number): Promise<User[]> {
+  if (isNaN(tenantId) || tenantId <= 0) {
+    console.warn(`Invalid tenantId received in getUsersForTenant: ${tenantId}`);
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT u.id, u.tenant_id, t.tenant_name, u.tenant_branch_id, tb.branch_name,
+              u.first_name, u.last_name, u.username,
+              u.email, u.role, u.status, u.created_at, u.updated_at, u.last_log_in
+       FROM users u
+       JOIN tenants t ON u.tenant_id = t.id
+       LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id
+       WHERE u.tenant_id = $1 AND u.role != 'sysad'
+       ORDER BY CASE u.role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, u.last_name ASC, u.first_name ASC`,
+      [tenantId]
+    );
+    return res.rows.map(row => ({
+      id: row.id,
+      tenant_id: row.tenant_id,
+      tenant_name: row.tenant_name,
+      tenant_branch_id: row.tenant_branch_id,
+      branch_name: row.branch_name,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      username: row.username,
+      email: row.email,
+      role: row.role as User['role'],
+      status: row.status,
+      created_at: new Date(row.created_at).toISOString(),
+      updated_at: new Date(row.updated_at).toISOString(),
+      last_log_in: row.last_log_in ? new Date(row.last_log_in).toISOString() : null,
+    })) as User[];
+  } catch (error) {
+    console.error(`Failed to fetch users for tenant ${tenantId}:`, error);
+    throw new Error(`Database error: Could not fetch users. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
+
+export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId: number): Promise<{ success: boolean; message?: string; user?: User }> {
+  const validatedFields = userCreateSchemaAdmin.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+
+  const { first_name, last_name, username, password, email, role, tenant_branch_id } = validatedFields.data;
+
+  if (role === 'sysad') {
+    return { success: false, message: "Admins cannot create System Administrator accounts." };
+  }
+  if (isNaN(callingTenantId) || callingTenantId <= 0) {
+      return { success: false, message: "Invalid calling tenant ID." };
+  }
+
+  const salt = bcrypt.genSaltSync(10);
+  const password_hash = bcrypt.hashSync(password, salt);
+
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+       RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
+      [first_name, last_name, username, password_hash, email, role, callingTenantId, tenant_branch_id]
+    );
+    if (res.rows.length > 0) {
+      const newUser = res.rows[0];
+      const tenantRes = await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [newUser.tenant_id]);
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
+      const branchRes = newUser.tenant_branch_id ? await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [newUser.tenant_branch_id]) : { rows: [] };
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+      
+      return { 
+        success: true, 
+        message: "User created successfully.", 
+        user: {
+          id: newUser.id,
+          tenant_id: newUser.tenant_id,
+          tenant_name,
+          tenant_branch_id: newUser.tenant_branch_id,
+          branch_name,
+          first_name: newUser.first_name,
+          last_name: newUser.last_name,
+          username: newUser.username,
+          email: newUser.email,
+          role: newUser.role as User['role'],
+          status: newUser.status,
+          created_at: new Date(newUser.created_at).toISOString(),
+          updated_at: new Date(newUser.updated_at).toISOString(),
+          last_log_in: newUser.last_log_in ? new Date(newUser.last_log_in).toISOString() : null,
+        }
+      };
+    }
+    return { success: false, message: "User creation failed." };
+  } catch (error) {
+    console.error('Failed to create user by admin:', error);
+    let errorMessage = "Database error occurred during user creation.";
+    if (error instanceof Error && (error as any).code === '23505') {
+        if ((error as any).constraint === 'users_username_key') errorMessage = "This username is already taken.";
+        else if ((error as any).constraint === 'users_email_key') errorMessage = "This email address is already in use.";
+    } else if (error instanceof Error) {
+        errorMessage = `Database error: ${error.message}`;
+    }
+    return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin, callingTenantId: number): Promise<{ success: boolean; message?: string; user?: User }> {
+  const validatedFields = userUpdateSchemaAdmin.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+
+  const { first_name, last_name, password, email, role, tenant_branch_id, status } = validatedFields.data;
+
+  if (role === 'sysad') {
+    return { success: false, message: "Admins cannot assign System Administrator role." };
+  }
+   if (isNaN(callingTenantId) || callingTenantId <= 0) {
+      return { success: false, message: "Invalid calling tenant ID." };
+  }
+
+  const client = await pool.connect();
+  try {
+    // Verify user belongs to the admin's tenant
+    const userCheck = await client.query('SELECT tenant_id FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0 || userCheck.rows[0].tenant_id !== callingTenantId) {
+      return { success: false, message: "User not found in this tenant or permission denied." };
+    }
+
+    let password_hash_update_string = '';
+    const queryParams: any[] = [first_name, last_name, email, role, tenant_branch_id, status];
+    
+    if (password && password.trim() !== '') {
+      const salt = bcrypt.genSaltSync(10);
+      const new_password_hash = bcrypt.hashSync(password, salt);
+      password_hash_update_string = `, password_hash = $${queryParams.length + 1}`;
+      queryParams.push(new_password_hash);
+    }
+    queryParams.push(userId); 
+
+    const res = await client.query(
+      `UPDATE users 
+       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_branch_id = $5, status = $6, updated_at = CURRENT_TIMESTAMP ${password_hash_update_string}
+       WHERE id = $${queryParams.length} AND tenant_id = $${queryParams.length + 1}
+       RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
+      [...queryParams, callingTenantId]
+    );
+
+    if (res.rows.length > 0) {
+      const updatedUser = res.rows[0];
+      const tenantRes = await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [updatedUser.tenant_id]);
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
+      const branchRes = updatedUser.tenant_branch_id ? await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [updatedUser.tenant_branch_id]) : { rows: [] };
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+      
+      return { 
+        success: true, 
+        message: "User updated successfully.", 
+        user: {
+          id: updatedUser.id,
+          tenant_id: updatedUser.tenant_id,
+          tenant_name,
+          tenant_branch_id: updatedUser.tenant_branch_id,
+          branch_name,
+          first_name: updatedUser.first_name,
+          last_name: updatedUser.last_name,
+          username: updatedUser.username,
+          email: updatedUser.email,
+          role: updatedUser.role as User['role'],
+          status: updatedUser.status,
+          created_at: new Date(updatedUser.created_at).toISOString(),
+          updated_at: new Date(updatedUser.updated_at).toISOString(),
+          last_log_in: updatedUser.last_log_in ? new Date(updatedUser.last_log_in).toISOString() : null,
+        }
+      };
+    }
+    return { success: false, message: "User not found or no changes made." };
+  } catch (error) {
+    console.error(`Failed to update user ${userId} by admin:`, error);
+    let errorMessage = "Database error occurred during user update.";
+    if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'users_email_key') {
+        errorMessage = "This email address is already in use by another user.";
+    } else if (error instanceof Error) {
+        errorMessage = `Database error: ${error.message}`;
+    }
+    return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function archiveUserAdmin(userId: number, callingTenantId: number): Promise<{ success: boolean; message?: string }> {
+  if (isNaN(callingTenantId) || callingTenantId <= 0) {
+    return { success: false, message: "Invalid calling tenant ID." };
+  }
+  const client = await pool.connect();
+  try {
+    // Verify user belongs to the admin's tenant
+    const userCheck = await client.query('SELECT tenant_id FROM users WHERE id = $1', [userId]);
+    if (userCheck.rows.length === 0 || userCheck.rows[0].tenant_id !== callingTenantId) {
+      return { success: false, message: "User not found in this tenant or permission denied." };
+    }
+
+    const res = await client.query(
+      `UPDATE users SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND tenant_id = $2 RETURNING id`,
+      [userId, callingTenantId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "User archived successfully." };
+    }
+    return { success: false, message: "User not found or already archived." };
+  } catch (error) {
+    console.error(`Failed to archive user ${userId} by admin:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
     

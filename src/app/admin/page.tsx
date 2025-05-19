@@ -34,22 +34,29 @@ const AdminDashboardPage: NextPage = () => {
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
 
-      if (storedRole) setUserRole(storedRole);
+      if (storedRole) {
+        setUserRole(storedRole);
+        if (storedRole !== 'admin') { // Redirect if not admin
+            router.push('/');
+            return;
+        }
+      } else {
+        router.push('/');
+        return;
+      }
+
       if (storedTenantId) setTenantId(parseInt(storedTenantId, 10));
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
 
-      if (storedRole === 'sysad') {
-        setTenantName("System Administrator");
-      } else if (storedTenantName) {
+      if (storedTenantName) {
         setTenantName(storedTenantName);
       } else if (storedTenantId) {
-        // Fallback to fetch if tenantName wasn't in localStorage
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') { // Check again before setting localStorage
+            if (typeof window !== 'undefined') { 
                 localStorage.setItem('userTenantName', tenant.tenant_name); 
             }
           } else {
@@ -57,10 +64,10 @@ const AdminDashboardPage: NextPage = () => {
           }
         }).catch(error => {
           console.error("Failed to fetch tenant details on mount:", error);
-          setTenantName("Error Fetching Info");
+          setTenantName("Error Fetching Tenant Info");
         });
       } else {
-        setTenantName("Tenant Information"); // Default if no info
+        setTenantName("Tenant Information Unavailable"); 
       }
     }
 
@@ -78,7 +85,7 @@ const AdminDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, []); // Empty dependency array, runs once on mount
+  }, [router]); 
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -116,48 +123,42 @@ const AdminDashboardPage: NextPage = () => {
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
-            {userRole === 'admin' && (
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => setActiveView('users')}
-                  isActive={activeView === 'users'}
-                  className="justify-start"
-                >
-                  <Users className="h-5 w-5" />
-                  Users
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )}
-             {(userRole === 'admin' || userRole === 'sysad') && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setActiveView('branches')}
-                    isActive={activeView === 'branches'}
-                    className="justify-start"
-                  >
-                    <Building className="h-5 w-5" />
-                    Branches
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-            )}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('users')}
+                isActive={activeView === 'users'}
+                className="justify-start"
+              >
+                <Users className="h-5 w-5" />
+                Users
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('branches')}
+                isActive={activeView === 'branches'}
+                className="justify-start"
+              >
+                <Building className="h-5 w-5" />
+                Branches
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
           <div className="p-2 border-t border-sidebar-border">
-            { (userRole === 'admin' || userRole === 'sysad') && (
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    onClick={() => setActiveView('settings')}
-                    isActive={activeView === 'settings'}
-                    className="justify-start"
-                  >
-                    <Settings className="h-5 w-5" />
-                     Settings
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            )}
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setActiveView('settings')}
+                  isActive={activeView === 'settings'}
+                  className="justify-start"
+                >
+                  <Settings className="h-5 w-5" />
+                   Settings
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
           </div>
         </SidebarFooter>
       </Sidebar>
@@ -171,10 +172,13 @@ const AdminDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {activeView === 'users' && userRole === 'admin' && <UsersContent />}
-          {activeView === 'branches' && (userRole === 'admin' || userRole === 'sysad') && tenantId !== null && <BranchesContent tenantId={tenantId} />}
-          {activeView === 'branches' && tenantId === null && userRole !== 'sysad' && <p>Loading tenant information...</p>}
-          {activeView === 'settings' && (userRole === 'admin' || userRole === 'sysad') && (
+          {activeView === 'users' && userRole === 'admin' && tenantId !== null && <UsersContent tenantId={tenantId} />}
+          {activeView === 'users' && tenantId === null && <p>Loading tenant information for user management...</p>}
+
+          {activeView === 'branches' && userRole === 'admin' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
+          {activeView === 'branches' && tenantId === null && <p>Loading tenant information for branch management...</p>}
+          
+          {activeView === 'settings' && userRole === 'admin' && (
             <div>
               <h2 className="text-2xl font-semibold">Settings</h2>
               <p className="text-muted-foreground">System settings will be managed here.</p>
