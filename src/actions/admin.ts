@@ -15,36 +15,26 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client in admin actions', err);
 });
 
-// Placeholder for tenant details fetching
 export async function getTenantDetails(tenantId: number): Promise<Tenant | null> {
-  // In a real app, fetch from the database:
-  // const client = await pool.connect();
-  // try {
-  //   const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
-  //   if (res.rows.length > 0) {
-  //     return res.rows[0] as Tenant;
-  //   }
-  //   return null;
-  // } catch (error) {
-  //   console.error(`Failed to fetch tenant ${tenantId}:`, error);
-  //   throw error; // Or handle more gracefully
-  // } finally {
-  //   client.release();
-  // }
-  console.log(`Fetching tenant details for ID: ${tenantId} (currently placeholder)`);
-  if (tenantId === 1) { // Example placeholder data
-    return {
-      id: 1,
-      tenant_name: "InnWise Demo Hotel",
-      tenant_address: "123 Demo Street, Suite 456, Innovation City, ID 78901",
-      tenant_email: "contact@innwisedemo.com",
-      tenant_contact_info: "+1 (555) 123-4567",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      status: '1',
-    };
+  const client = await pool.connect();
+  try {
+    const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
+    if (res.rows.length > 0) {
+      const row = res.rows[0];
+      return {
+        ...row,
+        created_at: new Date(row.created_at).toISOString(),
+        updated_at: new Date(row.updated_at).toISOString(),
+      } as Tenant;
+    }
+    return null;
+  } catch (error) {
+    console.error(`Failed to fetch tenant ${tenantId}:`, error);
+    // In a real application, you might throw a more specific error or return an error object
+    throw new Error(`Database error: Could not fetch tenant details. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
   }
-  return null;
 }
 
 export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> {
@@ -61,7 +51,6 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
     })) as Branch[];
   } catch (error) {
     console.error(`Failed to fetch branches for tenant ${tenantId}:`, error);
-    // In a real app, you might want to throw a more specific error or return an error object
     throw new Error(`Database error: Could not fetch branches. ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();

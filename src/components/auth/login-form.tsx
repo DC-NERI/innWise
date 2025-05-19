@@ -1,10 +1,11 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loginUser } from "@/actions/auth";
-import { loginSchema } from "@/lib/schemas"; // Updated import path
+import { loginSchema } from "@/lib/schemas";
 import { useToast } from "@/hooks/use-toast";
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -37,6 +38,16 @@ export function LoginForm() {
     },
   });
 
+  // Clear sensitive session info on component mount, e.g. if user navigates back to login page
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('userRole');
+      localStorage.removeItem('userTenantId');
+      localStorage.removeItem('userTenantName');
+      localStorage.removeItem('username');
+    }
+  }, []);
+
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true);
 
@@ -50,10 +61,22 @@ export function LoginForm() {
       if (result.success && result.role) {
         toast({
           title: "Login Successful",
-          description: `Welcome! Redirecting to ${result.role} dashboard...`,
+          description: `Welcome ${result.username || ''}! Redirecting to ${result.role} dashboard...`,
         });
+
+        if (typeof window !== 'undefined') {
+            localStorage.setItem('userRole', result.role);
+            if (result.tenantId) {
+                localStorage.setItem('userTenantId', String(result.tenantId));
+            }
+            if (result.tenantName) {
+                localStorage.setItem('userTenantName', result.tenantName);
+            }
+             if (result.username) {
+                localStorage.setItem('username', result.username);
+            }
+        }
         
-        // Perform redirection after a short delay to allow toast to be seen
         setTimeout(() => {
           switch (result.role) {
             case "admin":
@@ -73,7 +96,7 @@ export function LoginForm() {
               });
               setIsLoading(false);
           }
-        }, 1000); // 1 second delay
+        }, 1000);
 
       } else {
         toast({
@@ -160,3 +183,4 @@ export function LoginForm() {
     </Card>
   );
 }
+

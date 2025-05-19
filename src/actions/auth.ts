@@ -10,6 +10,9 @@ export type LoginResult = {
   success: boolean;
   message: string;
   role?: UserRole;
+  tenantId?: number;
+  tenantName?: string;
+  username?: string; // For display or logging purposes
 };
 
 const pool = new Pool({
@@ -39,7 +42,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     const client = await pool.connect();
     try {
       const userResult = await client.query(
-        'SELECT id, username, password_hash, role FROM users WHERE username = $1',
+        'SELECT id, username, password_hash, role, tenant_id FROM users WHERE username = $1',
         [username]
       );
 
@@ -62,13 +65,37 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         return { message: "Login successful, but user role is not recognized for dashboard access.", success: false };
       }
 
+      let tenantId: number | undefined = undefined;
+      let tenantName: string | undefined = undefined;
+
+      if (user.tenant_id && userRole !== 'sysad') {
+        tenantId = user.tenant_id;
+        const tenantResult = await client.query(
+          'SELECT tenant_name FROM tenants WHERE id = $1',
+          [user.tenant_id]
+        );
+        if (tenantResult.rows.length > 0) {
+          tenantName = tenantResult.rows[0].tenant_name;
+        } else {
+          console.warn(`Tenant ID ${user.tenant_id} found for user ${username}, but no matching tenant in tenants table.`);
+          // Decide if this is an error or if login should proceed without tenantName
+        }
+      }
+
       await client.query(
         'UPDATE users SET last_log_in = CURRENT_TIMESTAMP WHERE id = $1',
         [user.id]
       );
       
-      console.log(`User ${user.username} (Role: ${userRole}) logged in at ${new Date().toISOString()}.`);
-      return { message: "Login successful!", success: true, role: userRole };
+      console.log(`User ${user.username} (Role: ${userRole}, Tenant ID: ${tenantId || 'N/A'}) logged in at ${new Date().toISOString()}.`);
+      return { 
+        message: "Login successful!", 
+        success: true, 
+        role: userRole,
+        tenantId: tenantId,
+        tenantName: tenantName,
+        username: user.username,
+      };
 
     } catch (dbError) {
       console.error("Database error during login:", dbError);
@@ -86,3 +113,4 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     return { message: errorMessage, success: false };
   }
 }
+
