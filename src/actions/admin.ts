@@ -37,7 +37,7 @@ export async function listTenants(): Promise<Tenant[]> {
 export async function createTenant(data: TenantCreateData): Promise<{ success: boolean; message?: string; tenant?: Tenant }> {
   const validatedFields = tenantCreateSchema.safeParse(data);
   if (!validatedFields.success) {
-    return { success: false, message: `Invalid data: ${validatedFields.error.flatten().fieldErrors}` };
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
   const { tenant_name, tenant_address, tenant_email, tenant_contact_info } = validatedFields.data;
   const client = await pool.connect();
@@ -77,6 +77,10 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
 
 
 export async function getTenantDetails(tenantId: number): Promise<Tenant | null> {
+  if (isNaN(tenantId) || tenantId <= 0) {
+    console.warn(`Invalid tenantId received in getTenantDetails: ${tenantId}`);
+    return null;
+  }
   const client = await pool.connect();
   try {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
@@ -99,6 +103,10 @@ export async function getTenantDetails(tenantId: number): Promise<Tenant | null>
 
 // Branch Actions
 export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> {
+  if (isNaN(tenantId) || tenantId <= 0) {
+    console.warn(`Invalid tenantId received in getBranchesForTenant: ${tenantId}`);
+    return [];
+  }
   const client = await pool.connect();
   try {
     const res = await client.query(
@@ -129,7 +137,7 @@ export async function updateBranchDetails(
   if (!validatedFields.success) {
     return {
       success: false,
-      message: `Invalid data: ${validatedFields.error.flatten().fieldErrors}`,
+      message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}`,
     };
   }
 
@@ -220,7 +228,6 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
 export async function listAllBranches(): Promise<Branch[]> {
   const client = await pool.connect();
   try {
-    // This query joins with tenants to potentially get tenant_name if needed in the list view
     const res = await client.query(`
       SELECT tb.id, tb.tenant_id, t.tenant_name, tb.branch_name, tb.branch_code, 
              tb.branch_address, tb.contact_number, tb.email_address, 
@@ -231,10 +238,10 @@ export async function listAllBranches(): Promise<Branch[]> {
     `);
     return res.rows.map(row => ({
         ...row,
-        tenant_name: row.tenant_name, // Include tenant_name from the join
+        tenant_name: row.tenant_name, 
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
-    })) as Branch[]; // Adjust Branch type if you add tenant_name directly to it
+    })) as Branch[];
   } catch (error) {
     console.error('Failed to fetch all branches:', error);
     throw new Error(`Database error: Could not fetch all branches. ${error instanceof Error ? error.message : String(error)}`);
@@ -246,16 +253,38 @@ export async function listAllBranches(): Promise<Branch[]> {
 
 // User Actions (for SysAd)
 export async function listAllUsers(): Promise<User[]> {
-  // Placeholder: Implement actual database query
-  console.log("listAllUsers action called - placeholder");
-  // In a real implementation, query the 'users' table, potentially joining with 'tenants' if tenant_name is needed.
-  // Example: SELECT u.id, u.tenant_id, t.tenant_name, u.first_name, u.last_name, u.username, u.email, u.role, u.status, u.created_at, u.updated_at, u.last_log_in FROM users u LEFT JOIN tenants t ON u.tenant_id = t.id ORDER BY u.last_name ASC, u.first_name ASC;
-  return [];
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`
+      SELECT u.id, u.tenant_id, t.tenant_name, u.first_name, u.last_name, u.username, 
+             u.email, u.role, u.status, u.created_at, u.updated_at, u.last_log_in 
+      FROM users u 
+      LEFT JOIN tenants t ON u.tenant_id = t.id 
+      ORDER BY u.last_name ASC, u.first_name ASC
+    `);
+    return res.rows.map(row => ({
+      id: row.id,
+      tenant_id: row.tenant_id,
+      tenant_name: row.tenant_name,
+      first_name: row.first_name,
+      last_name: row.last_name,
+      username: row.username,
+      email: row.email,
+      role: row.role as User['role'],
+      status: row.status,
+      created_at: new Date(row.created_at).toISOString(),
+      updated_at: new Date(row.updated_at).toISOString(),
+      last_log_in: row.last_log_in ? new Date(row.last_log_in).toISOString() : null,
+    })) as User[];
+  } catch (error) {
+    console.error('Failed to fetch all users:', error);
+    throw new Error(`Database error: Could not fetch all users. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
 }
 
 export async function createUserSysAd(data: UserCreateData): Promise<{ success: boolean; message?: string; user?: User }> {
-  // Placeholder: Implement actual user creation logic
-  console.log("createUserSysAd action called with data:", data, "- placeholder");
   const validatedFields = userCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
@@ -280,7 +309,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
         success: true, 
         message: "User created successfully.", 
         user: {
-          id: newUser.id, // map to string if your User type expects id as string
+          id: newUser.id,
           tenant_id: newUser.tenant_id,
           first_name: newUser.first_name,
           last_name: newUser.last_name,
@@ -290,7 +319,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
           status: newUser.status,
           created_at: new Date(newUser.created_at).toISOString(),
           updated_at: new Date(newUser.updated_at).toISOString(),
-          last_log_in: newUser.last_log_in ? new Date(newUser.last_log_in).toISOString() : undefined,
+          last_log_in: newUser.last_log_in ? new Date(newUser.last_log_in).toISOString() : null,
         }
       };
     }
@@ -298,10 +327,10 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
   } catch (error) {
     console.error('Failed to create user:', error);
     let errorMessage = "Database error occurred during user creation.";
-    if (error instanceof Error && (error as any).code === '23505') { // Unique constraint violation
+    if (error instanceof Error && (error as any).code === '23505') { 
         if ((error as any).constraint === 'users_username_key') {
             errorMessage = "This username is already taken.";
-        } else if ((error as any).constraint === 'users_email_key') { // Assuming you have a unique constraint on user email
+        } else if ((error as any).constraint === 'users_email_key') { 
             errorMessage = "This email address is already in use by another user.";
         }
     } else if (error instanceof Error) {

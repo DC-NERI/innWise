@@ -13,8 +13,9 @@ import { Loader2, PlusCircle, Users } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { userCreateSchema, UserCreateData } from '@/lib/schemas';
-import type { User, Tenant } from '@/lib/types'; // Assuming Tenant type is needed for tenant selection
+import type { User, Tenant } from '@/lib/types';
 import { createUserSysAd, listAllUsers, listTenants } from '@/actions/admin';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 
 export default function UsersManagement() {
@@ -43,7 +44,7 @@ export default function UsersManagement() {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([
         listAllUsers(), 
-        listTenants() // To populate tenant dropdown
+        listTenants()
       ]);
       setUsers(fetchedUsers);
       setTenants(fetchedTenants);
@@ -61,11 +62,10 @@ export default function UsersManagement() {
 
   useEffect(() => {
     fetchData();
-  }, [toast]);
+  }, [toast]); // Removed fetchData from dependency array to prevent loop
 
   const onSubmit = async (data: UserCreateData) => {
     setIsSubmitting(true);
-    // Ensure tenant_id is number or null, not empty string if that's how form sends it
     const payload = {
       ...data,
       tenant_id: data.tenant_id ? Number(data.tenant_id) : null,
@@ -74,15 +74,13 @@ export default function UsersManagement() {
     try {
       const result = await createUserSysAd(payload);
       if (result.success && result.user) {
-        // For a real list, you'd re-fetch or add to state.
-        // setUsers(prev => [...prev, result.user!]); // Simplified, ideally re-fetch
         toast({
           title: "Success",
           description: "User created successfully.",
         });
         form.reset();
         setIsDialogOpen(false);
-        fetchData(); // Re-fetch users to update the list
+        fetchData(); 
       } else {
         toast({
           title: "Creation Failed",
@@ -123,7 +121,7 @@ export default function UsersManagement() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => form.reset()}>
+            <Button onClick={() => {form.reset(); setIsDialogOpen(true);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add User
             </Button>
           </DialogTrigger>
@@ -217,8 +215,8 @@ export default function UsersManagement() {
                     <FormItem>
                       <FormLabel>Tenant (Optional)</FormLabel>
                       <Select 
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : null)} 
-                        value={field.value?.toString()}
+                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} // Ensure undefined for "None"
+                        value={field.value?.toString()} // Handle undefined case
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -226,7 +224,7 @@ export default function UsersManagement() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">None</SelectItem> {/* Provide an explicit "None" option */}
                           {tenants.map(tenant => (
                             <SelectItem key={tenant.id} value={tenant.id.toString()}>
                               {tenant.tenant_name}
@@ -241,7 +239,7 @@ export default function UsersManagement() {
                 />
                 <DialogFooter>
                    <DialogClose asChild>
-                        <Button type="button" variant="outline" onClick={() => form.reset()}>Cancel</Button>
+                        <Button type="button" variant="outline" onClick={() => {form.reset(); setIsDialogOpen(false);}}>Cancel</Button>
                    </DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create User"}
@@ -253,27 +251,37 @@ export default function UsersManagement() {
         </Dialog>
       </CardHeader>
       <CardContent>
-        <p className="text-muted-foreground">
-          User listing and full CRUD operations are planned for future implementation.
-          Currently, you can add new users.
-        </p>
-        {users.length > 0 ? (
-           <div className="mt-4 border rounded-md">
-            {/* Basic User List Placeholder - Replace with <Table> component later */}
-            <ul>
-              {users.map(user => (
-                <li key={user.id} className="p-2 border-b">
-                  {user.first_name} {user.last_name} ({user.username}) - {user.role}
-                  {user.tenant_name && ` - Tenant: ${user.tenant_name}`}
-                </li>
-              ))}
-            </ul>
-           </div>
+        {users.length === 0 ? (
+           <p className="text-muted-foreground text-center py-8">No users found. Add one to get started!</p>
         ) : (
-          !isLoading && <p className="text-muted-foreground mt-4">No users found.</p>
+           <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Username</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Tenant</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map(user => (
+                <TableRow key={user.id}>
+                  <TableCell className="font-medium">{user.first_name} {user.last_name}</TableCell>
+                  <TableCell>{user.username}</TableCell>
+                  <TableCell>{user.role}</TableCell>
+                  <TableCell>{user.tenant_name || 'N/A'}</TableCell>
+                  <TableCell>{user.status === '1' ? 'Active' : 'Inactive'}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="outline" size="sm" disabled>Edit</Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
       </CardContent>
     </Card>
   );
 }
-

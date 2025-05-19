@@ -53,20 +53,21 @@ export default function TenantsManagement() {
 
   useEffect(() => {
     fetchTenants();
-  }, [toast]);
+  }, [toast]); // Removed fetchTenants from dependencies as it causes infinite loop
 
   const onSubmit = async (data: TenantCreateData) => {
     setIsSubmitting(true);
     try {
       const result = await createTenant(data);
       if (result.success && result.tenant) {
-        setTenants(prev => [...prev, result.tenant!].sort((a, b) => a.tenant_name.localeCompare(b.tenant_name)));
+        // setTenants(prev => [...prev, result.tenant!].sort((a, b) => a.tenant_name.localeCompare(b.tenant_name)));
         toast({
           title: "Success",
           description: "Tenant created successfully.",
         });
         form.reset();
         setIsDialogOpen(false); 
+        fetchTenants(); // Re-fetch tenants
       } else {
         toast({
           title: "Creation Failed",
@@ -107,7 +108,7 @@ export default function TenantsManagement() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => form.reset()}>
+            <Button onClick={() => {form.reset(); setIsDialogOpen(true);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Tenant
             </Button>
           </DialogTrigger>
@@ -171,7 +172,7 @@ export default function TenantsManagement() {
                 />
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button type="button" variant="outline" onClick={() => form.reset()}>Cancel</Button>
+                    <Button type="button" variant="outline" onClick={() => {form.reset(); setIsDialogOpen(false)}}>Cancel</Button>
                   </DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Tenant"}
@@ -205,7 +206,6 @@ export default function TenantsManagement() {
                   <TableCell>{tenant.status === '1' ? 'Active' : 'Inactive'}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" disabled>Edit</Button> 
-                    {/* Edit/Delete to be implemented */}
                   </TableCell>
                 </TableRow>
               ))}

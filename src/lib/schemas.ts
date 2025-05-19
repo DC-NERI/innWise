@@ -28,13 +28,13 @@ export const userCreateSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff", "sysad"]).default("staff"),
-  tenant_id: z.number().int().positive().optional().nullable(),
+  tenant_id: z.number().int().positive().optional().nullable(), // Changed from string to number
 });
 export type UserCreateData = z.infer<typeof userCreateSchema>;
 
 
 export const branchCreateSchema = z.object({
-  tenant_id: z.number().int().positive("Tenant ID is required"),
+  tenant_id: z.number().int().positive({ message: "Tenant ID is required and must be a positive integer" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
   branch_code: z.string().min(1, "Branch code is required").max(50),
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),

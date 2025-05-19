@@ -44,7 +44,7 @@ export default function AllBranchesManagement() {
     try {
       const [fetchedBranches, fetchedTenants] = await Promise.all([
         listAllBranches(),
-        listTenants() // For tenant selection in add form
+        listTenants() 
       ]);
       setBranches(fetchedBranches);
       setTenants(fetchedTenants);
@@ -62,13 +62,13 @@ export default function AllBranchesManagement() {
 
   useEffect(() => {
     fetchData();
-  }, [toast]);
+  }, [toast]); // Removed fetchData from dependency array
 
   const onSubmit = async (data: BranchCreateData) => {
     setIsSubmitting(true);
     const payload = {
       ...data,
-      tenant_id: Number(data.tenant_id), // Ensure tenant_id is a number
+      tenant_id: Number(data.tenant_id), 
     };
     try {
       const result = await createBranchForTenant(payload);
@@ -79,7 +79,7 @@ export default function AllBranchesManagement() {
         });
         form.reset();
         setIsDialogOpen(false);
-        fetchData(); // Re-fetch to update list
+        fetchData(); 
       } else {
         toast({
           title: "Creation Failed",
@@ -120,7 +120,7 @@ export default function AllBranchesManagement() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => form.reset()}>
+            <Button onClick={() => {form.reset(); setIsDialogOpen(true);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Branch
             </Button>
           </DialogTrigger>
@@ -214,7 +214,7 @@ export default function AllBranchesManagement() {
                 />
                 <DialogFooter>
                   <DialogClose asChild>
-                     <Button type="button" variant="outline" onClick={() => form.reset()}>Cancel</Button>
+                     <Button type="button" variant="outline" onClick={() => {form.reset(); setIsDialogOpen(false);}}>Cancel</Button>
                   </DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Branch"}
@@ -244,11 +244,10 @@ export default function AllBranchesManagement() {
                 <TableRow key={branch.id}>
                   <TableCell className="font-medium">{branch.branch_name}</TableCell>
                   <TableCell>{branch.branch_code}</TableCell>
-                  <TableCell>{branch.tenant_name || 'N/A'}</TableCell> {/* Assumes tenant_name is fetched */}
+                  <TableCell>{branch.tenant_name || 'N/A'}</TableCell>
                   <TableCell>{branch.email_address || '-'}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" disabled>Edit</Button>
-                    {/* Edit/Delete to be implemented */}
                   </TableCell>
                 </TableRow>
               ))}
