@@ -120,15 +120,14 @@ const StaffDashboardPage: NextPage = () => {
   };
 
   const displayName = firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : username;
-  const displayTenantInfo = branchName ? `${tenantName} - ${branchName}` : tenantName;
-
+  
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
           <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
-            <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={displayTenantInfo}>
-              {displayTenantInfo}
+            <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
+              {tenantName}
             </h2>
             {displayName && (
               <p className="text-sm text-sidebar-foreground truncate" title={displayName}>
@@ -186,6 +185,7 @@ const StaffDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="text-sm font-bold text-foreground">
+            {branchName && <span className="mr-2">{branchName} -</span>}
             {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
