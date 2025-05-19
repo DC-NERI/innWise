@@ -26,7 +26,7 @@ pool.on('error', (err) => {
 export async function listTenants(): Promise<Tenant[]> {
   const client = await pool.connect();
   try {
-    const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
+    const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
     return res.rows.map(row => ({
         ...row,
         created_at: new Date(row.created_at).toISOString(),
@@ -45,14 +45,14 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  const { tenant_name, tenant_address, tenant_email, tenant_contact_info } = validatedFields.data;
+  const { tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count } = validatedFields.data;
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status`,
-      [tenant_name, tenant_address, tenant_email, tenant_contact_info]
+      `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
+       RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status`,
+      [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count]
     );
     if (res.rows.length > 0) {
        const newRow = res.rows[0];
@@ -86,15 +86,15 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  const { tenant_name, tenant_address, tenant_email, tenant_contact_info, status } = data; 
+  const { tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, status } = data; 
   const client = await pool.connect();
   try {
     const res = await client.query(
       `UPDATE tenants 
-       SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, status = $5, updated_at = CURRENT_TIMESTAMP 
-       WHERE id = $6
-       RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status`,
-      [tenant_name, tenant_address, tenant_email, tenant_contact_info, status, tenantId]
+       SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, max_branch_count = $5, max_user_count = $6, status = $7, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $8
+       RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status`,
+      [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, status, tenantId]
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
@@ -141,7 +141,7 @@ export async function getTenantDetails(tenantId: number): Promise<Tenant | null>
   }
   const client = await pool.connect();
   try {
-    const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
+    const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
     if (res.rows.length > 0) {
       const row = res.rows[0];
       return {
@@ -341,8 +341,27 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
   const { tenant_id, branch_name, branch_code, branch_address, contact_number, email_address } = validatedFields.data;
+  
   const client = await pool.connect();
   try {
+    // Check branch limit
+    const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [tenant_id]);
+    if (tenantDetails.rows.length === 0) {
+      return { success: false, message: "Tenant not found." };
+    }
+    const max_branch_count = tenantDetails.rows[0].max_branch_count;
+
+    if (max_branch_count !== null && max_branch_count > 0) {
+      const currentBranchCountRes = await client.query(
+        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
+        [tenant_id]
+      );
+      const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
+      if (currentBranchCount >= max_branch_count) {
+        return { success: false, message: `Tenant has reached the maximum branch limit of ${max_branch_count}.` };
+      }
+    }
+
     const res = await client.query(
       `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status) 
        VALUES ($1, $2, $3, $4, $5, $6, '1') 
@@ -456,11 +475,30 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
   
   const { first_name, last_name, username, password, email, role, tenant_id, tenant_branch_id } = validatedFields.data;
   
-  const salt = bcrypt.genSaltSync(10);
-  const password_hash = bcrypt.hashSync(password, salt);
-
   const client = await pool.connect();
   try {
+    if (tenant_id) {
+        const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
+        if (tenantDetails.rows.length === 0) {
+            return { success: false, message: "Assigned tenant not found." };
+        }
+        const max_user_count = tenantDetails.rows[0].max_user_count;
+
+        if (max_user_count !== null && max_user_count > 0) {
+            const currentUserCountRes = await client.query(
+                "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+                [tenant_id]
+            );
+            const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
+            if (currentUserCount >= max_user_count) {
+                return { success: false, message: `Tenant has reached the maximum user limit of ${max_user_count}.` };
+            }
+        }
+    }
+
+    const salt = bcrypt.genSaltSync(10);
+    const password_hash = bcrypt.hashSync(password, salt);
+
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -663,11 +701,30 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
       return { success: false, message: "Invalid calling tenant ID." };
   }
 
-  const salt = bcrypt.genSaltSync(10);
-  const password_hash = bcrypt.hashSync(password, salt);
-
   const client = await pool.connect();
   try {
+     // Check user limit for the calling tenant
+    const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
+    if (tenantDetails.rows.length === 0) {
+        return { success: false, message: "Calling tenant not found." };
+    }
+    const max_user_count = tenantDetails.rows[0].max_user_count;
+
+    if (max_user_count !== null && max_user_count > 0) {
+        const currentUserCountRes = await client.query(
+            "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+            [callingTenantId]
+        );
+        const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
+        if (currentUserCount >= max_user_count) {
+            return { success: false, message: `Tenant has reached the maximum user limit of ${max_user_count}.` };
+        }
+    }
+
+
+    const salt = bcrypt.genSaltSync(10);
+    const password_hash = bcrypt.hashSync(password, salt);
+
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
@@ -831,3 +888,4 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
   }
 }
     
+

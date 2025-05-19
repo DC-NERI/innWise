@@ -24,6 +24,8 @@ export interface Tenant {
   tenant_address?: string | null;
   tenant_email?: string | null;
   tenant_contact_info?: string | null;
+  max_branch_count?: number | null;
+  max_user_count?: number | null;
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   status: string;
@@ -48,3 +50,4 @@ export interface SimpleBranch {
   id: number;
   branch_name: string;
 }
+

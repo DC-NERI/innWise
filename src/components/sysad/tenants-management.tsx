@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { listTenants, createTenant, updateTenant, archiveTenant } from '@/actions/admin';
@@ -19,7 +19,6 @@ import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lu
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
-import React from 'react';
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -28,6 +27,8 @@ const defaultFormValuesCreate: TenantCreateData = {
   tenant_address: '',
   tenant_email: '',
   tenant_contact_info: '',
+  max_branch_count: 5, // Default value
+  max_user_count: 10,  // Default value
 };
 
 export default function TenantsManagement() {
@@ -82,6 +83,8 @@ export default function TenantsManagement() {
         tenant_address: selectedTenant.tenant_address || '',
         tenant_email: selectedTenant.tenant_email || '',
         tenant_contact_info: selectedTenant.tenant_contact_info || '',
+        max_branch_count: selectedTenant.max_branch_count ?? 0,
+        max_user_count: selectedTenant.max_user_count ?? 0,
         status: selectedTenant.status || '1',
       };
     } else {
@@ -152,6 +155,8 @@ export default function TenantsManagement() {
         tenant_address: tenant.tenant_address,
         tenant_email: tenant.tenant_email,
         tenant_contact_info: tenant.tenant_contact_info,
+        max_branch_count: tenant.max_branch_count,
+        max_user_count: tenant.max_user_count,
         status: '1', 
     };
     const result = await updateTenant(tenant.id, payload);
@@ -217,6 +222,28 @@ export default function TenantsManagement() {
           <FormItem>
             <FormLabel>Contact Info</FormLabel>
             <FormControl><Input placeholder="+1-555-0100" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="max_branch_count"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Max Branches (0 for unlimited)</FormLabel>
+            <FormControl><Input type="number" placeholder="5" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="max_user_count"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Max Users (0 for unlimited)</FormLabel>
+            <FormControl><Input type="number" placeholder="10" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -297,13 +324,15 @@ export default function TenantsManagement() {
             {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No active tenants found.</p>}
             {!isLoading && filteredTenants.length > 0 && (
               <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Contact</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Contact</TableHead><TableHead>Max Branches</TableHead><TableHead>Max Users</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredTenants.map(tenant => (
                     <TableRow key={tenant.id}>
                       <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
                       <TableCell>{tenant.tenant_email || '-'}</TableCell>
                       <TableCell>{tenant.tenant_contact_info || '-'}</TableCell>
+                      <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
+                      <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedTenant(tenant); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}>
                             <Edit className="mr-1 h-3 w-3" /> Edit
@@ -329,12 +358,14 @@ export default function TenantsManagement() {
             {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No archived tenants found.</p>}
             {!isLoading && filteredTenants.length > 0 && (
               <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Max Branches</TableHead><TableHead>Max Users</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {filteredTenants.map(tenant => (
                     <TableRow key={tenant.id}>
                       <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
                       <TableCell>{tenant.tenant_email || '-'}</TableCell>
+                      <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
+                      <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" onClick={() => handleRestore(tenant)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                       </TableCell>

@@ -20,6 +20,8 @@ export const tenantCreateSchema = z.object({
   tenant_address: z.string().max(1000, "Address too long").optional().nullable(),
   tenant_email: z.string().email("Invalid email address").max(255, "Email too long").optional().nullable(),
   tenant_contact_info: z.string().max(100, "Contact number too long").optional().nullable(),
+  max_branch_count: z.coerce.number().int().min(0, "Max branches must be non-negative").optional().nullable(),
+  max_user_count: z.coerce.number().int().min(0, "Max users must be non-negative").optional().nullable(),
 });
 export type TenantCreateData = z.infer<typeof tenantCreateSchema>;
 
@@ -36,8 +38,8 @@ export const userCreateSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff", "sysad"]).default("staff"),
-  tenant_id: z.number().int().positive().optional().nullable(),
-  tenant_branch_id: z.number().int().positive().optional().nullable(),
+  tenant_id: z.coerce.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.role === 'admin' || data.role === 'staff') {
     if (data.tenant_id === null || data.tenant_id === undefined) {
@@ -68,7 +70,7 @@ export const userCreateSchemaAdmin = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff"]).default("staff"), // Admin can only create admin or staff
-  tenant_branch_id: z.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
     ctx.addIssue({
@@ -87,8 +89,8 @@ export const userUpdateSchemaSysAd = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff", "sysad"]).default("staff"),
-  tenant_id: z.number().int().positive().optional().nullable(),
-  tenant_branch_id: z.number().int().positive().optional().nullable(),
+  tenant_id: z.coerce.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
   if (data.role === 'admin' || data.role === 'staff') {
@@ -119,7 +121,7 @@ export const userUpdateSchemaAdmin = z.object({
   password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff"]).default("staff"), // Admin can only assign admin or staff
-  tenant_branch_id: z.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
   if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
@@ -134,7 +136,7 @@ export type UserUpdateDataAdmin = z.infer<typeof userUpdateSchemaAdmin>;
 
 
 export const branchCreateSchema = z.object({
-  tenant_id: z.number().int().positive({ message: "Tenant ID is required and must be a positive integer" }),
+  tenant_id: z.coerce.number().int().positive({ message: "Tenant ID is required and must be a positive integer" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
   branch_code: z.string().min(1, "Branch code is required").max(50),
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
@@ -145,7 +147,7 @@ export type BranchCreateData = z.infer<typeof branchCreateSchema>;
 
 // For SysAd updating any branch
 export const branchUpdateSchemaSysAd = z.object({
-  tenant_id: z.number().int().positive({ message: "Tenant ID is required" }),
+  tenant_id: z.coerce.number().int().positive({ message: "Tenant ID is required" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
   // branch_code is not updatable by design here, so it's omitted.
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
@@ -154,3 +156,4 @@ export const branchUpdateSchemaSysAd = z.object({
   status: z.enum(['0', '1']).default('1'),
 });
 export type BranchUpdateDataSysAd = z.infer<typeof branchUpdateSchemaSysAd>;
+
