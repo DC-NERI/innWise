@@ -10,7 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BedDouble, Loader2, Info, LogOut, User } from "lucide-react"; // Ensured User is imported
+import { BedDouble, Loader2, Info, LogOut, User } from "lucide-react";
 import type { HotelRoom, Transaction } from '@/lib/types';
 import { listRoomsForBranch } from '@/actions/admin';
 import { createTransactionAndOccupyRoom, getActiveTransactionDetails, checkOutGuestAndFreeRoom } from '@/actions/staff';
@@ -18,6 +18,7 @@ import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 interface RoomStatusContentProps {
   tenantId: number | null;
@@ -58,13 +59,17 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       setIsLoading(false);
       setRooms([]);
       setGroupedRooms({});
+      console.log("[RoomStatusContent] TenantId or BranchId missing, aborting fetch.", { tenantId, branchId });
       return;
     }
     setIsLoading(true);
+    console.log("[RoomStatusContent] Fetching rooms for tenant:", tenantId, "branch:", branchId);
     try {
       const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
+      console.log("[RoomStatusContent] Fetched rooms raw:", fetchedRooms);
       const activeDisplayRooms = fetchedRooms.filter(room => room.status === '1');
       setRooms(activeDisplayRooms);
+      console.log("[RoomStatusContent] Active display rooms:", activeDisplayRooms);
 
       const grouped = activeDisplayRooms.reduce((acc, room) => {
         const floorKey = room.floor?.toString() ?? 'Ground Floor / Other';
@@ -96,18 +101,21 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   }, [fetchRoomsData]);
 
   const handleOpenBookingDialog = (room: HotelRoom) => {
+    console.log("[RoomStatusContent] Opening booking dialog for room:", room);
     setSelectedRoomForBooking(room);
     bookingForm.reset(defaultTransactionFormValues);
     setIsBookingDialogOpen(true);
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
+    console.log("[RoomStatusContent] Booking submit called. Selected room:", selectedRoomForBooking, "Staff ID:", staffUserId);
     if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId) {
       toast({ 
         title: "Error", 
-        description: `Booking check failed. Missing required info: Room Selected? ${!!selectedRoomForBooking}, StaffID? ${staffUserId}, TenantID? ${tenantId}, BranchID? ${branchId}`, 
+        description: `Booking check failed. Details: Room Selected=${!!selectedRoomForBooking}, StaffID=${staffUserId}, TenantID=${tenantId}, BranchID=${branchId}`, 
         variant: "destructive" 
       });
+      console.error("Booking check failed. Details:", { selectedRoomForBooking, staffUserId, tenantId, branchId });
       return;
     }
     setIsSubmitting(true);
@@ -135,7 +143,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         return;
     }
     if (!transactionId) {
-      // This case might happen if the active_transaction_id is somehow null from the DB for an occupied room.
       toast({ title: "Info", description: "No active transaction ID found for this room.", variant: "default" });
       return;
     }
@@ -204,7 +211,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
             {floorRooms.map(room => (
               <Card 
                 key={room.id} 
-                className={`shadow-md hover:shadow-lg transition-shadow duration-200 flex flex-col ${room.is_available ? 'cursor-pointer' : ''}`}
+                className={cn(
+                    "shadow-md hover:shadow-lg transition-shadow duration-200 flex flex-col",
+                    room.is_available && "cursor-pointer"
+                )}
                 onClick={room.is_available ? () => handleOpenBookingDialog(room) : undefined}
               >
                 <CardHeader className="p-4">
@@ -212,17 +222,37 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                   <CardDescription className="text-xs">{room.room_code}</CardDescription>
                 </CardHeader>
                 <CardContent className="p-4 pt-0 flex-grow flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center space-x-2 mb-2">
-                      <span className={`h-3 w-3 rounded-full ${room.is_available ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                      <span className={`text-sm font-medium ${room.is_available ? 'text-green-600' : 'text-red-600'}`}>
-                        {room.is_available ? 'Available' : 'Occupied'}
-                      </span>
-                    </div>
+                  <div className="mb-2"> {/* Content above buttons */}
+                    {room.is_available ? (
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="h-3 w-3 rounded-full bg-green-500"></span>
+                        <span className="text-sm font-medium text-green-600">Available</span>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="flex items-center space-x-2 mb-2 p-1 h-auto text-left text-red-600 hover:bg-red-500/10"
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (room.active_transaction_id) {
+                                handleOpenTransactionInfoDialog(room.active_transaction_id);
+                            } else {
+                                toast({title: "Info", description: "No active transaction details for this room."});
+                            }
+                        }}
+                        title="View Guest/Transaction Info"
+                        disabled={!room.active_transaction_id}
+                      >
+                        <span className="h-3 w-3 rounded-full bg-red-500"></span>
+                        <span className="text-sm font-medium">Occupied</span>
+                        <Info className="h-4 w-4 ml-1 opacity-75" />
+                      </Button>
+                    )}
 
                     {!room.is_available && room.active_transaction_client_name && (
                       <div className="flex items-center text-xs text-muted-foreground mb-1">
-                        <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-primary" /> {/* User icon */}
+                        <User className="h-3 w-3 mr-1.5 flex-shrink-0 text-primary" />
                         <span className="font-medium text-foreground">Guest:</span>
                         <span className="ml-1 truncate" title={room.active_transaction_client_name}>
                            {room.active_transaction_client_name}
@@ -238,17 +268,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                     {room.bed_type && <p className="text-xs text-muted-foreground">Bed: {room.bed_type}</p>}
                   </div>
                   
-                  {!room.is_available && room.active_transaction_id && (
-                    <div className="mt-3 flex space-x-2 items-center">
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={(e) => { e.stopPropagation(); handleOpenTransactionInfoDialog(room.active_transaction_id); }}
-                        className="flex-1"
-                        title="View Transaction Info"
-                      >
-                        <Info className="h-3 w-3 mr-1" /> Info
-                      </Button>
+                  {!room.is_available && (
+                    <div className="mt-auto pt-2 flex space-x-2 items-center border-t border-border/50"> {/* Buttons at the bottom */}
                        <AlertDialog 
                         open={!!roomToCheckout && roomToCheckout.id === room.id} 
                         onOpenChange={(open) => { if (!open) setRoomToCheckout(null);}}
@@ -305,7 +326,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                     <SelectContent>
                         <SelectItem value="Cash">Cash</SelectItem>
                         <SelectItem value="Card">Card</SelectItem>
-                        <SelectItem value="Online">Online Payment</SelectItem>
+                        <SelectItem value="Online Payment">Online Payment</SelectItem>
                         <SelectItem value="Other">Other</SelectItem>
                     </SelectContent>
                   </Select><FormMessage />
@@ -345,6 +366,4 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
-
-
     
