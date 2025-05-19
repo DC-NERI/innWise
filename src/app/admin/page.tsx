@@ -3,6 +3,7 @@
 
 import type { NextPage } from 'next';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Users, Building, Settings, LogOut } from 'lucide-react';
@@ -15,6 +16,7 @@ const AdminDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'users' | 'branches'>('branches');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
+  const router = useRouter(); // Initialize useRouter
 
   // Placeholder: In a real app, tenantId and userRole would come from user's session/authentication context
   const tenantId = 1; 
@@ -60,6 +62,11 @@ const AdminDashboardPage: NextPage = () => {
     return () => clearInterval(intervalId);
   }, [tenantId, userRole]);
 
+  const handleLogout = () => {
+    // In a real app, you'd also clear any session/token here
+    router.push('/');
+  };
+
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
@@ -91,7 +98,7 @@ const AdminDashboardPage: NextPage = () => {
             <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent">
               <Settings className="mr-2 h-5 w-5" /> Settings
             </Button>
-            <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent">
+            <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent" onClick={handleLogout}>
                <LogOut className="mr-2 h-5 w-5" /> Logout
             </Button>
           </div>
