@@ -209,7 +209,7 @@ export async function getActiveTransactionForRoom(
       console.log(`[staff.ts:getActiveTransactionForRoom] Found transaction: ${JSON.stringify(row)}`);
       return {
         ...row,
-        price: row.price ? parseFloat(row.price) : undefined, // Assuming price might come from a join not shown
+        price: row.price ? parseFloat(row.price) : undefined, 
         total_amount: row.total_amount ? parseFloat(row.total_amount) : undefined,
         check_in_time: new Date(row.check_in_time).toISOString(),
         check_out_time: row.check_out_time ? new Date(row.check_out_time).toISOString() : null,
@@ -409,7 +409,7 @@ export async function checkOutGuestAndFreeRoom(
 
     if (roomUpdateRes.rowCount === 0) {
       console.warn(`Check-out successful for transaction ${transactionId}, but failed to update room ${roomId} status.`);
-      await client.query('ROLLBACK'); // Still rollback if room update fails critical part of freeing room
+      await client.query('ROLLBACK'); 
       return { success: false, message: "Check-out processed for transaction, but failed to update room status. Please check manually." };
     }
 
@@ -442,4 +442,3 @@ export async function checkOutGuestAndFreeRoom(
     client.release();
   }
 }
-
