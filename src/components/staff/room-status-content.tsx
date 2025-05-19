@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -59,16 +59,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       setIsLoading(false);
       setRooms([]);
       setGroupedRooms({});
-      console.log("[RoomStatusContent] TenantId or BranchId missing, aborting fetch.", { tenantId, branchId });
       return;
     }
     setIsLoading(true);
-    console.log("[RoomStatusContent] Fetching rooms for tenant:", tenantId, "branch:", branchId);
     try {
       const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
       const activeDisplayRooms = fetchedRooms.filter(room => room.status === '1');
       setRooms(activeDisplayRooms);
-      console.log("[RoomStatusContent] Active display rooms to be processed:", activeDisplayRooms);
 
       const grouped = activeDisplayRooms.reduce((acc, room) => {
         const floorKey = room.floor?.toString() ?? 'Ground Floor / Other';
@@ -107,11 +104,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   };
 
   const handleBookingSubmit = async (data: TransactionCreateData) => {
-    console.log("[RoomStatusContent] Booking submit called. Selected room:", selectedRoomForBooking, "Staff ID:", staffUserId);
+    console.log("[RoomStatusContent] Booking submit called. Selected room:", selectedRoomForBooking, "Staff ID:", staffUserId, "Tenant ID:", tenantId, "Branch ID:", branchId );
     if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId) {
       toast({ 
-        title: "Error", 
-        description: `Booking check failed. Details: Room Selected=${!!selectedRoomForBooking}, StaffID=${staffUserId}, TenantID=${tenantId}, BranchID=${branchId}`, 
+        title: "Booking Check Failed", 
+        description: `Required details missing. Room Selected: ${!!selectedRoomForBooking}, Staff ID: ${staffUserId}, Tenant ID: ${tenantId}, Branch ID: ${branchId}`, 
         variant: "destructive" 
       });
       console.error("Booking check failed. Details:", { selectedRoomForBooking, staffUserId, tenantId, branchId });
@@ -152,7 +149,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         setCurrentTransactionDetails(details);
         setIsTransactionInfoDialogOpen(true);
       } else {
-        toast({ title: "Not Found", description: "Could not find active transaction details. It might have been recently checked out or an error occurred.", variant: "destructive" });
+        toast({ title: "Transaction Not Found", description: "Could not find active transaction details. It might have been recently checked out or an error occurred. (ID: " + transactionId + ")", variant: "destructive" });
       }
     } catch (error) {
       toast({ title: "Error", description: "Failed to fetch transaction details.", variant: "destructive" });
@@ -267,7 +264,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                               if (room.active_transaction_id) {
                                 handleOpenTransactionInfoDialog(room.active_transaction_id);
                               } else {
-                                toast({ title: "Info", description: "No active transaction details available for this room.", variant: "default" });
+                                toast({ title: "Info", description: "No active transaction details available for this room. (ID not found on room object)", variant: "default" });
                               }
                             }}
                             title="View Guest/Transaction Info"
@@ -374,4 +371,3 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
     </div>
   );
 }
-
