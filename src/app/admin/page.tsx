@@ -19,33 +19,36 @@ const AdminDashboardPage: NextPage = () => {
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
-  const [username, setUsername] = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(null); // Retained for potential use, though firstName/lastName preferred
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [lastName, setLastName] = useState<string | null>(null);
 
   const router = useRouter();
 
   useEffect(() => {
-    // Retrieve user info from localStorage
     if (typeof window !== 'undefined') {
       const storedRole = localStorage.getItem('userRole') as UserRole | null;
       const storedTenantId = localStorage.getItem('userTenantId');
       const storedTenantName = localStorage.getItem('userTenantName');
       const storedUsername = localStorage.getItem('username');
+      const storedFirstName = localStorage.getItem('userFirstName');
+      const storedLastName = localStorage.getItem('userLastName');
 
       if (storedRole) setUserRole(storedRole);
       if (storedTenantId) setTenantId(parseInt(storedTenantId, 10));
-      if (storedTenantName) setTenantName(storedTenantName); // Initial set from localStorage
       if (storedUsername) setUsername(storedUsername);
+      if (storedFirstName) setFirstName(storedFirstName);
+      if (storedLastName) setLastName(storedLastName);
 
-      // If role is sysad, tenantName is fixed
       if (storedRole === 'sysad') {
         setTenantName("System Administrator");
-      } else if (storedTenantId && !storedTenantName) {
-        // If tenantId exists but name wasn't stored/retrieved, fetch it
-        // This handles cases where localStorage might not have been fully populated or cleared
+      } else if (storedTenantName) {
+        setTenantName(storedTenantName);
+      } else if (storedTenantId) {
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            localStorage.setItem('userTenantName', tenant.tenant_name); // Optionally update localStorage
+            localStorage.setItem('userTenantName', tenant.tenant_name); 
           } else {
             setTenantName("Tenant Not Found");
           }
@@ -53,11 +56,8 @@ const AdminDashboardPage: NextPage = () => {
           console.error("Failed to fetch tenant details on mount:", error);
           setTenantName("Error Fetching Info");
         });
-      } else if (!storedRole && !storedTenantId) {
-        // If no user info, likely means not logged in or session expired
-        // Redirect to login, but be careful about redirect loops if this page is the default after login.
-        // router.push('/'); // Consider the implications before enabling this
-        setTenantName("Tenant Information"); // Fallback
+      } else {
+        setTenantName("Tenant Information"); 
       }
     }
 
@@ -75,7 +75,7 @@ const AdminDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [router]); // Added router to dependency array if used for redirect
+  }, []); 
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -83,22 +83,37 @@ const AdminDashboardPage: NextPage = () => {
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
       localStorage.removeItem('username');
+      localStorage.removeItem('userFirstName');
+      localStorage.removeItem('userLastName');
     }
     router.push('/');
   };
+
+  const displayName = firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : username;
 
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
-          <div className="p-4 border-b border-sidebar-border">
-            <h2 className="text-xl font-semibold text-sidebar-primary-foreground truncate" title={tenantName}>{tenantName}</h2>
-            {username && <p className="text-sm text-sidebar-foreground truncate" title={username}>User: {username}</p>}
+          <div className="p-4 border-b border-sidebar-border flex flex-col space-y-1">
+            <h2 className="text-lg font-semibold text-sidebar-primary-foreground truncate" title={tenantName}>
+              {tenantName}
+            </h2>
+            {displayName && (
+              <p className="text-sm text-sidebar-foreground truncate" title={displayName}>
+                {displayName}
+              </p>
+            )}
+            {userRole && (
+              <p className="text-xs text-sidebar-foreground/80 uppercase tracking-wider" title={`Role: ${userRole}`}>
+                {userRole}
+              </p>
+            )}
           </div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
-            {userRole === 'admin' && ( // Only show Users if role is admin
+            {userRole === 'admin' && (
               <SidebarMenuItem
                 onClick={() => setActiveView('users')}
                 className={`hover:bg-sidebar-accent ${activeView === 'users' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}
@@ -107,7 +122,7 @@ const AdminDashboardPage: NextPage = () => {
                 Users
               </SidebarMenuItem>
             )}
-             {(userRole === 'admin' || userRole === 'sysad') && ( // Show Branches for admin and sysad
+             {(userRole === 'admin' || userRole === 'sysad') && (
                 <SidebarMenuItem
                 onClick={() => setActiveView('branches')}
                 className={`hover:bg-sidebar-accent ${activeView === 'branches' ? 'bg-sidebar-accent text-sidebar-accent-foreground' : 'text-sidebar-foreground'}`}
@@ -125,25 +140,27 @@ const AdminDashboardPage: NextPage = () => {
                 <Settings className="mr-2 h-5 w-5" /> Settings
               </Button>
             )}
-            <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent" onClick={handleLogout}>
-               <LogOut className="mr-2 h-5 w-5" /> Logout
-            </Button>
           </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
-        <header className="flex flex-col sm:flex-row justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="mb-2 sm:mb-0">
-            <h1 className="text-2xl font-semibold truncate" title={tenantName}>{tenantName}</h1>
-          </div>
+        <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="text-sm text-muted-foreground">
             {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
           </div>
+           <Button variant="outline" size="sm" onClick={handleLogout}>
+             <LogOut className="mr-2 h-4 w-4" /> Logout
+           </Button>
         </header>
         <main className="p-4 lg:p-6">
           {activeView === 'users' && userRole === 'admin' && <UsersContent />}
           {activeView === 'branches' && (userRole === 'admin' || userRole === 'sysad') && tenantId !== null && <BranchesContent tenantId={tenantId} />}
-          {activeView === 'branches' && tenantId === null && <p>Loading tenant information...</p>}
+          {activeView === 'branches' && tenantId === null && userRole !== 'sysad' && <p>Loading tenant information...</p>}
+          {/* SysAd might not have branches directly tied in the same way, or it's a global view. 
+              Adjust if sysad needs a specific message or branch view logic.
+              For now, if tenantId is null (which it would be for sysad as per current logic), BranchesContent won't render.
+          */}
+
         </main>
       </SidebarInset>
     </SidebarProvider>
@@ -151,8 +168,3 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-
-// Removed metadata export as it's a client component
-// export const metadata = {
-//   title: "Admin Dashboard - InnWise",
-// };

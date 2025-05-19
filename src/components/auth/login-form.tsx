@@ -38,13 +38,14 @@ export function LoginForm() {
     },
   });
 
-  // Clear sensitive session info on component mount, e.g. if user navigates back to login page
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
       localStorage.removeItem('username');
+      localStorage.removeItem('userFirstName');
+      localStorage.removeItem('userLastName');
     }
   }, []);
 
@@ -61,7 +62,7 @@ export function LoginForm() {
       if (result.success && result.role) {
         toast({
           title: "Login Successful",
-          description: `Welcome ${result.username || ''}! Redirecting to ${result.role} dashboard...`,
+          description: `Welcome ${result.firstName || result.username || ''}! Redirecting to ${result.role} dashboard...`,
         });
 
         if (typeof window !== 'undefined') {
@@ -72,8 +73,14 @@ export function LoginForm() {
             if (result.tenantName) {
                 localStorage.setItem('userTenantName', result.tenantName);
             }
-             if (result.username) {
+            if (result.username) {
                 localStorage.setItem('username', result.username);
+            }
+            if (result.firstName) {
+                localStorage.setItem('userFirstName', result.firstName);
+            }
+            if (result.lastName) {
+                localStorage.setItem('userLastName', result.lastName);
             }
         }
         
@@ -83,7 +90,8 @@ export function LoginForm() {
               router.push("/admin");
               break;
             case "sysad":
-              router.push("/sysad");
+              // For sysad, admin page is fine, or can be a specific sysad page if created
+              router.push("/admin"); 
               break;
             case "staff":
               router.push("/staff");
@@ -91,7 +99,7 @@ export function LoginForm() {
             default:
               toast({
                   title: "Login Warning",
-                  description: "Login successful, but role is undefined or not recognized.",
+                  description: "Login successful, but role is undefined or not recognized for redirection.",
                   variant: "destructive"
               });
               setIsLoading(false);
@@ -183,4 +191,3 @@ export function LoginForm() {
     </Card>
   );
 }
-

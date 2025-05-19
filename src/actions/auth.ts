@@ -12,7 +12,9 @@ export type LoginResult = {
   role?: UserRole;
   tenantId?: number;
   tenantName?: string;
-  username?: string; // For display or logging purposes
+  username?: string;
+  firstName?: string;
+  lastName?: string;
 };
 
 const pool = new Pool({
@@ -42,7 +44,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     const client = await pool.connect();
     try {
       const userResult = await client.query(
-        'SELECT id, username, password_hash, role, tenant_id FROM users WHERE username = $1',
+        'SELECT id, username, password_hash, role, tenant_id, first_name, last_name FROM users WHERE username = $1',
         [username]
       );
 
@@ -78,7 +80,6 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
           tenantName = tenantResult.rows[0].tenant_name;
         } else {
           console.warn(`Tenant ID ${user.tenant_id} found for user ${username}, but no matching tenant in tenants table.`);
-          // Decide if this is an error or if login should proceed without tenantName
         }
       }
 
@@ -95,6 +96,8 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         tenantId: tenantId,
         tenantName: tenantName,
         username: user.username,
+        firstName: user.first_name,
+        lastName: user.last_name,
       };
 
     } catch (dbError) {
@@ -113,4 +116,3 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     return { message: errorMessage, success: false };
   }
 }
-
