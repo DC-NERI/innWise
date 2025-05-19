@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,7 +25,7 @@ import { getBranchesForTenantSimple, listRoomsForBranch, getRatesForBranchSimple
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
 const defaultFormValuesCreate: HotelRoomCreateData = {
-  hotel_rate_ids: [], // Initialize as empty array for multi-select
+  hotel_rate_ids: [],
   room_name: '',
   room_code: '',
   floor: undefined,
@@ -214,18 +214,14 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 
   const getRateNames = (rateIds: number[] | null): string => {
     if (!Array.isArray(rateIds) || rateIds.length === 0) return 'N/A';
-    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `ID: ${id}`).join(', ');
+    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `Rate ID: ${id}`).join(', ');
   };
 
 
   const renderFormFields = () => (
     <React.Fragment>
       <FormField control={form.control} name="room_name" render={({ field }) => (<FormItem><RHFFormLabel>Room Name *</RHFFormLabel><FormControl><Input placeholder="Deluxe Room 101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      {isEditing && selectedRoom ? (
-        <FormItem><RHFFormLabel>Room Code (Read-only)</RHFFormLabel><FormControl><Input readOnly value={selectedRoom.room_code} className="w-[90%]" /></FormControl></FormItem>
-      ) : (
-        <FormField control={form.control} name="room_code" render={({ field }) => (<FormItem><RHFFormLabel>Room Code *</RHFFormLabel><FormControl><Input placeholder="DR101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      )}
+      <FormField control={form.control} name="room_code" render={({ field }) => (<FormItem><RHFFormLabel>Room Code *</RHFFormLabel><FormControl><Input placeholder="DR101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       
       <Controller
         control={form.control}
@@ -342,7 +338,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell><TableCell>{r.is_available ? 'Yes' : 'No'}</TableCell>
                       <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
+                        <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive room "{r.room_name}"?</AlertDialogDescription></AlertDialogHeader>
