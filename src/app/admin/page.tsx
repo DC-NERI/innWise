@@ -45,10 +45,11 @@ const AdminDashboardPage: NextPage = () => {
       } else if (storedTenantName) {
         setTenantName(storedTenantName);
       } else if (storedTenantId) {
+        // Fallback to fetch if tenantName wasn't in localStorage
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') {
+            if (typeof window !== 'undefined') { // Check again before setting localStorage
                 localStorage.setItem('userTenantName', tenant.tenant_name); 
             }
           } else {
@@ -59,7 +60,7 @@ const AdminDashboardPage: NextPage = () => {
           setTenantName("Error Fetching Info");
         });
       } else {
-        setTenantName("Tenant Information"); 
+        setTenantName("Tenant Information"); // Default if no info
       }
     }
 
@@ -77,7 +78,7 @@ const AdminDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, []); 
+  }, []); // Empty dependency array, runs once on mount
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -97,8 +98,8 @@ const AdminDashboardPage: NextPage = () => {
     <SidebarProvider defaultOpen>
       <Sidebar>
         <SidebarHeader>
-          <div className="p-4 border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
-            <h2 className="text-lg font-semibold text-sidebar-primary-foreground truncate" title={tenantName}>
+          <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
+            <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
               {tenantName}
             </h2>
             {displayName && (
@@ -186,5 +187,3 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-
-    
