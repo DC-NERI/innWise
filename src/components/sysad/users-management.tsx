@@ -59,7 +59,7 @@ export default function UsersManagement() {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([listAllUsers(), listTenants()]);
       setUsers(fetchedUsers);
-      setTenants(fetchedTenants.filter(t => t.status === '1')); // Only active tenants for selection
+      setTenants(fetchedTenants.filter(t => t.status === '1'));
     } catch (error) {
       console.error("Failed to fetch user data:", error);
       toast({ title: "Error", description: "Could not fetch user data.", variant: "destructive" });
@@ -71,10 +71,11 @@ export default function UsersManagement() {
   
   useEffect(() => {
     const currentIsEditing = !!selectedUser;
-    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? userUpdateSchemaSysAd : userCreateSchema) } as any);
+    const newResolver = zodResolver(currentIsEditing ? userUpdateSchemaSysAd : userCreateSchema);
+    let newDefaults: UserFormValues;
 
     if (currentIsEditing && selectedUser) {
-      form.reset({
+      newDefaults = {
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
         password: '', 
@@ -83,8 +84,7 @@ export default function UsersManagement() {
         tenant_id: selectedUser.tenant_id || undefined,
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
         status: selectedUser.status || '1',
-      } as UserUpdateDataSysAd);
-      
+      };
       if (selectedUser.tenant_id) {
         setIsLoadingBranches(true);
         getBranchesForTenantSimple(selectedUser.tenant_id)
@@ -95,18 +95,19 @@ export default function UsersManagement() {
         setAvailableBranches([]);
       }
     } else {
-       form.reset(defaultFormValuesCreate);
+       newDefaults = defaultFormValuesCreate;
        setAvailableBranches([]); 
     }
-  }, [selectedUser, form, toast]);
+    form.reset(newDefaults, { resolver: newResolver } as any);
+  }, [selectedUser, form, toast, isAddDialogOpen, isEditDialogOpen]);
 
 
   useEffect(() => {
     const currentTenantId = typeof selectedTenantIdInForm === 'number' ? selectedTenantIdInForm : selectedTenantIdInForm && typeof selectedTenantIdInForm === 'string' ? parseInt(selectedTenantIdInForm) : undefined;
     const isDirtyTenant = form.formState.dirtyFields.tenant_id;
+    const currentBranchId = form.getValues('tenant_branch_id');
 
     if (currentTenantId) {
-        const currentBranchId = form.getValues('tenant_branch_id');
         if (isDirtyTenant || (isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id)) {
              if (currentBranchId) form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
         }
@@ -115,7 +116,7 @@ export default function UsersManagement() {
             .then(branches => {
                 setAvailableBranches(branches);
                 const currentBranchIsValid = branches.some(b => b.id === currentBranchId);
-                if (currentBranchId && !currentBranchIsValid && isDirtyTenant) {
+                if (currentBranchId && !currentBranchIsValid && (isDirtyTenant || !isEditing) ) { // Reset branch if not valid for new tenant or if tenant changed
                     form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
                 }
             })
@@ -226,7 +227,6 @@ export default function UsersManagement() {
     finally { setIsSubmitting(false); }
   };
 
-
   const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
 
   if (isLoading && users.length === 0) {
@@ -234,30 +234,30 @@ export default function UsersManagement() {
   }
   
   const usernameField = (() => {
-      if (isEditing && selectedUser) {
-        return (
-          <FormItem>
-            <FormLabel>Username (Read-only)</FormLabel>
-            <FormControl><Input readOnly value={selectedUser.username} className="w-[90%]" /></FormControl>
-          </FormItem>
-        );
-      }
+    if (isEditing && selectedUser) {
       return (
-        <FormField
-          control={form.control}
-          name="username"
-          render={({ field }) => {
-            return (
-              <FormItem>
-                <FormLabel>Username *</FormLabel>
-                <FormControl><Input placeholder="johndoe" {...field} className="w-[90%]" /></FormControl>
-                <FormMessage />
-              </FormItem>
-            );
-          }}
-        />
+        <FormItem>
+          <FormLabel>Username (Read-only)</FormLabel>
+          <FormControl><Input readOnly value={selectedUser.username} className="w-[90%]" /></FormControl>
+        </FormItem>
       );
-    })();
+    }
+    return (
+      <FormField
+        control={form.control}
+        name="username"
+        render={({ field }) => {
+          return (
+            <FormItem>
+              <FormLabel>Username *</FormLabel>
+              <FormControl><Input placeholder="johndoe" {...field} className="w-[90%]" /></FormControl>
+              <FormMessage />
+            </FormItem>
+          );
+        }}
+      />
+    );
+  })();
 
   const renderFormFields = () => {
     return (
@@ -377,7 +377,6 @@ export default function UsersManagement() {
     );
   }
 
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -391,24 +390,28 @@ export default function UsersManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setAvailableBranches([]); 
+                    form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
                 } else {
-                  // Handled by button clicks
+                  // Triggered by button click
                 }
             }}
         >
           <DialogTrigger asChild>
             <Button onClick={() => {
               setSelectedUser(null); 
+              form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
               setIsAddDialogOpen(true);
               setIsEditDialogOpen(false);
             }}><PlusCircle className="mr-2 h-4 w-4" /> Add User</Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg p-3">
+          <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
-                {renderFormFields()}
-                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                  {renderFormFields()}
+                </div>
+                <DialogFooter className="bg-card py-4 border-t px-3">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>
@@ -461,4 +464,4 @@ export default function UsersManagement() {
     </Card>
   );
 }
-
+    

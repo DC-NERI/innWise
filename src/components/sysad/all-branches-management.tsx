@@ -22,6 +22,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type BranchFormValues = BranchCreateData | BranchUpdateDataSysAd;
 
+const defaultFormValuesCreate: BranchCreateData = {
+  tenant_id: undefined as unknown as number, // Ensure this is treated as undefined initially
+  branch_name: '',
+  branch_code: '', 
+  branch_address: '',
+  contact_number: '',
+  email_address: '',
+};
+
 export default function AllBranchesManagement() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -38,12 +47,7 @@ export default function AllBranchesManagement() {
   const form = useForm<BranchFormValues>({
     resolver: zodResolver(isEditing ? branchUpdateSchemaSysAd : branchCreateSchema),
     defaultValues: {
-      tenant_id: undefined,
-      branch_name: '',
-      branch_code: '', 
-      branch_address: '',
-      contact_number: '',
-      email_address: '',
+      ...defaultFormValuesCreate,
       status: '1', 
     },
   });
@@ -68,23 +72,25 @@ export default function AllBranchesManagement() {
   
   useEffect(() => {
     const currentIsEditing = !!selectedBranch;
-    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? branchUpdateSchemaSysAd : branchCreateSchema) } as any);
+    const newResolver = zodResolver(currentIsEditing ? branchUpdateSchemaSysAd : branchCreateSchema);
+    let newDefaults: BranchFormValues;
 
     if (currentIsEditing && selectedBranch) {
-      form.reset({
+      newDefaults = {
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
         status: selectedBranch.status || '1', 
-      } as BranchUpdateDataSysAd); 
+      } as BranchUpdateDataSysAd; 
     } else {
-      form.reset({ 
-        tenant_id: undefined, branch_name: '', branch_code: '',
-        branch_address: '', contact_number: '', email_address: '', status: '1',
-      } as BranchCreateData);
+      newDefaults = { 
+        ...defaultFormValuesCreate,
+        status: '1',
+      } as BranchCreateData;
     }
+    form.reset(newDefaults, { resolver: newResolver } as any);
   }, [selectedBranch, form, isEditDialogOpen, isAddDialogOpen]);
 
 
@@ -155,7 +161,6 @@ export default function AllBranchesManagement() {
 
   const filteredBranches = branches.filter(branch => activeTab === "active" ? branch.status === '1' : branch.status === '0');
 
-
   if (isLoading && branches.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading branches...</p></div>;
   }
@@ -207,17 +212,24 @@ export default function AllBranchesManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedBranch(null); 
+                    form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(branchCreateSchema) } as any);
                 }
             }}
         >
-          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
-          <DialogContent className="sm:max-w-lg p-3">
+          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
+          <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
+                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                  <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                     {renderFormFields(isEditing)}
-              <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10"><DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose><Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button></DialogFooter>
-            </form></Form>
+                  </div>
+                  <DialogFooter className="bg-card py-4 border-t px-3">
+                    <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                    <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button>
+                  </DialogFooter>
+                </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </CardHeader>
@@ -263,3 +275,4 @@ export default function AllBranchesManagement() {
     </Card>
   );
 }
+    

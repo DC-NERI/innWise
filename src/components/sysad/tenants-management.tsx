@@ -19,8 +19,16 @@ import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lu
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
+import React from 'react';
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
+
+const defaultFormValuesCreate: TenantCreateData = {
+  tenant_name: '',
+  tenant_address: '',
+  tenant_email: '',
+  tenant_contact_info: '',
+};
 
 export default function TenantsManagement() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -37,10 +45,7 @@ export default function TenantsManagement() {
   const form = useForm<TenantFormValues>({
     resolver: zodResolver(isEditing ? tenantUpdateSchema : tenantCreateSchema),
     defaultValues: {
-      tenant_name: '',
-      tenant_address: '',
-      tenant_email: '',
-      tenant_contact_info: '',
+      ...defaultFormValuesCreate,
       status: '1',
     },
   });
@@ -68,25 +73,21 @@ export default function TenantsManagement() {
 
   useEffect(() => {
     const currentIsEditing = !!selectedTenant;
-    form.reset(undefined, { resolver: zodResolver(currentIsEditing ? tenantUpdateSchema : tenantCreateSchema)} as any);
+    const newResolver = zodResolver(currentIsEditing ? tenantUpdateSchema : tenantCreateSchema);
+    let newDefaults: TenantFormValues;
 
     if (currentIsEditing && selectedTenant) {
-      form.reset({
+      newDefaults = {
         tenant_name: selectedTenant.tenant_name,
         tenant_address: selectedTenant.tenant_address || '',
         tenant_email: selectedTenant.tenant_email || '',
         tenant_contact_info: selectedTenant.tenant_contact_info || '',
         status: selectedTenant.status || '1',
-      });
+      };
     } else {
-      form.reset({
-        tenant_name: '',
-        tenant_address: '',
-        tenant_email: '',
-        tenant_contact_info: '',
-        status: '1',
-      });
+      newDefaults = { ...defaultFormValuesCreate, status: '1' };
     }
+    form.reset(newDefaults, { resolver: newResolver } as any);
   }, [selectedTenant, form, isEditDialogOpen, isAddDialogOpen]);
 
   const handleAddSubmit = async (data: TenantCreateData) => {
@@ -175,7 +176,7 @@ export default function TenantsManagement() {
   }
 
   const renderFormFields = () => (
-    <>
+    <React.Fragment>
       <FormField
         control={form.control}
         name="tenant_name"
@@ -239,7 +240,7 @@ export default function TenantsManagement() {
           )}
         />
       )}
-    </>
+    </React.Fragment>
   );
 
   return (
@@ -260,20 +261,23 @@ export default function TenantsManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedTenant(null);
+                    form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(tenantCreateSchema) } as any);
                 }
             }}
         >
           <DialogTrigger asChild>
-            <Button onClick={() => {setSelectedTenant(null); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}>
+            <Button onClick={() => {setSelectedTenant(null); form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(tenantCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Tenant
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg p-3">
+          <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
-                {renderFormFields()}
-                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                  {renderFormFields()}
+                </div>
+                <DialogFooter className="bg-card py-4 border-t px-3">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Tenant")}</Button>
                 </DialogFooter>
@@ -345,3 +349,4 @@ export default function TenantsManagement() {
     </Card>
   );
 }
+    

@@ -216,7 +216,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       );
     })();
 
-
   const renderFormFields = () => {
     return (
       <React.Fragment>
@@ -290,20 +289,23 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedUser(null); 
+                    form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchemaAdmin) } as any);
                 }
             }}
         >
           <DialogTrigger asChild>
-            <Button onClick={() => { setSelectedUser(null); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }}>
+            <Button onClick={() => { setSelectedUser(null); form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchemaAdmin) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add User
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-lg p-3">
+          <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="space-y-3 py-2 max-h-[70vh] overflow-y-auto pr-2 bg-card rounded-md">
-                {renderFormFields()}
-                <DialogFooter className="sticky bottom-0 bg-card py-4 border-t z-10">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                  {renderFormFields()}
+                </div>
+                <DialogFooter className="bg-card py-4 border-t px-3">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>
@@ -354,3 +356,4 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     </Card>
   );
 }
+    
