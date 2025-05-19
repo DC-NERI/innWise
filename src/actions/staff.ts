@@ -2,7 +2,7 @@
 "use server";
 
 import { Pool } from 'pg';
-import type { Transaction, HotelRoom } from '@/lib/types';
+import type { Transaction } from '@/lib/types';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
 
@@ -95,7 +95,10 @@ export async function getActiveTransactionForRoom(
        FROM transactions t
        JOIN hotel_room hr ON t.hotel_room_id = hr.id
        JOIN hotel_rates hrt ON t.hotel_rate_id = hrt.id
-       WHERE t.hotel_room_id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status = '0'`, // status '0' is Unpaid (active)
+       WHERE t.hotel_room_id = $1 
+         AND t.tenant_id = $2 
+         AND t.branch_id = $3 
+         AND (t.status = '0' OR t.status = '2')`, // '0' for Unpaid/Occupied, '2' for Advance Paid/Reserved
       [roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
@@ -111,7 +114,7 @@ export async function getActiveTransactionForRoom(
         updated_at: new Date(row.updated_at).toISOString(),
       } as Transaction;
     }
-    console.log(`[staff.ts:getActiveTransactionForRoom] No active transaction found for room ID ${roomId} with tenant ${tenantId}, branch ${branchId}, status '0'.`);
+    console.log(`[staff.ts:getActiveTransactionForRoom] No active or reserved transaction found for room ID ${roomId} with tenant ${tenantId}, branch ${branchId}.`);
     return null;
   } catch (error) {
     console.error(`[staff.ts:getActiveTransactionForRoom] Error fetching transaction details for room ID ${roomId}:`, error);
@@ -120,6 +123,39 @@ export async function getActiveTransactionForRoom(
     client.release();
   }
 }
+
+export async function updateTransactionNotes(
+  transactionId: number,
+  notes: string | null | undefined,
+  tenantId: number,
+  branchId: number
+): Promise<{ success: boolean; message?: string; updatedTransaction?: Pick<Transaction, 'id' | 'notes'> }> {
+  console.log(`[staff.ts:updateTransactionNotes] Called with: transactionId=${transactionId}, tenantId=${tenantId}, branchId=${branchId}, notes=${notes === undefined ? 'undefined' : notes === null ? 'null' : `"${notes}"`}`);
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE transactions
+       SET notes = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4
+       RETURNING id, notes`,
+      [notes, transactionId, tenantId, branchId]
+    );
+    if (res.rows.length > 0) {
+      return {
+        success: true,
+        message: "Transaction notes updated successfully.",
+        updatedTransaction: res.rows[0] as Pick<Transaction, 'id' | 'notes'>,
+      };
+    }
+    return { success: false, message: "Transaction not found or notes update failed." };
+  } catch (error) {
+    console.error(`Failed to update notes for transaction ${transactionId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
 
 export async function checkOutGuestAndFreeRoom(
   transactionId: number,
@@ -168,7 +204,6 @@ export async function checkOutGuestAndFreeRoom(
         total_amount = parseFloat(transactionDetails.rate_price);
     }
 
-    // Assuming status '1' means 'Paid' after checkout. Adjust if needed.
     const updatedTransactionRes = await client.query(
       `UPDATE transactions
        SET check_out_time = $1, hours_used = $2, total_amount = $3, check_out_by_user_id = $4, status = '1', updated_at = CURRENT_TIMESTAMP
@@ -216,5 +251,3 @@ export async function checkOutGuestAndFreeRoom(
     client.release();
   }
 }
-
-    
