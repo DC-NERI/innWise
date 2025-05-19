@@ -62,7 +62,7 @@ export default function UsersManagement() {
 
   useEffect(() => {
     fetchData();
-  }, [toast]); // Removed fetchData from dependency array to prevent loop
+  }, []); // Removed toast from dependency array to prevent loop
 
   const onSubmit = async (data: UserCreateData) => {
     setIsSubmitting(true);
@@ -215,8 +215,8 @@ export default function UsersManagement() {
                     <FormItem>
                       <FormLabel>Tenant (Optional)</FormLabel>
                       <Select 
-                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} // Ensure undefined for "None"
-                        value={field.value?.toString()} // Handle undefined case
+                        onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} 
+                        value={field.value?.toString()} 
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -224,7 +224,7 @@ export default function UsersManagement() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem> {/* Provide an explicit "None" option */}
+                          {/* <SelectItem value="">None</SelectItem>  Removed this problematic item */}
                           {tenants.map(tenant => (
                             <SelectItem key={tenant.id} value={tenant.id.toString()}>
                               {tenant.tenant_name}
@@ -285,3 +285,4 @@ export default function UsersManagement() {
     </Card>
   );
 }
+
