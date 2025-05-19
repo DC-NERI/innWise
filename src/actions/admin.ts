@@ -3,13 +3,15 @@
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
-import type { Tenant, Branch, User, SimpleBranch } from '@/lib/types';
+import type { Tenant, Branch, User, SimpleBranch, HotelRate, HotelRoom, SimpleRate } from '@/lib/types';
 import { 
   branchUpdateSchema, 
   tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData,
   userCreateSchema, UserCreateData, userUpdateSchemaSysAd, UserUpdateDataSysAd,
   branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd,
-  userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin
+  userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin,
+  hotelRateCreateSchema, HotelRateCreateData, hotelRateUpdateSchema, HotelRateUpdateData,
+  hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
 
@@ -341,7 +343,6 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
 export async function archiveBranch(branchId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
-    // Check if branch_code column exists, needed for ensuring this table is correct
     const columnCheck = await client.query(
       "SELECT column_name FROM information_schema.columns WHERE table_name='tenant_branch' AND column_name='status'"
     );
@@ -375,7 +376,6 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
   
   const client = await pool.connect();
   try {
-    // Check branch limit
     const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [tenant_id]);
     if (tenantDetails.rows.length === 0) {
       return { success: false, message: "Tenant not found." };
@@ -384,7 +384,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
 
     if (max_branch_count !== null && max_branch_count > 0) {
       const currentBranchCountRes = await client.query(
-        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'", // Count only active branches
+        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'", 
         [tenant_id]
       );
       const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
@@ -517,7 +517,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
 
         if (max_user_count !== null && max_user_count > 0) {
             const currentUserCountRes = await client.query(
-                "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", // Count only active users
+                "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", 
                 [tenant_id]
             );
             const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
@@ -593,10 +593,9 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
   
   const client = await pool.connect();
   try {
-    // Check limits if restoring a user
-    if (status === '1' && tenant_id) { // Only check if tenant_id is present
+    if (status === '1' && tenant_id) { 
         const currentUserRes = await client.query('SELECT status FROM users WHERE id = $1', [userId]);
-        if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') { // Only check if actually restoring
+        if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') { 
             const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
             if (tenantDetails.rows.length > 0) {
                 const max_user_count = tenantDetails.rows[0].max_user_count;
@@ -755,7 +754,6 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
 
   const client = await pool.connect();
   try {
-     // Check user limit for the calling tenant
     const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
     if (tenantDetails.rows.length === 0) {
         return { success: false, message: "Calling tenant not found." };
@@ -764,7 +762,7 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
 
     if (max_user_count !== null && max_user_count > 0) {
         const currentUserCountRes = await client.query(
-            "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", // Count only active users
+            "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'", 
             [callingTenantId]
         );
         const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
@@ -844,15 +842,13 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
 
   const client = await pool.connect();
   try {
-    // Verify user belongs to the admin's tenant and get current status
     const userCheck = await client.query('SELECT tenant_id, status as current_status FROM users WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0 || userCheck.rows[0].tenant_id !== callingTenantId) {
       return { success: false, message: "User not found in this tenant or permission denied." };
     }
     const currentUserStatus = userCheck.rows[0].current_status;
 
-    // Check limits if restoring a user
-    if (status === '1' && currentUserStatus === '0') { // Only check if actually restoring
+    if (status === '1' && currentUserStatus === '0') { 
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
         if (tenantDetails.rows.length > 0) {
             const max_user_count = tenantDetails.rows[0].max_user_count;
@@ -938,7 +934,6 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
   }
   const client = await pool.connect();
   try {
-    // Verify user belongs to the admin's tenant
     const userCheck = await client.query('SELECT tenant_id FROM users WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0 || userCheck.rows[0].tenant_id !== callingTenantId) {
       return { success: false, message: "User not found in this tenant or permission denied." };
@@ -959,6 +954,182 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
     client.release();
   }
 }
-    
+
+
+// Hotel Rate Actions
+export async function listRatesForBranch(branchId: number, tenantId: number): Promise<HotelRate[]> {
+  if (isNaN(branchId) || branchId <= 0 || isNaN(tenantId) || tenantId <= 0) {
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT hr.id, hr.tenant_id, hr.branch_id, tb.branch_name, hr.name, hr.price, hr.hours, hr.excess_hour_price, hr.description, hr.status, hr.created_at, hr.updated_at 
+       FROM hotel_rates hr
+       JOIN tenant_branch tb ON hr.branch_id = tb.id
+       WHERE hr.branch_id = $1 AND hr.tenant_id = $2 
+       ORDER BY hr.name ASC`,
+      [branchId, tenantId]
+    );
+    return res.rows.map(row => ({
+      ...row,
+      price: parseFloat(row.price),
+      excess_hour_price: row.excess_hour_price ? parseFloat(row.excess_hour_price) : null,
+      created_at: new Date(row.created_at).toISOString(),
+      updated_at: new Date(row.updated_at).toISOString(),
+    })) as HotelRate[];
+  } catch (error) {
+    console.error(`Failed to fetch rates for branch ${branchId}:`, error);
+    throw new Error(`Database error: Could not fetch rates. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
+
+export async function createRate(
+  data: HotelRateCreateData, 
+  tenantId: number, 
+  branchId: number
+): Promise<{ success: boolean; message?: string; rate?: HotelRate }> {
+  const validatedFields = hotelRateCreateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+  const { name, price, hours, excess_hour_price, description } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO hotel_rates (tenant_id, branch_id, name, price, hours, excess_hour_price, description, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, '1') 
+       RETURNING id, tenant_id, branch_id, name, price, hours, excess_hour_price, description, status, created_at, updated_at`,
+      [tenantId, branchId, name, price, hours, excess_hour_price, description]
+    );
+    if (res.rows.length > 0) {
+      const newRow = res.rows[0];
+      const branchRes = await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [branchId]);
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+      return { 
+        success: true, 
+        message: "Rate created successfully.", 
+        rate: {
+          ...newRow,
+          branch_name,
+          price: parseFloat(newRow.price),
+          excess_hour_price: newRow.excess_hour_price ? parseFloat(newRow.excess_hour_price) : null,
+          created_at: new Date(newRow.created_at).toISOString(),
+          updated_at: new Date(newRow.updated_at).toISOString(),
+        } as HotelRate
+      };
+    }
+    return { success: false, message: "Rate creation failed." };
+  } catch (error) {
+    console.error('Failed to create rate:', error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateRate(
+  rateId: number, 
+  data: HotelRateUpdateData, 
+  tenantId: number, 
+  branchId: number
+): Promise<{ success: boolean; message?: string; rate?: HotelRate }> {
+  const validatedFields = hotelRateUpdateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+  const { name, price, hours, excess_hour_price, description, status } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE hotel_rates 
+       SET name = $1, price = $2, hours = $3, excess_hour_price = $4, description = $5, status = $6, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $7 AND tenant_id = $8 AND branch_id = $9
+       RETURNING id, tenant_id, branch_id, name, price, hours, excess_hour_price, description, status, created_at, updated_at`,
+      [name, price, hours, excess_hour_price, description, status, rateId, tenantId, branchId]
+    );
+    if (res.rows.length > 0) {
+      const updatedRow = res.rows[0];
+       const branchRes = await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [branchId]);
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+      return { 
+        success: true, 
+        message: "Rate updated successfully.", 
+        rate: {
+          ...updatedRow,
+          branch_name,
+          price: parseFloat(updatedRow.price),
+          excess_hour_price: updatedRow.excess_hour_price ? parseFloat(updatedRow.excess_hour_price) : null,
+          created_at: new Date(updatedRow.created_at).toISOString(),
+          updated_at: new Date(updatedRow.updated_at).toISOString(),
+        } as HotelRate
+      };
+    }
+    return { success: false, message: "Rate not found or no changes made." };
+  } catch (error) {
+    console.error(`Failed to update rate ${rateId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+export async function archiveRate(rateId: number, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE hotel_rates SET status = '0', updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING id`,
+      [rateId, tenantId, branchId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "Rate archived successfully." };
+    }
+    return { success: false, message: "Rate not found or already archived." };
+  } catch (error) {
+    console.error(`Failed to archive rate ${rateId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+// Placeholder for Hotel Room Actions (to be implemented)
+export async function listRoomsForBranch(branchId: number, tenantId: number): Promise<HotelRoom[]> {
+  console.log(`Placeholder: listRoomsForBranch(${branchId}, ${tenantId})`);
+  return [];
+}
+export async function createRoom(data: HotelRoomCreateData, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
+  console.log(`Placeholder: createRoom for tenant ${tenantId}, branch ${branchId}`, data);
+  return { success: false, message: "Room creation not yet implemented."};
+}
+export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
+  console.log(`Placeholder: updateRoom ${roomId} for tenant ${tenantId}, branch ${branchId}`, data);
+   return { success: false, message: "Room update not yet implemented."};
+}
+export async function archiveRoom(roomId: number, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string }> {
+  console.log(`Placeholder: archiveRoom ${roomId} for tenant ${tenantId}, branch ${branchId}`);
+  return { success: false, message: "Room archiving not yet implemented."};
+}
+export async function getRatesForBranchSimple(branchId: number, tenantId: number): Promise<SimpleRate[]> {
+   if (isNaN(branchId) || branchId <= 0 || isNaN(tenantId) || tenantId <= 0) {
+    return [];
+  }
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      "SELECT id, name FROM hotel_rates WHERE branch_id = $1 AND tenant_id = $2 AND status = '1' ORDER BY name ASC",
+      [branchId, tenantId]
+    );
+    return result.rows as SimpleRate[];
+  } catch (error: any) {
+     console.error(`Failed to fetch simple rates for branch ${branchId}:`, error.message);
+    throw new Error(`Database error: Could not fetch simple active rates. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
 
     

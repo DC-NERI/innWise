@@ -40,7 +40,7 @@ export interface Branch {
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
-  status: string; // Added status for branch
+  status: string; 
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
 }
@@ -49,5 +49,45 @@ export interface Branch {
 export interface SimpleBranch {
   id: number;
   branch_name: string;
+}
+
+export interface HotelRate {
+  id: number;
+  tenant_id: number;
+  branch_id: number;
+  branch_name?: string; // For display
+  name: string;
+  price: number; // Stored as string from numeric type, convert in frontend
+  hours: number;
+  excess_hour_price?: number | null; // Stored as string from numeric type
+  description?: string | null;
+  status: string; // '0' or '1'
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+}
+
+export interface HotelRoom {
+  id: number;
+  tenant_id: number;
+  branch_id: number;
+  branch_name?: string; // For display
+  hotel_rate_id?: number | null;
+  rate_name?: string | null; // For display
+  room_name: string;
+  room_code: string;
+  floor?: number | null;
+  room_type?: string | null;
+  bed_type?: string | null;
+  capacity?: number | null;
+  is_available: boolean;
+  status: string; // '0' or '1'
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+}
+
+// For simpler rate selection
+export interface SimpleRate {
+  id: number;
+  name: string;
 }
 

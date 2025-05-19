@@ -6,14 +6,16 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Settings, LogOut } from 'lucide-react';
+import { Users, Building, Settings, LogOut, Tags, BedDouble } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
+import RatesContent from '@/components/admin/rates-content'; // New
+import RoomsContent from '@/components/admin/rooms-content'; // New
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches' | 'settings'>('branches');
+  const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'settings'>('branches');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -36,7 +38,7 @@ const AdminDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'admin') { // Redirect if not admin
+        if (storedRole !== 'admin') { 
             router.push('/');
             return;
         }
@@ -50,7 +52,9 @@ const AdminDashboardPage: NextPage = () => {
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
 
-      if (storedTenantName) {
+      if (storedRole === 'sysad') {
+         setTenantName("System Administrator");
+      } else if (storedTenantName) {
         setTenantName(storedTenantName);
       } else if (storedTenantId) {
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
@@ -143,6 +147,26 @@ const AdminDashboardPage: NextPage = () => {
                 Branches
               </SidebarMenuButton>
             </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('rates')}
+                isActive={activeView === 'rates'}
+                className="justify-start"
+              >
+                <Tags className="h-5 w-5" />
+                Rates
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('rooms')}
+                isActive={activeView === 'rooms'}
+                className="justify-start"
+              >
+                <BedDouble className="h-5 w-5" />
+                Rooms
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -177,6 +201,12 @@ const AdminDashboardPage: NextPage = () => {
 
           {activeView === 'branches' && userRole === 'admin' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
           {activeView === 'branches' && tenantId === null && <p>Loading tenant information for branch management...</p>}
+          
+          {activeView === 'rates' && userRole === 'admin' && tenantId !== null && <RatesContent tenantId={tenantId} />}
+          {activeView === 'rates' && tenantId === null && <p>Loading tenant information for rate management...</p>}
+
+          {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && <RoomsContent tenantId={tenantId} />}
+          {activeView === 'rooms' && tenantId === null && <p>Loading tenant information for room management...</p>}
           
           {activeView === 'settings' && userRole === 'admin' && (
             <div>
