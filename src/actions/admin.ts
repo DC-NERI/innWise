@@ -273,6 +273,28 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
   const { tenant_id, branch_name, branch_address, contact_number, email_address, status } = validatedFields.data;
   const client = await pool.connect();
   try {
+    // Check limits if restoring a branch
+    if (status === '1') {
+        const currentBranchRes = await client.query('SELECT status, tenant_id FROM tenant_branch WHERE id = $1', [branchId]);
+        if (currentBranchRes.rows.length > 0 && currentBranchRes.rows[0].status === '0') { // Only check if actually restoring
+            const branchTenantId = currentBranchRes.rows[0].tenant_id;
+            const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [branchTenantId]);
+            if (tenantDetails.rows.length > 0) {
+                const max_branch_count = tenantDetails.rows[0].max_branch_count;
+                if (max_branch_count !== null && max_branch_count > 0) {
+                    const currentBranchCountRes = await client.query(
+                        "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
+                        [branchTenantId]
+                    );
+                    const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
+                    if (currentBranchCount >= max_branch_count) {
+                        return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To restore this branch, please archive an existing active branch first.` };
+                    }
+                }
+            }
+        }
+    }
+
     const res = await client.query(
       `UPDATE tenant_branch 
        SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = CURRENT_TIMESTAMP 
@@ -319,6 +341,15 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
 export async function archiveBranch(branchId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
+    // Check if branch_code column exists, needed for ensuring this table is correct
+    const columnCheck = await client.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name='tenant_branch' AND column_name='status'"
+    );
+    if (columnCheck.rowCount === 0) {
+        console.error("CRITICAL: 'status' column does not exist in 'tenant_branch' table. Archiving functionality is disabled.");
+        return { success: false, message: "Branch archiving is currently unavailable due to a system configuration issue. Please contact support. (Missing 'status' column in 'tenant_branch')" };
+    }
+
     const res = await client.query(
       `UPDATE tenant_branch SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
       [branchId]
@@ -562,6 +593,27 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
   
   const client = await pool.connect();
   try {
+    // Check limits if restoring a user
+    if (status === '1' && tenant_id) { // Only check if tenant_id is present
+        const currentUserRes = await client.query('SELECT status FROM users WHERE id = $1', [userId]);
+        if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') { // Only check if actually restoring
+            const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [tenant_id]);
+            if (tenantDetails.rows.length > 0) {
+                const max_user_count = tenantDetails.rows[0].max_user_count;
+                if (max_user_count !== null && max_user_count > 0) {
+                    const currentUserCountRes = await client.query(
+                        "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+                        [tenant_id]
+                    );
+                    const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
+                    if (currentUserCount >= max_user_count) {
+                        return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first.` };
+                    }
+                }
+            }
+        }
+    }
+
     let password_hash_update_string = '';
     const queryParams: any[] = [first_name, last_name, email, role, tenant_id, tenant_branch_id, status];
     
@@ -792,11 +844,31 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
 
   const client = await pool.connect();
   try {
-    // Verify user belongs to the admin's tenant
-    const userCheck = await client.query('SELECT tenant_id FROM users WHERE id = $1', [userId]);
+    // Verify user belongs to the admin's tenant and get current status
+    const userCheck = await client.query('SELECT tenant_id, status as current_status FROM users WHERE id = $1', [userId]);
     if (userCheck.rows.length === 0 || userCheck.rows[0].tenant_id !== callingTenantId) {
       return { success: false, message: "User not found in this tenant or permission denied." };
     }
+    const currentUserStatus = userCheck.rows[0].current_status;
+
+    // Check limits if restoring a user
+    if (status === '1' && currentUserStatus === '0') { // Only check if actually restoring
+        const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
+        if (tenantDetails.rows.length > 0) {
+            const max_user_count = tenantDetails.rows[0].max_user_count;
+            if (max_user_count !== null && max_user_count > 0) {
+                const currentUserCountRes = await client.query(
+                    "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
+                    [callingTenantId]
+                );
+                const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
+                if (currentUserCount >= max_user_count) {
+                    return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first.` };
+                }
+            }
+        }
+    }
+
 
     let password_hash_update_string = '';
     const queryParams: any[] = [first_name, last_name, email, role, tenant_branch_id, status];
@@ -887,4 +959,6 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
     client.release();
   }
 }
+    
+
     
