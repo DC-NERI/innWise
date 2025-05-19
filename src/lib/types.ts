@@ -16,6 +16,7 @@ export interface User { // Renamed from AuthenticatedUser for broader use
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   last_log_in?: string | null; // ISO date string
+  userId?: number; // from login result, ensure consistency
 }
 
 export interface Tenant {
@@ -40,7 +41,7 @@ export interface Branch {
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
-  status: string; 
+  status: string;
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
 }
@@ -57,9 +58,9 @@ export interface HotelRate {
   branch_id: number;
   branch_name?: string; // For display
   name: string;
-  price: number; // Stored as string from numeric type, convert in frontend
+  price: number;
   hours: number;
-  excess_hour_price?: number | null; // Stored as string from numeric type
+  excess_hour_price?: number | null;
   description?: string | null;
   status: string; // '0' or '1'
   created_at: string; // ISO date string
@@ -71,7 +72,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number; // Made required as per DDL
+  hotel_rate_id: number;
   rate_name?: string | null; // For display
   room_name: string;
   room_code: string;
@@ -83,10 +84,37 @@ export interface HotelRoom {
   status: string; // '0' or '1'
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
+  // Fields for active transaction display
+  active_transaction_id?: number | null;
+  active_transaction_check_in_time?: string | null;
+  active_transaction_client_name?: string | null;
 }
 
 // For simpler rate selection
 export interface SimpleRate {
   id: number;
   name: string;
+}
+
+export interface Transaction {
+    id: number;
+    tenant_id: number;
+    branch_id: number;
+    hotel_room_id: number;
+    hotel_rate_id: number;
+    client_name: string;
+    client_payment_method: string;
+    notes?: string | null;
+    check_in_time: string; // ISO date string
+    check_out_time?: string | null; // ISO date string
+    hours_used?: number | null;
+    total_amount?: number | null; // Stored as numeric, handle as number
+    check_out_by_user_id?: number | null;
+    status: string; // '0' for active, '1' for completed/checked-out
+    created_at: string; // ISO date string
+    updated_at: string; // ISO date string
+    // Optional joined data for display
+    room_name?: string;
+    rate_name?: string;
+    checked_out_by_username?: string;
 }
