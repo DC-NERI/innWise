@@ -4,7 +4,12 @@
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import type { Tenant, Branch, User, SimpleBranch } from '@/lib/types';
-import { branchUpdateSchema, tenantCreateSchema, TenantCreateData, userCreateSchema, UserCreateData, branchCreateSchema, BranchCreateData } from '@/lib/schemas';
+import { 
+  branchUpdateSchema, 
+  tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData,
+  userCreateSchema, UserCreateData, userUpdateSchemaSysAd, UserUpdateDataSysAd,
+  branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd
+} from '@/lib/schemas';
 import type { z } from 'zod';
 
 const pool = new Pool({
@@ -75,6 +80,58 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
   }
 }
 
+export async function updateTenant(tenantId: number, data: TenantUpdateData): Promise<{ success: boolean; message?: string; tenant?: Tenant }> {
+  const validatedFields = tenantUpdateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+  const { tenant_name, tenant_address, tenant_email, tenant_contact_info } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE tenants 
+       SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $5
+       RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, created_at, updated_at, status`,
+      [tenant_name, tenant_address, tenant_email, tenant_contact_info, tenantId]
+    );
+    if (res.rows.length > 0) {
+      const updatedRow = res.rows[0];
+      return { success: true, message: "Tenant updated successfully.", tenant: { ...updatedRow, created_at: new Date(updatedRow.created_at).toISOString(), updatedAt: new Date(updatedRow.updated_at).toISOString() } as Tenant };
+    }
+    return { success: false, message: "Tenant not found or no changes made." };
+  } catch (error) {
+    console.error(`Failed to update tenant ${tenantId}:`, error);
+    let errorMessage = "Database error occurred during tenant update.";
+     if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenants_tenant_email_key') {
+        errorMessage = "This email address is already in use by another tenant.";
+    } else if (error instanceof Error) {
+        errorMessage = `Database error: ${error.message}`;
+    }
+    return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function archiveTenant(tenantId: number): Promise<{ success: boolean; message?: string }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE tenants SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      [tenantId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "Tenant archived successfully." };
+    }
+    return { success: false, message: "Tenant not found or already archived." };
+  } catch (error) {
+    console.error(`Failed to archive tenant ${tenantId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
 
 export async function getTenantDetails(tenantId: number): Promise<Tenant | null> {
   if (isNaN(tenantId) || tenantId <= 0) {
@@ -110,7 +167,7 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
   const client = await pool.connect();
   try {
     const res = await client.query(
-      'SELECT id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
+      'SELECT id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
       [tenantId]
     );
     return res.rows.map(row => ({
@@ -126,7 +183,6 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
   }
 }
 
-// New action to get a simplified list of branches for a tenant
 export async function getBranchesForTenantSimple(tenantId: number): Promise<SimpleBranch[]> {
   if (isNaN(tenantId) || tenantId <= 0) {
     console.warn(`Invalid tenantId received in getBranchesForTenantSimple: ${tenantId}`);
@@ -135,7 +191,7 @@ export async function getBranchesForTenantSimple(tenantId: number): Promise<Simp
   const client = await pool.connect();
   try {
     const res = await client.query(
-      'SELECT id, branch_name FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
+      "SELECT id, branch_name FROM tenant_branch WHERE tenant_id = $1 AND status = '1' ORDER BY branch_name ASC", // Only active branches for selection
       [tenantId]
     );
     return res.rows as SimpleBranch[];
@@ -147,11 +203,10 @@ export async function getBranchesForTenantSimple(tenantId: number): Promise<Simp
   }
 }
 
-type BranchUpdateData = z.infer<typeof branchUpdateSchema>;
-
+// Used by Admin Role
 export async function updateBranchDetails(
   branchId: number,
-  data: BranchUpdateData
+  data: z.infer<typeof branchUpdateSchema>
 ): Promise<{ success: boolean; message?: string; updatedBranch?: Branch }> {
   const validatedFields = branchUpdateSchema.safeParse(data);
 
@@ -169,7 +224,7 @@ export async function updateBranchDetails(
       `UPDATE tenant_branch 
        SET branch_name = $1, branch_address = $2, contact_number = $3, email_address = $4, updated_at = CURRENT_TIMESTAMP 
        WHERE id = $5
-       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at`,
+       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [branch_name, branch_address, contact_number, email_address, branchId]
     );
 
@@ -201,6 +256,74 @@ export async function updateBranchDetails(
   }
 }
 
+
+export async function updateBranchSysAd(branchId: number, data: BranchUpdateDataSysAd): Promise<{ success: boolean; message?: string; branch?: Branch }> {
+  const validatedFields = branchUpdateSchemaSysAd.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+  const { tenant_id, branch_name, branch_address, contact_number, email_address, status } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE tenant_branch 
+       SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $7
+       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
+      [tenant_id, branch_name, branch_address, contact_number, email_address, status, branchId]
+    );
+    if (res.rows.length > 0) {
+      const updatedRow = res.rows[0];
+      // Fetch tenant_name separately for the response object if needed
+      const tenantRes = await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [updatedRow.tenant_id]);
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
+
+      return { 
+        success: true, 
+        message: "Branch updated successfully.", 
+        branch: {
+            ...updatedRow,
+            tenant_name,
+            created_at: new Date(updatedRow.created_at).toISOString(),
+            updated_at: new Date(updatedRow.updated_at).toISOString(),
+        } as Branch 
+      };
+    }
+    return { success: false, message: "Branch not found or no changes made." };
+  } catch (error) {
+    console.error(`Failed to update branch ${branchId} by SysAd:`, error);
+    let errorMessage = "Database error occurred during branch update.";
+     if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenant_branch_email_address_key') {
+        errorMessage = "This email address is already in use by another branch.";
+    } else if (error instanceof Error) {
+        errorMessage = `Database error: ${error.message}`;
+    }
+    return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function archiveBranch(branchId: number): Promise<{ success: boolean; message?: string }> {
+  const client = await pool.connect();
+  try {
+    // Ensure the tenant_branch table has a 'status' column for this to work.
+    const res = await client.query(
+      `UPDATE tenant_branch SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      [branchId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "Branch archived successfully." };
+    }
+    return { success: false, message: "Branch not found or already archived." };
+  } catch (error) {
+    console.error(`Failed to archive branch ${branchId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}. Ensure 'tenant_branch' table has a 'status' column.` };
+  } finally {
+    client.release();
+  }
+}
+
 export async function createBranchForTenant(data: BranchCreateData): Promise<{ success: boolean; message?: string; branch?: Branch }> {
   const validatedFields = branchCreateSchema.safeParse(data);
   if (!validatedFields.success) {
@@ -212,7 +335,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
     const res = await client.query(
       `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address) 
        VALUES ($1, $2, $3, $4, $5, $6) 
-       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at`,
+       RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [tenant_id, branch_name, branch_code, branch_address, contact_number, email_address]
     );
     if (res.rows.length > 0) {
@@ -231,7 +354,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
   } catch (error) {
     console.error('Failed to create branch:', error);
     let errorMessage = "Database error occurred during branch creation.";
-    if (error instanceof Error && (error as any).code === '23505') { // Unique constraint violation
+    if (error instanceof Error && (error as any).code === '23505') { 
         if ((error as any).constraint === 'tenant_branch_branch_code_key') {
             errorMessage = "This branch code is already in use.";
         } else if ((error as any).constraint === 'tenant_branch_email_address_key') {
@@ -251,7 +374,7 @@ export async function listAllBranches(): Promise<Branch[]> {
   try {
     const res = await client.query(`
       SELECT tb.id, tb.tenant_id, t.tenant_name, tb.branch_name, tb.branch_code, 
-             tb.branch_address, tb.contact_number, tb.email_address, 
+             tb.branch_address, tb.contact_number, tb.email_address, tb.status,
              tb.created_at, tb.updated_at 
       FROM tenant_branch tb
       JOIN tenants t ON tb.tenant_id = t.id
@@ -330,15 +453,20 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
     );
     if (res.rows.length > 0) {
       const newUser = res.rows[0];
-      // Potentially fetch tenant_name and branch_name if needed for the returned user object
-      // For now, returning raw IDs from insert
+      const tenantRes = newUser.tenant_id ? await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [newUser.tenant_id]) : { rows: [] };
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
+      const branchRes = newUser.tenant_branch_id ? await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [newUser.tenant_branch_id]) : { rows: [] };
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+      
       return { 
         success: true, 
         message: "User created successfully.", 
         user: {
           id: newUser.id,
           tenant_id: newUser.tenant_id,
+          tenant_name,
           tenant_branch_id: newUser.tenant_branch_id,
+          branch_name,
           first_name: newUser.first_name,
           last_name: newUser.last_name,
           username: newUser.username,
@@ -365,6 +493,97 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
         errorMessage = `Database error: ${error.message}`;
     }
     return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd): Promise<{ success: boolean; message?: string; user?: User }> {
+  const validatedFields = userUpdateSchemaSysAd.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+
+  const { first_name, last_name, password, email, role, tenant_id, tenant_branch_id, status } = validatedFields.data;
+  
+  const client = await pool.connect();
+  try {
+    let password_hash_update = '';
+    const queryParams = [first_name, last_name, email, role, tenant_id, tenant_branch_id, status, userId];
+    
+    if (password && password.trim() !== '') {
+      const salt = bcrypt.genSaltSync(10);
+      const new_password_hash = bcrypt.hashSync(password, salt);
+      password_hash_update = ', password_hash = $9';
+      queryParams.push(new_password_hash);
+    }
+
+    const res = await client.query(
+      `UPDATE users 
+       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_id = $5, tenant_branch_id = $6, status = $7, updated_at = CURRENT_TIMESTAMP ${password_hash_update}
+       WHERE id = $${password_hash_update ? '9' : '8'}
+       RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
+      queryParams
+    );
+
+    if (res.rows.length > 0) {
+      const updatedUser = res.rows[0];
+      // Fetch tenant_name and branch_name for the response
+      const tenantRes = updatedUser.tenant_id ? await client.query('SELECT tenant_name FROM tenants WHERE id = $1', [updatedUser.tenant_id]) : { rows: [] };
+      const tenant_name = tenantRes.rows.length > 0 ? tenantRes.rows[0].tenant_name : null;
+      const branchRes = updatedUser.tenant_branch_id ? await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [updatedUser.tenant_branch_id]) : { rows: [] };
+      const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
+
+      return { 
+        success: true, 
+        message: "User updated successfully.", 
+        user: {
+          id: updatedUser.id,
+          tenant_id: updatedUser.tenant_id,
+          tenant_name,
+          tenant_branch_id: updatedUser.tenant_branch_id,
+          branch_name,
+          first_name: updatedUser.first_name,
+          last_name: updatedUser.last_name,
+          username: updatedUser.username, // Username is not updated, so it's fine to return it
+          email: updatedUser.email,
+          role: updatedUser.role as User['role'],
+          status: updatedUser.status,
+          created_at: new Date(updatedUser.created_at).toISOString(),
+          updated_at: new Date(updatedUser.updated_at).toISOString(),
+          last_log_in: updatedUser.last_log_in ? new Date(updatedUser.last_log_in).toISOString() : null,
+        }
+      };
+    }
+    return { success: false, message: "User not found or no changes made." };
+  } catch (error) {
+    console.error(`Failed to update user ${userId}:`, error);
+    let errorMessage = "Database error occurred during user update.";
+    if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'users_email_key') { 
+        errorMessage = "This email address is already in use by another user.";
+    } else if (error instanceof Error) {
+        errorMessage = `Database error: ${error.message}`;
+    }
+    return { success: false, message: errorMessage };
+  } finally {
+    client.release();
+  }
+}
+
+export async function archiveUser(userId: number): Promise<{ success: boolean; message?: string }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE users SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      [userId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "User archived successfully." };
+    }
+    return { success: false, message: "User not found or already archived." };
+  } catch (error) {
+    console.error(`Failed to archive user ${userId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
   } finally {
     client.release();
   }

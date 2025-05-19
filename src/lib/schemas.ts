@@ -6,6 +6,7 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+// For Admin role updating branches of their tenant
 export const branchUpdateSchema = z.object({
   branch_name: z.string().min(1, "Branch name is required").max(255, "Branch name too long"),
   branch_address: z.string().max(1000, "Address too long").optional().nullable(),
@@ -21,6 +22,10 @@ export const tenantCreateSchema = z.object({
 });
 export type TenantCreateData = z.infer<typeof tenantCreateSchema>;
 
+export const tenantUpdateSchema = tenantCreateSchema.extend({}); // Same as create for now, can be adjusted
+export type TenantUpdateData = z.infer<typeof tenantUpdateSchema>;
+
+
 export const userCreateSchema = z.object({
   first_name: z.string().min(1, "First name is required").max(100),
   last_name: z.string().min(1, "Last name is required").max(100),
@@ -29,9 +34,22 @@ export const userCreateSchema = z.object({
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
   role: z.enum(["admin", "staff", "sysad"]).default("staff"),
   tenant_id: z.number().int().positive().optional().nullable(),
-  tenant_branch_id: z.number().int().positive().optional().nullable(), // New field
+  tenant_branch_id: z.number().int().positive().optional().nullable(),
 });
 export type UserCreateData = z.infer<typeof userCreateSchema>;
+
+export const userUpdateSchemaSysAd = z.object({
+  first_name: z.string().min(1, "First name is required").max(100),
+  last_name: z.string().min(1, "Last name is required").max(100),
+  // username: z.string().min(1, "Username is required").max(100), // Username typically not editable
+  password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')), // Optional password update
+  email: z.string().email("Invalid email address").max(255).optional().nullable(),
+  role: z.enum(["admin", "staff", "sysad"]).default("staff"),
+  tenant_id: z.number().int().positive().optional().nullable(),
+  tenant_branch_id: z.number().int().positive().optional().nullable(),
+  status: z.enum(['0', '1']).default('1'),
+});
+export type UserUpdateDataSysAd = z.infer<typeof userUpdateSchemaSysAd>;
 
 
 export const branchCreateSchema = z.object({
@@ -43,3 +61,15 @@ export const branchCreateSchema = z.object({
   email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
 });
 export type BranchCreateData = z.infer<typeof branchCreateSchema>;
+
+// For SysAd updating any branch
+export const branchUpdateSchemaSysAd = z.object({
+  tenant_id: z.number().int().positive({ message: "Tenant ID is required" }), // Keep tenant_id for context if needed, or remove if branchId is globally unique and sufficient
+  branch_name: z.string().min(1, "Branch name is required").max(255),
+  // branch_code: z.string().min(1, "Branch code is required").max(50), // Branch code typically not editable
+  branch_address: z.string().max(1000, "Address too long").optional().nullable(),
+  contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
+  email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
+  status: z.enum(['0', '1']).default('1'),
+});
+export type BranchUpdateDataSysAd = z.infer<typeof branchUpdateSchemaSysAd>;

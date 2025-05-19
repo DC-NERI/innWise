@@ -5,14 +5,14 @@ export interface User { // Renamed from AuthenticatedUser for broader use
   id: string | number; // number from DB, string for some contexts
   tenant_id?: number | null;
   tenant_name?: string | null; // For listing users with their tenant
-  tenant_branch_id?: number | null; // New field
+  tenant_branch_id?: number | null;
   branch_name?: string | null; // For displaying branch name
   first_name: string;
   last_name: string;
   username: string;
   email?: string | null;
   role: UserRole;
-  status?: string;
+  status: string; // Ensure status is always present
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   last_log_in?: string | null; // ISO date string
@@ -38,6 +38,7 @@ export interface Branch {
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
+  status: string; // Added status for branch
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
 }
