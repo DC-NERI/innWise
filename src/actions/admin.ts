@@ -1134,8 +1134,6 @@ export async function getRatesForBranchSimple(branchId: number, tenantId: number
 
 
 // Hotel Room Actions
-// Modified listRoomsForBranch to only fetch active rooms (room.status='1')
-// and join with hotel_rates to get rate_name.
 export async function listRoomsForBranch(branchId: number, tenantId: number): Promise<HotelRoom[]> {
   if (isNaN(branchId) || branchId <= 0 || isNaN(tenantId) || tenantId <= 0) {
     return [];
@@ -1143,21 +1141,42 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `SELECT r.id, r.tenant_id, r.branch_id, tb.branch_name, r.hotel_rate_id, hr.name as rate_name, 
-              r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity, r.is_available, 
-              r.status, r.created_at, r.updated_at 
+      `SELECT 
+              r.id, r.tenant_id, r.branch_id, tb.branch_name, 
+              r.hotel_rate_id, -- This is now JSONB
+              r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity, 
+              r.is_available, r.status, r.created_at, r.updated_at
        FROM hotel_room r
        JOIN tenant_branch tb ON r.branch_id = tb.id
-       JOIN hotel_rates hr ON r.hotel_rate_id = hr.id 
-       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1' AND hr.status = '1'
+       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
        ORDER BY r.floor ASC, r.room_name ASC`,
       [branchId, tenantId]
     );
-    return res.rows.map(row => ({
-      ...row,
-      created_at: new Date(row.created_at).toISOString(),
-      updated_at: new Date(row.updated_at).toISOString(),
-    })) as HotelRoom[];
+    return res.rows.map(row => {
+      let parsedRateIds: number[] | null = null;
+      if (row.hotel_rate_id) {
+        try {
+          // The database driver might already parse JSON, or it might be a string
+          parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
+          if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
+            console.warn(`Room ID ${row.id} has invalid hotel_rate_id format:`, row.hotel_rate_id);
+            parsedRateIds = []; // Default to empty array if parsing fails or not an array of numbers
+          }
+        } catch (parseError) {
+          console.error(`Error parsing hotel_rate_id for room ${row.id}:`, parseError);
+          parsedRateIds = []; // Default to empty array on error
+        }
+      } else {
+        parsedRateIds = []; // Default to empty if null/undefined from DB
+      }
+
+      return {
+        ...row,
+        hotel_rate_id: parsedRateIds, // Ensure it's an array
+        created_at: new Date(row.created_at).toISOString(),
+        updated_at: new Date(row.updated_at).toISOString(),
+      } as HotelRoom;
+    });
   } catch (error) {
     console.error(`Failed to fetch rooms for branch ${branchId}:`, error);
     throw new Error(`Database error: Could not fetch rooms. ${error instanceof Error ? error.message : String(error)}`);
@@ -1175,21 +1194,33 @@ export async function createRoom(
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  const { hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
+  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
   const client = await pool.connect();
   try {
+    // Ensure hotel_rate_ids is an array, even if empty from Zod default
+    const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
+    const hotelRateIdJson = JSON.stringify(rateIdsToStore);
+
     const res = await client.query(
       `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1') 
        RETURNING id, tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
-      [tenantId, branchId, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available]
+      [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available]
     );
     if (res.rows.length > 0) {
       const newRow = res.rows[0];
       const branchRes = await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [branchId]);
       const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
-      const rateRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [hotel_rate_id]);
-      const rate_name = rateRes.rows.length > 0 ? rateRes.rows[0].name : null;
+      
+      let parsedRateIds: number[] | null = null;
+      if (newRow.hotel_rate_id) {
+         try {
+          parsedRateIds = typeof newRow.hotel_rate_id === 'string' ? JSON.parse(newRow.hotel_rate_id) : newRow.hotel_rate_id;
+          if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
+        } catch { parsedRateIds = []; }
+      } else {
+        parsedRateIds = [];
+      }
 
       return { 
         success: true, 
@@ -1197,7 +1228,7 @@ export async function createRoom(
         room: {
           ...newRow,
           branch_name,
-          rate_name,
+          hotel_rate_id: parsedRateIds,
           created_at: new Date(newRow.created_at).toISOString(),
           updated_at: new Date(newRow.updated_at).toISOString(),
         } as HotelRoom
@@ -1223,23 +1254,34 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  const { hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status } = validatedFields.data;
+  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status } = validatedFields.data;
 
   const client = await pool.connect();
   try {
+    const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
+    const hotelRateIdJson = JSON.stringify(rateIdsToStore);
+
     const res = await client.query(
       `UPDATE hotel_room 
        SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = CURRENT_TIMESTAMP 
        WHERE id = $10 AND tenant_id = $11 AND branch_id = $12
        RETURNING id, tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
-      [hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
+      [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
       const branchRes = await client.query('SELECT branch_name FROM tenant_branch WHERE id = $1', [branchId]);
       const branch_name = branchRes.rows.length > 0 ? branchRes.rows[0].branch_name : null;
-      const rateRes = await client.query('SELECT name FROM hotel_rates WHERE id = $1', [hotel_rate_id]);
-      const rate_name = rateRes.rows.length > 0 ? rateRes.rows[0].name : null;
+      
+      let parsedRateIds: number[] | null = null;
+      if (updatedRow.hotel_rate_id) {
+         try {
+          parsedRateIds = typeof updatedRow.hotel_rate_id === 'string' ? JSON.parse(updatedRow.hotel_rate_id) : updatedRow.hotel_rate_id;
+          if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
+        } catch { parsedRateIds = []; }
+      } else {
+        parsedRateIds = [];
+      }
       
       return { 
         success: true, 
@@ -1247,7 +1289,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
         room: {
           ...updatedRow,
           branch_name,
-          rate_name,
+          hotel_rate_id: parsedRateIds,
           created_at: new Date(updatedRow.created_at).toISOString(),
           updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as HotelRoom
@@ -1287,5 +1329,4 @@ export async function archiveRoom(roomId: number, tenantId: number, branchId: nu
     client.release();
   }
 }
-
     

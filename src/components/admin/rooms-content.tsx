@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from "@/components/ui/checkbox"; // Import Checkbox
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -15,7 +16,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, BedDouble, Building, PlusCircle, Edit, Trash2, ArchiveRestore } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
 import type { SimpleBranch, HotelRoom, SimpleRate } from '@/lib/types';
@@ -24,7 +25,7 @@ import { getBranchesForTenantSimple, listRoomsForBranch, getRatesForBranchSimple
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
 const defaultFormValuesCreate: HotelRoomCreateData = {
-  hotel_rate_id: undefined as unknown as number, // Will be set if rates are available
+  hotel_rate_ids: [], // Initialize as empty array for multi-select
   room_name: '',
   room_code: '',
   floor: undefined,
@@ -44,7 +45,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
   const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
-  const [isLoadingData, setIsLoadingData] = useState(false); // For rooms and rates for a branch
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -111,9 +112,9 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 
     if (currentIsEditing && selectedRoom) {
       newDefaults = {
-        hotel_rate_id: selectedRoom.hotel_rate_id,
+        hotel_rate_ids: Array.isArray(selectedRoom.hotel_rate_id) ? selectedRoom.hotel_rate_id : [],
         room_name: selectedRoom.room_name,
-        room_code: selectedRoom.room_code, // Usually not editable, but include for consistency
+        room_code: selectedRoom.room_code,
         floor: selectedRoom.floor ?? undefined,
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
@@ -124,12 +125,12 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     } else {
       newDefaults = { 
         ...defaultFormValuesCreate, 
-        hotel_rate_id: availableRates.length > 0 ? availableRates[0].id : undefined as unknown as number, // Pre-select first rate if available
+        hotel_rate_ids: [], 
         status: '1' 
       };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
-  }, [selectedRoom, form, isEditDialogOpen, isAddDialogOpen, availableRates]);
+  }, [selectedRoom, form, isEditDialogOpen, isAddDialogOpen]);
 
 
   const handleAddSubmit = async (data: HotelRoomCreateData) => {
@@ -186,7 +187,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     if (!tenantId || !room.branch_id) return;
     setIsSubmitting(true);
     const payload: HotelRoomUpdateData = {
-      hotel_rate_id: room.hotel_rate_id,
+      hotel_rate_ids: Array.isArray(room.hotel_rate_id) ? room.hotel_rate_id : [],
       room_name: room.room_name,
       room_code: room.room_code,
       floor: room.floor,
@@ -211,6 +212,12 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 
   const filteredRooms = rooms.filter(room => activeTab === "active" ? room.status === '1' : room.status === '0');
 
+  const getRateNames = (rateIds: number[] | null): string => {
+    if (!Array.isArray(rateIds) || rateIds.length === 0) return 'N/A';
+    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `ID: ${id}`).join(', ');
+  };
+
+
   const renderFormFields = () => (
     <React.Fragment>
       <FormField control={form.control} name="room_name" render={({ field }) => (<FormItem><RHFFormLabel>Room Name *</RHFFormLabel><FormControl><Input placeholder="Deluxe Room 101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
@@ -219,16 +226,40 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       ) : (
         <FormField control={form.control} name="room_code" render={({ field }) => (<FormItem><RHFFormLabel>Room Code *</RHFFormLabel><FormControl><Input placeholder="DR101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       )}
-      <FormField control={form.control} name="hotel_rate_id"
+      
+      <Controller
+        control={form.control}
+        name="hotel_rate_ids"
         render={({ field }) => (
           <FormItem>
-            <RHFFormLabel>Associated Rate *</RHFFormLabel>
-            <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()} disabled={availableRates.length === 0}>
-              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={availableRates.length === 0 ? "No rates available for this branch" : "Select a rate"} /></SelectTrigger></FormControl>
-              <SelectContent>{availableRates.map(r => <SelectItem key={r.id} value={r.id.toString()}>{r.name}</SelectItem>)}</SelectContent>
-            </Select><FormMessage />
+            <RHFFormLabel>Associated Rates *</RHFFormLabel>
+            {availableRates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No rates available for this branch. Please add rates first.</p>
+            ) : (
+              <div className="space-y-2 mt-1 max-h-40 overflow-y-auto border p-2 rounded-md w-[90%]">
+                {availableRates.map(rate => (
+                  <FormItem key={rate.id} className="flex flex-row items-start space-x-3 space-y-0">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value?.includes(rate.id)}
+                        onCheckedChange={(checked) => {
+                          const currentSelectedIds = field.value || [];
+                          return checked
+                            ? field.onChange([...currentSelectedIds, rate.id])
+                            : field.onChange(currentSelectedIds.filter(value => value !== rate.id));
+                        }}
+                      />
+                    </FormControl>
+                    <Label className="font-normal">{rate.name}</Label>
+                  </FormItem>
+                ))}
+              </div>
+            )}
+            <FormMessage />
           </FormItem>
-        )} />
+        )}
+      />
+
       <FormField control={form.control} name="floor" render={({ field }) => (<FormItem><RHFFormLabel>Floor</RHFFormLabel><FormControl><Input type="number" placeholder="1" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="room_type" render={({ field }) => (<FormItem><RHFFormLabel>Room Type</RHFFormLabel><FormControl><Input placeholder="Deluxe" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="bed_type" render={({ field }) => (<FormItem><RHFFormLabel>Bed Type</RHFFormLabel><FormControl><Input placeholder="King" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
@@ -276,10 +307,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 key={isEditing ? `edit-room-${selectedRoom?.id}` : 'add-room'}
                 open={isAddDialogOpen || isEditDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_id: availableRates.length > 0 ? availableRates[0].id : undefined, status: '1' }); }
+                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1' }); }
                 }}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_id: availableRates.length > 0 ? availableRates[0].id : undefined, status: '1' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
+                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                 </Button>
               </DialogTrigger>
@@ -306,10 +337,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
             <TabsContent value="active">
               {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
               {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rate</TableHead><TableHead>Floor</TableHead><TableHead>Available</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Available</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{r.rate_name || 'N/A'}</TableCell><TableCell>{r.floor ?? '-'}</TableCell><TableCell>{r.is_available ? 'Yes' : 'No'}</TableCell>
+                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell><TableCell>{r.is_available ? 'Yes' : 'No'}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
@@ -326,10 +357,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
              <TabsContent value="archive">
               {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
               {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rate</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{r.rate_name || 'N/A'}</TableCell>
+                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                       </TableCell>
@@ -355,3 +386,4 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     </Card>
   );
 }
+

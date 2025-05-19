@@ -72,8 +72,8 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number; // This is NOT NULL in DB
-  rate_name?: string | null; // For display, from joined hotel_rates
+  hotel_rate_id: number[] | null; // Changed to array of numbers, or null if column is nullable
+  rate_names?: string[]; // For display, derived from hotel_rate_id
   room_name: string;
   room_code: string;
   floor?: number | null;
@@ -97,7 +97,7 @@ export interface Transaction {
     tenant_id: number;
     branch_id: number;
     hotel_room_id: number;
-    hotel_rate_id: number;
+    hotel_rate_id: number; // This remains a single ID for a specific transaction
     client_name: string;
     client_payment_method: string;
     notes?: string | null;
@@ -105,7 +105,7 @@ export interface Transaction {
     check_out_time?: string | null; // ISO date string
     hours_used?: number | null;
     total_amount?: number | null; // Stored as numeric, handle as number
-    created_by_user_id: number; // Not nullable based on DDL if we track who created it
+    created_by_user_id: number;
     check_out_by_user_id?: number | null;
     status: string; // '0' for active, '1' for completed/checked-out
     created_at: string; // ISO date string
@@ -115,5 +115,4 @@ export interface Transaction {
     rate_name?: string; // From joining hotel_rates
     checked_out_by_username?: string;
 }
-
     
