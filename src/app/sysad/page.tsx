@@ -6,19 +6,18 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building, Settings, LogOut } from 'lucide-react';
-import BranchesContent from '@/components/admin/branches-content'; // Re-using BranchesContent
+import { Building, Settings, LogOut, Users, Building2, Network } from 'lucide-react';
+import TenantsManagement from '@/components/sysad/tenants-management';
+import UsersManagement from '@/components/sysad/users-management';
+import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
-// getTenantDetails might not be strictly needed if tenantName is always "System Administrator" for sysad
-// but tenantId from localStorage is still used for BranchesContent.
 
 const SysAdDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'branches' | 'settings'>('branches');
+  const [activeView, setActiveView] = useState<'tenants' | 'users' | 'branches' | 'settings'>('tenants');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [tenantId, setTenantId] = useState<number | null>(null);
-  const [tenantName, setTenantName] = useState<string>("System Administrator"); // Default for sysad
+  const [tenantName, setTenantName] = useState<string>("System Administrator");
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
@@ -28,7 +27,6 @@ const SysAdDashboardPage: NextPage = () => {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedRole = localStorage.getItem('userRole') as UserRole | null;
-      const storedTenantId = localStorage.getItem('userTenantId');
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
@@ -39,8 +37,6 @@ const SysAdDashboardPage: NextPage = () => {
           setTenantName("System Administrator");
         }
       }
-      // SysAd might or might not have a tenantId. If they do, it's for specific branch management context.
-      if (storedTenantId) setTenantId(parseInt(storedTenantId, 10));
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
@@ -66,7 +62,7 @@ const SysAdDashboardPage: NextPage = () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
-      localStorage.removeItem('userTenantName'); // Though for sysad it's fixed
+      localStorage.removeItem('userTenantName');
       localStorage.removeItem('username');
       localStorage.removeItem('userFirstName');
       localStorage.removeItem('userLastName');
@@ -98,14 +94,33 @@ const SysAdDashboardPage: NextPage = () => {
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
-            {/* SysAd typically has access to Branches and Settings based on previous admin page logic */}
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('tenants')}
+                isActive={activeView === 'tenants'}
+                className="justify-start"
+              >
+                <Building2 className="h-5 w-5" />
+                Tenants
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('users')}
+                isActive={activeView === 'users'}
+                className="justify-start"
+              >
+                <Users className="h-5 w-5" />
+                Users
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
                 className="justify-start"
               >
-                <Building className="h-5 w-5" />
+                <Network className="h-5 w-5" />
                 Branches
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -138,22 +153,9 @@ const SysAdDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {/* 
-            If sysad has a tenantId (e.g., managing a specific tenant's branches temporarily or assigned one), 
-            BranchesContent will render. Otherwise, if tenantId is null, this won't render.
-            A more advanced sysad branch view might involve a tenant selector.
-          */}
-          {activeView === 'branches' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
-          {activeView === 'branches' && tenantId === null && (
-            <div>
-              <h2 className="text-2xl font-semibold">Branches Management</h2>
-              <p className="text-muted-foreground">
-                As a System Administrator, you can manage branches.
-                If you are associated with a specific tenant, their branches will be shown.
-                Otherwise, a tenant selection might be required (feature to be implemented).
-              </p>
-            </div>
-          )}
+          {activeView === 'tenants' && <TenantsManagement />}
+          {activeView === 'users' && <UsersManagement />}
+          {activeView === 'branches' && <AllBranchesManagement />}
           {activeView === 'settings' && (
             <div>
               <h2 className="text-2xl font-semibold">System Settings</h2>

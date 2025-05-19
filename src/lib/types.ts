@@ -1,11 +1,19 @@
 
 export type UserRole = "admin" | "sysad" | "staff";
 
-export interface AuthenticatedUser {
-  id: string;
+export interface User { // Renamed from AuthenticatedUser for broader use
+  id: string | number; // number from DB, string for some contexts
+  tenant_id?: number | null;
+  tenant_name?: string | null; // For listing users with their tenant
+  first_name: string;
+  last_name: string;
   username: string;
+  email?: string | null;
   role: UserRole;
-  lastLogIn?: Date;
+  status?: string;
+  created_at: string; // ISO date string
+  updated_at: string; // ISO date string
+  last_log_in?: string | null; // ISO date string
 }
 
 export interface Tenant {
@@ -22,6 +30,7 @@ export interface Tenant {
 export interface Branch {
   id: number;
   tenant_id: number;
+  tenant_name?: string; // Optional: for listing branches with tenant name
   branch_name: string;
   branch_code: string;
   branch_address?: string | null;

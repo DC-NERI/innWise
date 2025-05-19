@@ -12,3 +12,33 @@ export const branchUpdateSchema = z.object({
   contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
   email_address: z.string().email("Invalid email address").max(255, "Email too long").optional().nullable(),
 });
+
+export const tenantCreateSchema = z.object({
+  tenant_name: z.string().min(1, "Tenant name is required").max(255, "Tenant name too long"),
+  tenant_address: z.string().max(1000, "Address too long").optional().nullable(),
+  tenant_email: z.string().email("Invalid email address").max(255, "Email too long").optional().nullable(),
+  tenant_contact_info: z.string().max(100, "Contact number too long").optional().nullable(),
+});
+export type TenantCreateData = z.infer<typeof tenantCreateSchema>;
+
+export const userCreateSchema = z.object({
+  first_name: z.string().min(1, "First name is required").max(100),
+  last_name: z.string().min(1, "Last name is required").max(100),
+  username: z.string().min(1, "Username is required").max(100),
+  password: z.string().min(6, "Password must be at least 6 characters").max(100),
+  email: z.string().email("Invalid email address").max(255).optional().nullable(),
+  role: z.enum(["admin", "staff", "sysad"]).default("staff"),
+  tenant_id: z.number().int().positive().optional().nullable(),
+});
+export type UserCreateData = z.infer<typeof userCreateSchema>;
+
+
+export const branchCreateSchema = z.object({
+  tenant_id: z.number().int().positive("Tenant ID is required"),
+  branch_name: z.string().min(1, "Branch name is required").max(255),
+  branch_code: z.string().min(1, "Branch code is required").max(50),
+  branch_address: z.string().max(1000, "Address too long").optional().nullable(),
+  contact_number: z.string().max(100, "Contact number too long").optional().nullable(),
+  email_address: z.string().email("Invalid email address").max(255).optional().nullable(),
+});
+export type BranchCreateData = z.infer<typeof branchCreateSchema>;
