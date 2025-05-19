@@ -6,8 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form'; // RHF FormLabel is aliased if Label is also used
-import { Label } from "@/components/ui/label"; // Base Label
+import { Form, FormControl, FormField, FormItem, FormMessage } from '@/components/ui/form';
+import { Label } from "@/components/ui/label";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -78,8 +78,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   
   const [isTransactionDetailsDialogOpen, setIsTransactionDetailsDialogOpen] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<Transaction | null>(null);
-  const [isEditNotesMode, setIsEditNotesMode] = useState(false);
-  
+  const [isEditNotesMode, setIsEditNotesMode] = useState(false); // For simple note editing
+  const [editingModeForDialog, setEditingModeForDialog] = useState<'notesOnly' | 'fullReservation' | null>(null);
+
+
   const [roomForActionConfirmation, setRoomForActionConfirmation] = useState<HotelRoom | null>(null); 
   const [activeTransactionIdForAction, setActiveTransactionIdForAction] = useState<number | null>(null); 
   const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
@@ -107,7 +109,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   });
 
   const updateRoomInLocalState = useCallback((updatedRoomPartial: Partial<HotelRoom> & { id: number }) => {
-    console.log("[RoomStatusContent] Updating local state for room:", updatedRoomPartial);
+    console.log("[RoomStatusContent] updateRoomInLocalState called with:", updatedRoomPartial);
     setRooms(prevRooms => {
       const newRooms = prevRooms.map(r =>
         r.id === updatedRoomPartial.id ? { ...r, ...updatedRoomPartial } : r
@@ -134,6 +136,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
       return newRooms; 
     });
   }, []);
+
 
   const fetchRoomsAndRatesData = useCallback(async () => {
     if (!tenantId || !branchId) {
@@ -189,8 +192,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
   const handleOpenBookingDialog = (room: HotelRoom, mode: 'book' | 'reserve') => {
     console.log(`[RoomStatusContent] Opening booking dialog for room: ${room.room_name}, mode: ${mode}`);
     
+    const roomRateIds = Array.isArray(room.hotel_rate_id) ? room.hotel_rate_id : [];
     const applicableRates = allBranchActiveRates.filter(branchRate =>
-        (room.hotel_rate_id || []).includes(branchRate.id)
+        roomRateIds.includes(branchRate.id)
     );
     setApplicableRatesForBookingDialog(applicableRates);
     
@@ -417,6 +421,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Notes updated." });
             setTransactionDetails(result.updatedTransaction); 
+            setIsEditNotesMode(false); // Exit edit mode for notes
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update notes.", variant: "destructive" });
         }
@@ -448,6 +453,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                 active_transaction_client_name: result.updatedTransaction.client_name,
             });
         }
+         setEditingModeForDialog(null); // Exit full edit mode for reservation
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -493,14 +499,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                   key={room.id} 
                   className="shadow-md hover:shadow-lg transition-shadow duration-200 flex flex-col bg-card"
                 >
-                  <CardHeader className={cn(
+                   <CardHeader className={cn(
                     "p-4 rounded-t-lg",
                     room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && "bg-green-500 text-white",
                     room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && "bg-orange-500 text-white",
                     room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && "bg-blue-500 text-white"
                   )}>
                     <CardTitle className="text-lg truncate" title={room.room_name}>{room.room_name} ({room.room_code})</CardTitle>
-                    <CardDescription className={cn(
+                     <CardDescription className={cn(
                         "text-xs",
                          (room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE || 
                           room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || 
@@ -586,7 +592,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                 >
                                     <Info className="mr-2 h-4 w-4" /> View Details
                                 </Button>
-                                <AlertDialog open={isCheckoutConfirmOpen && roomForActionConfirmation?.id === room.id} onOpenChange={(open) => { if (!open) { setIsCheckoutConfirmOpen(false); setRoomForActionConfirmation(null); setActiveTransactionIdForAction(null); } else { setIsCheckoutConfirmOpen(open); } }}>
+                                <AlertDialog open={isCheckoutConfirmOpen && roomForActionConfirmation?.id === room.id} onOpenChange={(open) => { if (!open) { setIsCheckoutConfirmOpen(false); setRoomForActionConfirmation(null); setActiveTransactionIdForAction(null); } }}>
                                     <AlertDialogTrigger asChild>
                                         <Button 
                                             variant="destructive" 
@@ -603,6 +609,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                             <AlertDialogTitle>Confirm Check-out</AlertDialogTitle>
                                             <AlertDialogDescription>
                                             Are you sure you want to check out the guest from room {roomForActionConfirmation?.room_name} ({roomForActionConfirmation?.room_code})?
+                                            This action will finalize the transaction.
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
@@ -626,10 +633,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                                 >
                                     <Info className="mr-2 h-4 w-4" /> View Details
                                 </Button>
-                                {/* Placeholder for Check-in Reserved Guest button */}
-                                {/* <Button variant="default" size="sm" className="w-full" disabled title="Check-in Reserved Guest (Coming Soon)">
+                                {/* 
+                                <Button variant="default" size="sm" className="w-full" disabled title="Check-in Reserved Guest (Coming Soon)">
                                    <LogIn className="mr-2 h-4 w-4" /> Check-in Reserved
-                                </Button> */}
+                                </Button> 
+                                */}
                             </div>
                         )}
                     </div>
@@ -791,7 +799,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId }: R
                     <p><strong>Client:</strong> {transactionDetails.client_name}</p>
                     <p><strong>Payment Method:</strong> {transactionDetails.client_payment_method}</p>
                     <div className="flex justify-between items-center">
-                       <Label>Notes:</Label>
+                        <Label>Notes:</Label>
                         {(transactionDetails.status === TRANSACTION_STATUS.UNPAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID) && (
                             <Button variant="ghost" size="sm" onClick={() => {
                                 if (transactionDetails.status === TRANSACTION_STATUS.UNPAID) {
