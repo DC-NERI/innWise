@@ -2,17 +2,16 @@
 "use client";
 
 import type { NextPage } from 'next';
-import { useState, useEffect, useMemo } from 'react';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
+import { useState, useEffect } from 'react';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Building, Home, Settings, LogOut } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import Link from 'next/link';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches'>('users');
+  const [activeView, setActiveView] = useState<'users' | 'branches'>('branches'); // Default to branches as per typical first content
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
   const [tenantName, setTenantName] = useState<string>("Tenant Name Placeholder"); // Placeholder
 
@@ -63,14 +62,16 @@ const AdminDashboardPage: NextPage = () => {
               <Building className="mr-2 h-5 w-5" />
               Branches
             </SidebarMenuItem>
-             <SidebarMenuItem
-              asChild
-              className="text-sidebar-foreground hover:bg-sidebar-accent"
-            >
-              <Link href="/">
-                <Home className="mr-2 h-5 w-5" />
-                Go to Login
-              </Link>
+             <SidebarMenuItem>
+              <SidebarMenuButton
+                asChild
+                className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              >
+                <Link href="/">
+                  <Home className="mr-2 h-5 w-5" />
+                  Go to Login
+                </Link>
+              </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
