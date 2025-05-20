@@ -7,12 +7,12 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus } from 'lucide-react';
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye } from 'lucide-react'; // Added Eye icon
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import { format as formatDateTime } from 'date-fns';
+import { format as formatDateTime, parseISO } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const StaffSettingsContent = () => (
@@ -36,6 +36,8 @@ const StaffDashboardPage: NextPage = () => {
   const [branchId, setBranchId] = useState<number | null>(null);
   const [branchName, setBranchName] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
+
+  const [isAvailableRoomsOverviewModalOpen, setIsAvailableRoomsOverviewModalOpen] = useState(false);
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -84,11 +86,11 @@ const StaffDashboardPage: NextPage = () => {
           console.log("[staff/page.tsx] Set userId from localStorage:", parsedUserId);
         } else {
           console.warn("[staff/page.tsx] Parsed userId from localStorage is not a positive number:", parsedUserId);
-          setUserId(null); // Ensure it's null if invalid
+          setUserId(null); 
         }
       } else {
         console.warn("[staff/page.tsx] userId not found or invalid in localStorage:", storedUserId);
-        setUserId(null); // Ensure it's null
+        setUserId(null); 
       }
 
       if (storedTenantName) {
@@ -197,9 +199,18 @@ const StaffDashboardPage: NextPage = () => {
       </Sidebar>
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="text-sm font-bold text-foreground">
-            {branchName && <span className="mr-2">{branchName} -</span>}
-            {dateTimeDisplay}
+          <div className="flex items-center space-x-4">
+            <div className="text-sm font-bold text-foreground">
+              {branchName && <span className="mr-2">{branchName} -</span>}
+              {dateTimeDisplay}
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
+            >
+              <Eye className="mr-2 h-4 w-4" /> View Available
+            </Button>
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout
@@ -207,7 +218,13 @@ const StaffDashboardPage: NextPage = () => {
         </header>
         <main className="p-4 lg:p-6">
           {activeView === 'room-status' && tenantId && branchId && (
-            <RoomStatusContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
+            <RoomStatusContent 
+              tenantId={tenantId} 
+              branchId={branchId} 
+              staffUserId={userId} 
+              showAvailableRoomsOverview={isAvailableRoomsOverviewModalOpen}
+              onCloseAvailableRoomsOverview={() => setIsAvailableRoomsOverviewModalOpen(false)}
+            />
           )}
           {activeView === 'reservations' && tenantId && branchId && userId && (
             <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
@@ -236,3 +253,4 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
