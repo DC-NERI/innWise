@@ -4,14 +4,16 @@
 import type { NextPage } from 'next';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye } from 'lucide-react'; // Added Eye icon
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye, MessageSquare } from 'lucide-react'; // Added MessageSquare
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
+import NotificationsContent from '@/components/staff/notifications-content'; // Added
+import { listUnassignedReservations } from '@/actions/staff'; // Added
 import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
@@ -24,7 +26,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'settings'>('room-status');
+  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'notifications' | 'settings'>('room-status'); // Updated activeView
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -38,6 +40,7 @@ const StaffDashboardPage: NextPage = () => {
   const [userId, setUserId] = useState<number | null>(null);
 
   const [isAvailableRoomsOverviewModalOpen, setIsAvailableRoomsOverviewModalOpen] = useState(false);
+  const [unassignedReservationsCount, setUnassignedReservationsCount] = useState<number>(0); // Added
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -121,6 +124,25 @@ const StaffDashboardPage: NextPage = () => {
     return () => clearInterval(intervalId);
   }, [router]);
 
+  useEffect(() => {
+    const fetchReservationCount = async () => {
+      if (tenantId && branchId) {
+        try {
+          const reservations = await listUnassignedReservations(tenantId, branchId);
+          setUnassignedReservationsCount(reservations.length);
+        } catch (error) {
+          console.error("Failed to fetch unassigned reservations count:", error);
+          setUnassignedReservationsCount(0);
+        }
+      }
+    };
+    fetchReservationCount();
+    // Optionally, set an interval to refresh this count periodically
+    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
+    return () => clearInterval(countInterval);
+  }, [tenantId, branchId]);
+
+
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       console.log("[staff/page.tsx] Logging out, clearing localStorage");
@@ -177,6 +199,18 @@ const StaffDashboardPage: NextPage = () => {
               >
                 <CalendarPlus />
                 Reservations
+                {unassignedReservationsCount > 0 && (
+                  <SidebarMenuBadge>{unassignedReservationsCount}</SidebarMenuBadge>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('notifications')}
+                isActive={activeView === 'notifications'}
+              >
+                <MessageSquare />
+                Message/Notif
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -231,6 +265,9 @@ const StaffDashboardPage: NextPage = () => {
           {activeView === 'reservations' && tenantId && branchId && userId && (
             <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
+           {activeView === 'notifications' && (
+            <NotificationsContent />
+          )}
           {(activeView === 'room-status' || activeView === 'reservations') && (!tenantId || !branchId) && (
              <Card>
               <CardHeader>
@@ -255,3 +292,4 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
