@@ -7,12 +7,11 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus } from 'lucide-react'; // Added CalendarPlus
+import { Settings, LogOut, BedDouble, Building, CalendarPlus } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
-// import GuestCheckInContent from '@/components/staff/guest-checkin-content'; // Removed
 import RoomStatusContent from '@/components/staff/room-status-content';
-import ReservationsContent from '@/components/staff/reservations-content'; // New
+import ReservationsContent from '@/components/staff/reservations-content';
 
 const StaffSettingsContent = () => (
   <div>
@@ -219,7 +218,7 @@ const StaffDashboardPage: NextPage = () => {
           {activeView === 'room-status' && tenantId && branchId && (
             <RoomStatusContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
-          {activeView === 'reservations' && tenantId && branchId && staffUserId && (
+          {activeView === 'reservations' && tenantId && branchId && userId && (
             <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
           {(activeView === 'room-status' || activeView === 'reservations') && (!tenantId || !branchId) && (
