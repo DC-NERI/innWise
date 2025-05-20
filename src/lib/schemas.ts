@@ -189,7 +189,6 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  // room_code is part of hotelRoomCreateSchema now, so it will be included in update
   is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
   status: z.enum(['0', '1']).default('1'),
 });
@@ -198,11 +197,47 @@ export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 // Transaction Schemas
 export const transactionCreateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  client_payment_method: z.string().min(1, "Payment method is required").max(50),
+  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
-  selected_rate_id: z.coerce.number().int().positive("A valid rate must be selected."),
+  is_advance_reservation: z.boolean().optional().default(false),
+  reserved_check_in_datetime: z.string().optional().nullable(),
+  reserved_check_out_datetime: z.string().optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.is_advance_reservation) {
+    if (!data.reserved_check_in_datetime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reserved check-in date and time are required for advance reservations.",
+        path: ["reserved_check_in_datetime"],
+      });
+    }
+    if (!data.reserved_check_out_datetime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reserved check-out date and time are required for advance reservations.",
+        path: ["reserved_check_out_datetime"],
+      });
+    }
+    // Optional: Validate that check_out is after check_in
+    if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
+      if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Reserved check-out date/time must be after check-in date/time.",
+          path: ["reserved_check_out_datetime"],
+        });
+      }
+    }
+  }
 });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
+
+export const transactionUnassignedUpdateSchema = transactionCreateSchema.extend({
+  // No new fields, just reusing for context. All fields from create are potentially editable.
+});
+export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
+
 
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
@@ -219,6 +254,5 @@ export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUp
 // Schema for assigning room to unassigned reservation
 export const assignRoomAndCheckInSchema = z.object({
   selected_room_id: z.coerce.number().int().positive("A valid room must be selected."),
-  // selected_rate_id might not be needed here if we use the rate from the original unassigned reservation
 });
 export type AssignRoomAndCheckInData = z.infer<typeof assignRoomAndCheckInSchema>;

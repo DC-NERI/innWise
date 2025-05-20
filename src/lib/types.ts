@@ -72,7 +72,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number[] | null;
+  hotel_rate_id: number[] | null; // Updated to array
   rate_names?: string[]; // For display, derived from hotel_rate_id
   room_name: string;
   room_code: string;
@@ -80,13 +80,13 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved (was boolean)
   status: string; // '0' or '1' (for the room record itself, not booking status)
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
   active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
-  active_transaction_check_in_time?: string | null;
+  active_transaction_check_in_time?: string | null; // This is actual check_in_time for occupied, or reservation creation time for reserved
   active_transaction_rate_name?: string | null;
 }
 
@@ -102,20 +102,22 @@ export interface Transaction {
     tenant_id: number;
     branch_id: number;
     hotel_room_id: number | null; // Made nullable for unassigned reservations
-    hotel_rate_id: number;
+    hotel_rate_id: number | null; // Made nullable as rate can be optional
     client_name: string;
-    client_payment_method: string;
+    client_payment_method: string | null; // Made nullable as payment method can be optional
     notes?: string | null;
-    check_in_time: string; // ISO date string (for unassigned, this is reservation creation time)
+    check_in_time: string; // ISO date string (for unassigned, this is reservation creation time; for assigned, actual check-in)
     check_out_time?: string | null; // ISO date string
     hours_used?: number | null;
     total_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; // '0': Unpaid/Occupied, '1': Paid, '2': Advance Paid/Reserved, '3': Cancelled
+    status: string; // '0': Unpaid/Occupied, '1': Paid, '2': Advance Paid (no room assigned yet), '3': Cancelled, '4': Advance Reservation (future date)
     created_at: string; // ISO date string
     updated_at: string; // ISO date string
+    reserved_check_in_datetime?: string | null; // For status '4'
+    reserved_check_out_datetime?: string | null; // For status '4'
     room_name?: string | null; // From join if room assigned
-    rate_name?: string;
+    rate_name?: string | null; // From join with hotel_rates
     checked_out_by_username?: string;
 }
