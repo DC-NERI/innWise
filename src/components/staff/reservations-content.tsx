@@ -38,6 +38,7 @@ interface ReservationsContentProps {
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
+  // Default to 2:00 PM today
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); 
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
@@ -46,6 +47,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
+        // Ensure 'T' separator for parseISO
         const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); 
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
@@ -56,11 +58,13 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
         console.warn("Failed to parse checkInDateString for default checkout (B), using current time as base:", checkInDateString, e);
     }
   } else { 
+    // If no check-in date, default check-in to 2 PM today for checkout calculation base
     baseDate = setHours(baseDate, 14); 
     baseDate = setMinutes(baseDate, 0);
     baseDate = setSeconds(baseDate, 0);
     baseDate = setMilliseconds(baseDate, 0);
   }
+  // Default to 12:00 PM (noon) the day after check-in
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0); 
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
@@ -77,7 +81,7 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, 
+  selected_room_id: undefined as unknown as number, // Will be cast to number if needed
 };
 
 
@@ -275,10 +279,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     }
     setIsSubmitting(true);
     try {
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); 
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // Passing null for roomId
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
+        // No need to call updateRoomInLocalState as this is for unassigned reservations
         setIsCancelReservationConfirmOpen(false);
         setTransactionToCancel(null);
       } else {
@@ -296,7 +301,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     if (!tenantId || !branchId) return;
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); 
+    setIsLoading(true); // Can use a more specific loading state if preferred
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(rooms);
@@ -331,7 +336,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        // Potentially trigger a refresh of room status content if it's visible or via a shared state/event
+        // Note: This action does not return updatedRoomData in the current staff.ts,
+        // so RoomStatusContent won't be updated locally by this action directly.
+        // A full refresh or event bus would be needed if RoomStatusContent should reflect this change immediately.
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -346,7 +353,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     formInstance: typeof addReservationForm | typeof editReservationForm, 
     isAdvance: boolean | undefined
   ) => {
-    const formValues = formInstance.getValues(); 
+    const formValues = formInstance.getValues(); // To get current form values for min date logic
     return (
       <div className="p-1 space-y-3">
         <FormField control={formInstance.control} name="client_name" render={({ field }) => (
@@ -402,7 +409,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                     type="datetime-local" 
                     className="w-[90%]"
                     {...field} 
-                    value={field.value || ""} 
+                    value={field.value || ""} // Handle null for input
                     min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -417,7 +424,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                     type="datetime-local" 
                     className="w-[90%]"
                     {...field} 
-                    value={field.value || ""} 
+                    value={field.value || ""} // Handle null for input
                     min={formValues.reserved_check_in_datetime ? format(parseISO(formValues.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -448,7 +455,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }}>
           <DialogTrigger asChild>
             <Button onClick={() => {
-                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues });
+                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues }); // Explicit reset here
                  setIsAddReservationDialogOpen(true);
             }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Reservation
@@ -460,7 +467,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             </DialogHeader>
             <Form {...addReservationForm}>
               <form onSubmit={addReservationForm.handleSubmit(handleAddReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                 <div className="flex-grow overflow-y-auto">
+                 <div className="flex-grow overflow-y-auto p-1">
                     {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd)}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -493,42 +500,44 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                       ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`
                       : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`: 'N/A')}
                   </TableCell>
-                  <TableCell className="text-right space-x-1">
-                     <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
-                      <Edit className="mr-1 h-3 w-3" /> Edit
-                    </Button>
-                     <AlertDialog 
-                        open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id} 
-                        onOpenChange={(open) => {
-                            if (!open && transactionToCancel?.id === res.id) { 
-                                setIsCancelReservationConfirmOpen(false);
-                                setTransactionToCancel(null);
-                            }
-                        }}
-                     >
-                        <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
-                                <Ban className="mr-1 h-3 w-3" /> Cancel
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Are you sure you want to cancel this reservation for "{transactionToCancel?.client_name}"? This action cannot be undone.
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => { setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
-                                <AlertDialogAction onClick={handleConfirmCancelUnassignedReservation} disabled={isSubmitting}>
-                                    {isSubmitting ? <Loader2 className="animate-spin" /> : "Yes, Cancel Reservation"}
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
-                    <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
-                      <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
-                    </Button>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end items-center space-x-2">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
+                            <Edit className="mr-1 h-3 w-3" /> Edit
+                        </Button>
+                        <AlertDialog 
+                            open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id} 
+                            onOpenChange={(open) => {
+                                if (!open && transactionToCancel?.id === res.id) { 
+                                    setIsCancelReservationConfirmOpen(false);
+                                    setTransactionToCancel(null);
+                                }
+                            }}
+                        >
+                            <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
+                                    <Ban className="mr-1 h-3 w-3" /> Cancel
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Are you sure you want to cancel this reservation for "{transactionToCancel?.client_name}"? This action cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={() => { setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
+                                    <AlertDialogAction onClick={handleConfirmCancelUnassignedReservation} disabled={isSubmitting}>
+                                        {isSubmitting ? <Loader2 className="animate-spin" /> : "Yes, Cancel Reservation"}
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
+                        <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
+                            <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
+                        </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -552,7 +561,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
           </DialogHeader>
           <Form {...editReservationForm}>
             <form onSubmit={editReservationForm.handleSubmit(handleEditReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-               <div className="flex-grow overflow-y-auto">
+               <div className="flex-grow overflow-y-auto p-1">
                  {renderReservationFormFields(editReservationForm, watchIsAdvanceReservationEdit)}
               </div>
               <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -620,3 +629,4 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
+
