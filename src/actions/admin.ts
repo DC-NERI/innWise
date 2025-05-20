@@ -17,7 +17,8 @@ import {
   branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd,
   userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin,
   hotelRateCreateSchema, HotelRateCreateData, hotelRateUpdateSchema, HotelRateUpdateData,
-  hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData
+  hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData,
+  notificationCreateSchema, NotificationCreateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
 import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS } from '@/lib/constants';
@@ -1026,7 +1027,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         hr.hotel_rate_id, 
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
-        hr.transaction_id, -- This is the key link now
+        hr.transaction_id, 
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
         hrt_active.name AS active_transaction_rate_name 
@@ -1035,19 +1036,19 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id 
           AND t_active.branch_id = hr.branch_id
-          -- No need to filter t_active.status here if hr.transaction_id is the source of truth
-          -- for the *currently active* transaction link. The status of this linked transaction
-          -- determines the room's state (occupied or reserved).
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id 
           AND hrt_active.tenant_id = hr.tenant_id 
           AND hrt_active.branch_id = hr.branch_id 
-          AND hrt_active.status = '1' -- Ensure the rate itself is active
-      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1' -- Room definition is active
+          AND hrt_active.status = '1'
+      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
     const res = await client.query(query, [branchId, tenantId]);
-    console.log(`[listRoomsForBranch Server Log] Fetched ${res.rows.length} rooms for branch ${branchId}`);
+    
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`[listRoomsForBranch Server Log] Fetched ${res.rows.length} rooms for branch ${branchId}`);
+    }
 
     return res.rows.map(row => {
       let parsedRateIds: number[] | null = null;
@@ -1068,7 +1069,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       const roomIsAvailableStatus = Number(row.is_available);
       const transactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
 
-      if (roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.OCCUPIED || roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.RESERVED) {
+      if (process.env.NODE_ENV === 'development' && (roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.OCCUPIED || roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.RESERVED)) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
           room_transaction_id_db: row.transaction_id,
@@ -1186,8 +1187,6 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
-    // When updating a room, if its availability is changed to 'Available' (0),
-    // ensure its transaction_id is cleared.
     const transactionIdUpdate = (is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE) ? ', transaction_id = NULL' : '';
 
 
@@ -1304,7 +1303,6 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
       [NOTIFICATION_STATUS.READ, notificationId, tenantId]
     );
     if (res.rows.length > 0) {
-      // Re-fetch with joins for creator/branch names to match listNotificationsForTenant structure
       const fullNotificationRes = await client.query(
         `SELECT 
           n.id, n.tenant_id, n.message, n.status, 
@@ -1364,4 +1362,57 @@ export async function updateNotificationTransactionStatus(
     client.release();
   }
 }
-    
+
+export async function createNotification(
+  data: NotificationCreateData,
+  tenantId: number,
+  creatorUserId: number
+): Promise<{ success: boolean; message?: string; notification?: Notification }> {
+  const validatedFields = notificationCreateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
+  }
+  const { message, target_branch_id } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO notification (tenant_id, message, status, target_branch_id, creator_user_id, transaction_status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
+       RETURNING *`,
+      [
+        tenantId,
+        message,
+        NOTIFICATION_STATUS.UNREAD,
+        target_branch_id,
+        creatorUserId,
+        NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION,
+      ]
+    );
+    if (res.rows.length > 0) {
+      const newNotification = res.rows[0];
+      // Fetch related names for the returned object
+      const fullNotificationRes = await client.query(
+        `SELECT 
+          n.id, n.tenant_id, n.message, n.status, 
+          n.target_branch_id, tb.branch_name as target_branch_name,
+          n.creator_user_id, u.username as creator_username,
+          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+         FROM notification n
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN users u ON n.creator_user_id = u.id
+         WHERE n.id = $1`, [newNotification.id]
+      );
+      return {
+        success: true,
+        message: "Notification created successfully.",
+        notification: fullNotificationRes.rows[0] as Notification,
+      };
+    }
+    return { success: false, message: "Notification creation failed." };
+  } catch (error) {
+    console.error('Failed to create notification:', error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}

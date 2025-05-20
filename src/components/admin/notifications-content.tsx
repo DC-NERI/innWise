@@ -4,21 +4,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Bell, CheckSquare, Edit, CalendarPlus, XSquare } from 'lucide-react';
+import { Loader2, Bell, CheckSquare, Edit, CalendarPlus, XSquare, PlusCircle } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, SimpleRate, SimpleBranch } from '@/lib/types';
-import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
-import { listNotificationsForTenant, markNotificationAsRead, updateNotificationTransactionStatus, getRatesForBranchSimple, getBranchesForTenantSimple } from '@/actions/admin';
-import { createUnassignedReservation } from '@/actions/staff'; // Admin will use staff action to create reservation
+import { transactionCreateSchema, TransactionCreateData, notificationCreateSchema, NotificationCreateData } from '@/lib/schemas';
+import { listNotificationsForTenant, markNotificationAsRead, updateNotificationTransactionStatus, getRatesForBranchSimple, getBranchesForTenantSimple, createNotification } from '@/actions/admin';
+import { createUnassignedReservation } from '@/actions/staff'; 
 import { NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT, NOTIFICATION_TRANSACTION_STATUS, NOTIFICATION_TRANSACTION_STATUS_TEXT, TRANSACTION_STATUS } from '@/lib/constants';
 import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
 
@@ -59,6 +59,11 @@ const defaultReservationFormValues: TransactionCreateData = {
   reserved_check_out_datetime: null,
 };
 
+const defaultNotificationFormValues: NotificationCreateData = {
+    message: '',
+    target_branch_id: undefined,
+};
+
 export default function NotificationsContent({ tenantId, adminUserId }: NotificationsContentProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -66,6 +71,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const [isCreateReservationDialogOpen, setIsCreateReservationDialogOpen] = useState(false);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]);
+  const [availableTenantBranches, setAvailableTenantBranches] = useState<SimpleBranch[]>([]);
+  const [isAddNotificationDialogOpen, setIsAddNotificationDialogOpen] = useState(false);
   const { toast } = useToast();
 
   const reservationForm = useForm<TransactionCreateData>({
@@ -74,22 +81,31 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   });
   const watchIsAdvanceReservation = reservationForm.watch("is_advance_reservation");
 
-  const fetchNotifications = useCallback(async () => {
+  const addNotificationForm = useForm<NotificationCreateData>({
+    resolver: zodResolver(notificationCreateSchema),
+    defaultValues: defaultNotificationFormValues,
+  });
+
+  const fetchNotificationsAndBranches = useCallback(async () => {
     if (!tenantId) return;
     setIsLoading(true);
     try {
-      const data = await listNotificationsForTenant(tenantId);
-      setNotifications(data);
+      const [notifData, branchData] = await Promise.all([
+        listNotificationsForTenant(tenantId),
+        getBranchesForTenantSimple(tenantId)
+      ]);
+      setNotifications(notifData);
+      setAvailableTenantBranches(branchData);
     } catch (error) {
-      toast({ title: "Error", description: "Could not fetch notifications.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not fetch initial data.", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   }, [tenantId, toast]);
 
   useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
+    fetchNotificationsAndBranches();
+  }, [fetchNotificationsAndBranches]);
 
   useEffect(() => {
     if (watchIsAdvanceReservation) {
@@ -132,14 +148,14 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     setSelectedNotification(notification);
     reservationForm.reset({
         ...defaultReservationFormValues,
-        client_name: `Reservation based on Notification ID: ${notification.id}` // Placeholder
+        client_name: `Reservation for: ${notification.message.substring(0, 30)}${notification.message.length > 30 ? '...' : ''}`
     });
-    setIsLoading(true); // For rates
+    setIsLoading(true); 
     try {
         const rates = await getRatesForBranchSimple(notification.target_branch_id, tenantId);
         setAvailableRates(rates);
         if (rates.length > 0) {
-            reservationForm.setValue('selected_rate_id', rates[0].id); // Default to first rate
+            reservationForm.setValue('selected_rate_id', rates[0].id); 
         }
     } catch (error) {
         toast({title: "Error", description: "Could not fetch rates for target branch.", variant: "destructive"});
@@ -165,11 +181,11 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
       );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
-        // Update notification status
+        
         const updateNotifResult = await updateNotificationTransactionStatus(
             selectedNotification.id, 
             NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED,
-            result.transaction.id, // Link the created transaction ID
+            result.transaction.id, 
             tenantId
         );
         if (updateNotifResult.success && updateNotifResult.notification) {
@@ -188,14 +204,73 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     }
   };
 
+  const handleAddNotificationSubmit = async (data: NotificationCreateData) => {
+    setIsSubmitting(true);
+    try {
+      const result = await createNotification(data, tenantId, adminUserId);
+      if (result.success && result.notification) {
+        toast({title: "Success", description: "Notification created."});
+        setNotifications(prev => [result.notification!, ...prev].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        setIsAddNotificationDialogOpen(false);
+        addNotificationForm.reset(defaultNotificationFormValues);
+      } else {
+        toast({title: "Creation Failed", description: result.message, variant: "destructive"});
+      }
+    } catch (error) {
+        toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
+
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center space-x-2">
-          <Bell className="h-6 w-6 text-primary" />
-          <CardTitle>Notifications & Messages</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+            <div className="flex items-center space-x-2">
+            <Bell className="h-6 w-6 text-primary" />
+            <CardTitle>Notifications & Messages</CardTitle>
+            </div>
+            <CardDescription>Manage notifications and take actions.</CardDescription>
         </div>
-        <CardDescription>Manage notifications and take actions.</CardDescription>
+        <Dialog open={isAddNotificationDialogOpen} onOpenChange={(open) => {
+            if (!open) { addNotificationForm.reset(defaultNotificationFormValues); }
+            setIsAddNotificationDialogOpen(open);
+        }}>
+            <DialogTrigger asChild>
+                <Button><PlusCircle className="mr-2 h-4 w-4" /> Add Notification</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
+                <DialogHeader className="p-2 border-b">
+                    <DialogTitle>Create New Notification</DialogTitle>
+                </DialogHeader>
+                <Form {...addNotificationForm}>
+                    <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                        <div className="flex-grow overflow-y-auto p-1 space-y-3">
+                            <FormField control={addNotificationForm.control} name="message" render={({ field }) => (
+                                <FormItem><FormLabel>Message *</FormLabel><FormControl><Textarea placeholder="Enter notification message..." {...field} className="w-[90%]" rows={5} /></FormControl><FormMessage /></FormItem>
+                            )} />
+                            <FormField control={addNotificationForm.control} name="target_branch_id" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Target Branch (Optional)</FormLabel>
+                                    <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()}>
+                                        <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select branch if applicable" /></SelectTrigger></FormControl>
+                                        <SelectContent>{availableTenantBranches.map(branch => (<SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>))}</SelectContent>
+                                    </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )} />
+                        </div>
+                        <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
+                            <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Notification"}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -234,7 +309,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                       </Button>
                     )}
                      {notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED && (
-                        <span className="text-xs text-green-600">Processed</span>
+                        <span className="text-xs text-green-600">Processed (ID: {notif.transaction_id || 'N/A'})</span>
                     )}
                   </TableCell>
                 </TableRow>

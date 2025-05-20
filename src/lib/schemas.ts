@@ -189,14 +189,14 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
+  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE), // Added from create
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
 // --- Transaction Schemas ---
 
-// Base fields for transaction forms
+// Base fields for transaction forms, used to build more specific schemas
 const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected.").optional().nullable(),
@@ -206,7 +206,7 @@ const transactionObjectFields = {
   reserved_check_in_datetime: z.string()
     .optional()
     .nullable()
-    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null for consistent handling
+    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
       message: "Invalid check-in datetime string.",
     }),
@@ -219,8 +219,10 @@ const transactionObjectFields = {
     }),
 };
 
+const transactionObjectSchema = z.object(transactionObjectFields);
+
 // Schema for creating new transactions (used in booking and unassigned reservations)
-export const transactionCreateSchema = z.object(transactionObjectFields)
+export const transactionCreateSchema = transactionObjectSchema
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
@@ -250,9 +252,9 @@ export const transactionCreateSchema = z.object(transactionObjectFields)
   });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
-// Schema for updating unassigned reservations (might be similar to create or have specific fields)
-export const transactionUnassignedUpdateSchema = z.object(transactionObjectFields)
- .superRefine((data, ctx) => { // Duplicating superRefine logic for consistency during update
+// Schema for updating unassigned reservations
+export const transactionUnassignedUpdateSchema = transactionObjectSchema
+ .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
@@ -302,4 +304,9 @@ export const assignRoomAndCheckInSchema = z.object({
 });
 export type AssignRoomAndCheckInData = z.infer<typeof assignRoomAndCheckInSchema>;
 
-    
+// Notification Schemas
+export const notificationCreateSchema = z.object({
+  message: z.string().min(1, "Message is required.").max(2000, "Message is too long."),
+  target_branch_id: z.coerce.number().int().positive().optional().nullable(),
+});
+export type NotificationCreateData = z.infer<typeof notificationCreateSchema>;
