@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, PlusCircle, CalendarPlus, Bed, Edit, Ban } from 'lucide-react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Transaction, SimpleRate, HotelRoom } from '@/lib/types';
@@ -34,12 +34,12 @@ interface ReservationsContentProps {
   tenantId: number;
   branchId: number;
   staffUserId: number;
+  refreshReservationCount?: () => void; // Callback to refresh the count
 }
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  // Default to 2:00 PM today
-  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); 
+  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -47,8 +47,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        // Ensure 'T' separator for parseISO
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); 
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         } else {
@@ -57,15 +56,10 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
     } catch (e) {
         console.warn("Failed to parse checkInDateString for default checkout (B), using current time as base:", checkInDateString, e);
     }
-  } else { 
-    // If no check-in date, default check-in to 2 PM today for checkout calculation base
-    baseDate = setHours(baseDate, 14); 
-    baseDate = setMinutes(baseDate, 0);
-    baseDate = setSeconds(baseDate, 0);
-    baseDate = setMilliseconds(baseDate, 0);
+  } else {
+    baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  // Default to 12:00 PM (noon) the day after check-in
-  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0); 
+  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -75,17 +69,17 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
   client_payment_method: undefined,
   notes: '',
   is_advance_reservation: false,
-  reserved_check_in_datetime: null, 
+  reserved_check_in_datetime: null,
   reserved_check_out_datetime: null,
 };
 
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, // Will be cast to number if needed
+  selected_room_id: undefined as unknown as number,
 };
 
 
-export default function ReservationsContent({ tenantId, branchId, staffUserId }: ReservationsContentProps) {
+export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
   const [unassignedReservations, setUnassignedReservations] = useState<Transaction[]>([]);
   const [availableRooms, setAvailableRooms] = useState<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code'>>>([]);
   const [allBranchRates, setAllBranchRates] = useState<SimpleRate[]>([]);
@@ -96,7 +90,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   const [isAddReservationDialogOpen, setIsAddReservationDialogOpen] = useState(false);
   const [isEditReservationDialogOpen, setIsEditReservationDialogOpen] = useState(false);
   const [selectedReservationForEdit, setSelectedReservationForEdit] = useState<Transaction | null>(null);
-  
+
   const [isCancelReservationConfirmOpen, setIsCancelReservationConfirmOpen] = useState(false);
   const [transactionToCancel, setTransactionToCancel] = useState<Transaction | null>(null);
 
@@ -129,8 +123,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         if (!addReservationForm.getValues('reserved_check_in_datetime')) {
           addReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
         }
+        const currentCheckIn = addReservationForm.getValues('reserved_check_in_datetime');
         if (!addReservationForm.getValues('reserved_check_out_datetime')) {
-          addReservationForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(addReservationForm.getValues('reserved_check_in_datetime')), { shouldValidate: true, shouldDirty: true });
+          addReservationForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn), { shouldValidate: true, shouldDirty: true });
         }
       } else {
         addReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
@@ -145,8 +140,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
                  editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
             }
+             const currentCheckInEdit = editReservationForm.getValues('reserved_check_in_datetime');
             if (!editReservationForm.getValues('reserved_check_out_datetime')) {
-                editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(editReservationForm.getValues('reserved_check_in_datetime')), { shouldValidate: true, shouldDirty: true });
+                editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(currentCheckInEdit), { shouldValidate: true, shouldDirty: true });
             }
         } else {
             editReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
@@ -176,7 +172,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   useEffect(() => {
     fetchInitialData();
   }, [fetchInitialData]);
-  
+
   const handleAddReservationSubmit = async (data: TransactionCreateData) => {
     if (!tenantId || !branchId || !staffUserId) {
       toast({ title: "Error", description: "Missing required information (Tenant, Branch, or Staff).", variant: "destructive" });
@@ -188,12 +184,15 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
-            const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : (a.created_at ? parseISO(a.created_at.replace(' ', 'T')) : new Date(0));
-            const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : (b.created_at ? parseISO(b.created_at.replace(' ', 'T')) : new Date(0));
+            const dateAVal = a.reserved_check_in_datetime || a.created_at;
+            const dateBVal = b.reserved_check_in_datetime || b.created_at;
+            const dateA = dateAVal ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
+            const dateB = dateBVal ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
             return dateA.getTime() - dateB.getTime();
         }));
         setIsAddReservationDialogOpen(false);
         addReservationForm.reset(defaultUnassignedReservationFormValues);
+        refreshReservationCount?.(); // Refresh badge count
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -203,37 +202,33 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       setIsSubmitting(false);
     }
   };
-  
+
   const handleOpenEditReservationDialog = (reservation: Transaction) => {
     setSelectedReservationForEdit(reservation);
     const isAdvance = reservation.status === TRANSACTION_STATUS.ADVANCE_RESERVATION;
-    
-    let checkInDateTime = null;
+
+    let checkInDateTimeFormatted = null;
     if (reservation.reserved_check_in_datetime) {
         try {
-            checkInDateTime = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
+            checkInDateTimeFormatted = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
         } catch (e) { console.warn("Error parsing reserved_check_in_datetime for edit form:", reservation.reserved_check_in_datetime); }
-    } else if (isAdvance) {
-        checkInDateTime = getDefaultCheckInDateTimeString();
     }
 
-    let checkOutDateTime = null;
+    let checkOutDateTimeFormatted = null;
     if (reservation.reserved_check_out_datetime) {
         try {
-            checkOutDateTime = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
+            checkOutDateTimeFormatted = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
         } catch (e) { console.warn("Error parsing reserved_check_out_datetime for edit form:", reservation.reserved_check_out_datetime); }
-    } else if (isAdvance) {
-        checkOutDateTime = getDefaultCheckOutDateTimeString(checkInDateTime);
     }
-    
+
     editReservationForm.reset({
         client_name: reservation.client_name,
         selected_rate_id: reservation.hotel_rate_id ?? undefined,
         client_payment_method: reservation.client_payment_method ?? undefined,
         notes: reservation.notes ?? '',
         is_advance_reservation: isAdvance,
-        reserved_check_in_datetime: checkInDateTime,
-        reserved_check_out_datetime: checkOutDateTime,
+        reserved_check_in_datetime: checkInDateTimeFormatted,
+        reserved_check_out_datetime: checkOutDateTimeFormatted,
     });
     setIsEditReservationDialogOpen(true);
   };
@@ -248,15 +243,18 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         const result = await updateUnassignedReservation(selectedReservationForEdit.id, data, tenantId, branchId);
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Reservation updated." });
-            setUnassignedReservations(prev => 
+            setUnassignedReservations(prev =>
                 prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => {
-                   const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : (a.created_at ? parseISO(a.created_at.replace(' ', 'T')) : new Date(0));
-                   const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : (b.created_at ? parseISO(b.created_at.replace(' ', 'T')) : new Date(0));
+                   const dateAVal = a.reserved_check_in_datetime || a.created_at;
+                   const dateBVal = b.reserved_check_in_datetime || b.created_at;
+                   const dateA = dateAVal ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
+                   const dateB = dateBVal ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
                    return dateA.getTime() - dateB.getTime();
                 })
             );
             setIsEditReservationDialogOpen(false);
             setSelectedReservationForEdit(null);
+            refreshReservationCount?.(); // Refresh badge count
         } else {
             toast({ title: "Update Failed", description: result.message, variant: "destructive" });
         }
@@ -279,13 +277,13 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     }
     setIsSubmitting(true);
     try {
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // Passing null for roomId
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null);
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
-        // No need to call updateRoomInLocalState as this is for unassigned reservations
         setIsCancelReservationConfirmOpen(false);
         setTransactionToCancel(null);
+        refreshReservationCount?.(); // Refresh badge count
       } else {
         toast({ title: "Cancellation Failed", description: result.message, variant: "destructive" });
       }
@@ -301,7 +299,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     if (!tenantId || !branchId) return;
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); // Can use a more specific loading state if preferred
+    setIsLoading(true);
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(rooms);
@@ -336,9 +334,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        // Note: This action does not return updatedRoomData in the current staff.ts,
-        // so RoomStatusContent won't be updated locally by this action directly.
-        // A full refresh or event bus would be needed if RoomStatusContent should reflect this change immediately.
+        refreshReservationCount?.(); // Refresh badge count
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -350,10 +346,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   };
 
   const renderReservationFormFields = (
-    formInstance: typeof addReservationForm | typeof editReservationForm, 
+    formInstance: typeof addReservationForm | typeof editReservationForm,
     isAdvance: boolean | undefined
   ) => {
-    const formValues = formInstance.getValues(); // To get current form values for min date logic
+    const formValues = formInstance.getValues();
     return (
       <div className="p-1 space-y-3">
         <FormField control={formInstance.control} name="client_name" render={({ field }) => (
@@ -405,11 +401,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
               <FormItem>
                 <FormLabel>Reserved Check-in Date & Time *</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="datetime-local" 
+                  <Input
+                    type="datetime-local"
                     className="w-[90%]"
-                    {...field} 
-                    value={field.value || ""} // Handle null for input
+                    {...field}
+                    value={field.value || ""}
                     min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -420,11 +416,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
               <FormItem>
                 <FormLabel>Reserved Check-out Date & Time *</FormLabel>
                 <FormControl>
-                  <Input 
-                    type="datetime-local" 
+                  <Input
+                    type="datetime-local"
                     className="w-[90%]"
-                    {...field} 
-                    value={field.value || ""} // Handle null for input
+                    {...field}
+                    value={field.value || ""}
                     min={formValues.reserved_check_in_datetime ? format(parseISO(formValues.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -455,7 +451,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }}>
           <DialogTrigger asChild>
             <Button onClick={() => {
-                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues }); // Explicit reset here
+                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues });
                  setIsAddReservationDialogOpen(true);
             }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Reservation
@@ -496,7 +492,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                   <TableCell>{res.rate_name || 'N/A'}</TableCell>
                   <TableCell>{TRANSACTION_STATUS_TEXT[res.status as keyof typeof TRANSACTION_STATUS_TEXT] || 'Unknown'}</TableCell>
                   <TableCell>
-                    {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime 
+                    {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime
                       ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`
                       : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`: 'N/A')}
                   </TableCell>
@@ -505,10 +501,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                         <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
                             <Edit className="mr-1 h-3 w-3" /> Edit
                         </Button>
-                        <AlertDialog 
-                            open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id} 
+                        <AlertDialog
+                            open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id}
                             onOpenChange={(open) => {
-                                if (!open && transactionToCancel?.id === res.id) { 
+                                if (!open && transactionToCancel?.id === res.id) {
                                     setIsCancelReservationConfirmOpen(false);
                                     setTransactionToCancel(null);
                                 }
@@ -550,7 +546,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       <Dialog open={isEditReservationDialogOpen} onOpenChange={(open) => {
         if (!open) {
             setSelectedReservationForEdit(null);
-            // editReservationForm.reset(); // Reset will be handled by useEffect based on selectedReservationForEdit
         }
         setIsEditReservationDialogOpen(open);
       }}>
@@ -629,4 +624,3 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
-

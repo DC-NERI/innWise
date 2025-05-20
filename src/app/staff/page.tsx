@@ -2,18 +2,18 @@
 "use client";
 
 import type { NextPage } from 'next';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Added useCallback
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye, MessageSquare } from 'lucide-react'; // Added MessageSquare
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye, MessageSquare } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import NotificationsContent from '@/components/staff/notifications-content'; // Added
-import { listUnassignedReservations } from '@/actions/staff'; // Added
+import NotificationsContent from '@/components/staff/notifications-content';
+import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
@@ -26,7 +26,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'notifications' | 'settings'>('room-status'); // Updated activeView
+  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'notifications' | 'settings'>('room-status');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -40,7 +40,7 @@ const StaffDashboardPage: NextPage = () => {
   const [userId, setUserId] = useState<number | null>(null);
 
   const [isAvailableRoomsOverviewModalOpen, setIsAvailableRoomsOverviewModalOpen] = useState(false);
-  const [unassignedReservationsCount, setUnassignedReservationsCount] = useState<number>(0); // Added
+  const [unassignedReservationsCount, setUnassignedReservationsCount] = useState<number>(0);
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -89,11 +89,11 @@ const StaffDashboardPage: NextPage = () => {
           console.log("[staff/page.tsx] Set userId from localStorage:", parsedUserId);
         } else {
           console.warn("[staff/page.tsx] Parsed userId from localStorage is not a positive number:", parsedUserId);
-          setUserId(null); 
+          setUserId(null);
         }
       } else {
         console.warn("[staff/page.tsx] userId not found or invalid in localStorage:", storedUserId);
-        setUserId(null); 
+        setUserId(null);
       }
 
       if (storedTenantName) {
@@ -124,23 +124,26 @@ const StaffDashboardPage: NextPage = () => {
     return () => clearInterval(intervalId);
   }, [router]);
 
-  useEffect(() => {
-    const fetchReservationCount = async () => {
-      if (tenantId && branchId) {
-        try {
-          const reservations = await listUnassignedReservations(tenantId, branchId);
-          setUnassignedReservationsCount(reservations.length);
-        } catch (error) {
-          console.error("Failed to fetch unassigned reservations count:", error);
-          setUnassignedReservationsCount(0);
-        }
+  const fetchReservationCount = useCallback(async () => {
+    if (tenantId && branchId) {
+      try {
+        const reservations = await listUnassignedReservations(tenantId, branchId);
+        setUnassignedReservationsCount(reservations.length);
+      } catch (error) {
+        console.error("Failed to fetch unassigned reservations count:", error);
+        setUnassignedReservationsCount(0);
       }
-    };
-    fetchReservationCount();
-    // Optionally, set an interval to refresh this count periodically
+    } else {
+      setUnassignedReservationsCount(0); // Reset if no tenant/branch
+    }
+  }, [tenantId, branchId]);
+
+
+  useEffect(() => {
+    fetchReservationCount(); // Initial fetch
     const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
     return () => clearInterval(countInterval);
-  }, [tenantId, branchId]);
+  }, [fetchReservationCount]);
 
 
   const handleLogout = () => {
@@ -239,9 +242,9 @@ const StaffDashboardPage: NextPage = () => {
               {dateTimeDisplay}
             </div>
             {activeView === 'room-status' && (
-              <Button 
-                variant="outline" 
-                size="sm" 
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
               >
                 <Eye className="mr-2 h-4 w-4" /> View Available
@@ -254,16 +257,21 @@ const StaffDashboardPage: NextPage = () => {
         </header>
         <main className="p-4 lg:p-6">
           {activeView === 'room-status' && tenantId && branchId && userId && (
-            <RoomStatusContent 
-              tenantId={tenantId} 
-              branchId={branchId} 
-              staffUserId={userId} 
+            <RoomStatusContent
+              tenantId={tenantId}
+              branchId={branchId}
+              staffUserId={userId}
               showAvailableRoomsOverview={isAvailableRoomsOverviewModalOpen}
               onCloseAvailableRoomsOverview={() => setIsAvailableRoomsOverviewModalOpen(false)}
             />
           )}
           {activeView === 'reservations' && tenantId && branchId && userId && (
-            <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
+            <ReservationsContent
+              tenantId={tenantId}
+              branchId={branchId}
+              staffUserId={userId}
+              refreshReservationCount={fetchReservationCount} // Pass the callback here
+            />
           )}
            {activeView === 'notifications' && (
             <NotificationsContent />
@@ -292,4 +300,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
