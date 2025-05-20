@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom // Keep this for fetching transaction to manage
+  getActiveTransactionForRoom
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -46,18 +46,17 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
-    // Ensure the string is ISO compatible before parsing, then format
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     console.warn("Error formatting date string for input:", dateString, e);
-    return ""; // Return empty string on error to avoid breaking input field
+    return "";
   }
 };
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); // Default to 2 PM today
+  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -65,15 +64,15 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Handle potential space
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore if parsing fails, use current date as base */ }
+    } catch (e) { /* ignore */ }
   } else {
-    baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0); // Base off 2 PM today if no check-in provided
+    baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0); // Default to 12 PM next day
+  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -94,7 +93,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
 
   const acceptManageForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
-    // Default values set when opening modal based on transactionToManage
   });
   const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
 
@@ -115,19 +113,16 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // Effect to handle default date/time values in the Accept/Manage Reservation form
   useEffect(() => {
     if (isAcceptManageModalOpen && watchIsAdvanceReservationForm) {
-        // If "Advance Reservation" is checked and check-in datetime is not set (or is empty), set default
         if (!acceptManageForm.getValues('reserved_check_in_datetime')) {
             acceptManageForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
         }
-        // If "Advance Reservation" is checked and check-out datetime is not set (or is empty), set default based on check-in
         const currentCheckIn = acceptManageForm.getValues('reserved_check_in_datetime');
         if (!acceptManageForm.getValues('reserved_check_out_datetime')) {
              acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn), { shouldValidate: true, shouldDirty: true });
         }
-    } else if (isAcceptManageModalOpen) { // If "Advance Reservation" is unchecked
+    } else if (isAcceptManageModalOpen) { 
         acceptManageForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
         acceptManageForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
     }
@@ -138,22 +133,18 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     setSelectedNotification(notification);
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
-      // Optimistically update UI
       setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
         .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
 
       try {
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) { // Server update failed, revert optimistic update
+        if (!result.success && result.notification === undefined) { 
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
-           // Revert optimistic update if server call fails
            setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
-        // If result.success or result.notification is defined, optimistic update is fine or server confirmed.
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
-         // Revert optimistic update on error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -162,11 +153,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
-    setIsSubmittingAction(true); // Use this to show loading on the "Manage Reservation" button itself
+    setIsSubmittingAction(true);
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId) // Fetch rates for the staff's current branch
+        getRatesForBranchSimple(tenantId, branchId)
       ]);
 
       if (!transaction) {
@@ -177,10 +168,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       setTransactionToManage(transaction);
       setRatesForAcceptModal(rates);
 
-      // Pre-fill the form
       acceptManageForm.reset({
         client_name: transaction.client_name || '',
-        selected_rate_id: transaction.hotel_rate_id ?? undefined, // Use pre-existing rate if available
+        selected_rate_id: transaction.hotel_rate_id ?? undefined, 
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
         is_advance_reservation: transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
@@ -188,8 +178,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false); // Close details modal
-      setIsAcceptManageModalOpen(true); // Open accept/manage modal
+      setIsDetailsModalOpen(false);
+      setIsAcceptManageModalOpen(true);
     } catch (error) {
       toast({ title: "Error", description: "Failed to load reservation details or rates for management.", variant: "destructive" });
     } finally {
@@ -205,7 +195,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Refresh the list of notifications
+        fetchNotifications(); 
         refreshReservationCount?.();
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
@@ -230,9 +220,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close the manage modal if open
-        setIsDetailsModalOpen(false); // Also close details modal if it was the context
-        fetchNotifications(); // Refresh the list
+        setIsAcceptManageModalOpen(false); 
+        setIsDetailsModalOpen(false); 
+        fetchNotifications(); 
         refreshReservationCount?.();
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
@@ -302,8 +292,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardAcceptanceTextClass = "font-semibold text-white";
                 }
               }
-              // Unread notifications (without a transaction or with a transaction not in a special state) get a primary border
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100')) {
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100') && !cardBgClass.includes('bg-red-100')) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -314,9 +303,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   onClick={() => handleCardClick(notif)}
                 >
                   <CardHeader className="pb-2">
-                    <CardTitle className={cn("text-md truncate", cardTitleClass)} title={notif.message}>
+                    <ShadCardTitle className={cn("text-md truncate", cardTitleClass)} title={notif.message}>
                         {notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}
-                    </CardTitle>
+                    </ShadCardTitle>
                     <ShadCardDescription className={cn("text-xs", cardDescriptionClass)}>
                       From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm aa') : 'N/A'}
                     </ShadCardDescription>
@@ -425,7 +414,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                     </>
                   )}
                 </div>
-                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex space-x-2">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex flex-row justify-between sm:justify-between space-x-2">
                     <AlertDialog open={!!transactionToDecline} onOpenChange={(open) => { if (!open) setTransactionToDecline(null); }}>
                         <AlertDialogTrigger asChild>
                             <Button type="button" variant="destructive" className="flex-1" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>

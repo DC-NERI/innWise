@@ -183,12 +183,12 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  room_code: z.string().min(1, "Room code is required").max(50), // Ensure room_code is part of update
+  room_code: z.string().min(1, "Room code is required").max(50),
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
-
+// Base fields for transaction-related forms
 const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
   selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
@@ -211,13 +211,13 @@ const transactionObjectFields = {
     }),
 };
 
+// Base Zod object schema for transactions
 const transactionObjectSchema = z.object(transactionObjectFields);
 
-
-// Schema for creating transactions (e.g., for immediate booking or new unassigned reservations by staff)
+// Schema for creating transactions (e.g., by staff for booking or new unassigned reservations)
 export const transactionCreateSchema = transactionObjectSchema
   .extend({
-    selected_rate_id: z.coerce.number().int().positive("A rate must be selected."), // Made required for staff booking/reservation creation
+    selected_rate_id: z.coerce.number().int().positive("A rate must be selected for booking."),
   })
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
@@ -248,12 +248,14 @@ export const transactionCreateSchema = transactionObjectSchema
   });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
-
-// Schema specifically for Staff updating/managing an admin-created unassigned reservation
-export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
-  client_name: z.string().max(255).optional().nullable(), // Client name is likely pre-filled, so optional for this specific update form
-  selected_rate_id: z.coerce.number().int().positive("A rate must be selected."), // This is the key field staff MUST confirm/select
-}).superRefine((data, ctx) => {
+// Schema for staff updating/managing an unassigned reservation (often admin-created)
+// This schema makes selected_rate_id required. Client name is optional as it's pre-filled.
+export const transactionUnassignedUpdateSchema = transactionObjectSchema
+  .extend({
+    client_name: z.string().max(255).optional().nullable(), // Client name is pre-filled, so optional for this update
+    selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
+  })
+  .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
@@ -282,15 +284,16 @@ export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend(
   });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
-
+// Schema for staff updating only notes of an active (occupied) transaction
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
 
+// Schema for staff updating details of a reserved transaction (status '2' or '4')
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  client_payment_method: z.string().min(1, "Payment method is required").max(50), // Making payment method required for this schema
+  client_payment_method: z.string().max(50).optional().nullable(), // Made optional
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
@@ -334,7 +337,7 @@ export const notificationCreateSchema = z.object({
     if (!data.reservation_client_name) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
     }
-    if (!data.reservation_selected_rate_id) { // Making rate required if creating reservation with notification
+    if (!data.reservation_selected_rate_id) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Rate for reservation is required.", path: ["reservation_selected_rate_id"] });
     }
     if (data.reservation_is_advance) {
