@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom // Ensure this is correctly named and imported if used for fetching transaction details.
+  getActiveTransactionForRoom
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -45,16 +45,18 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
+    // Ensure the string is ISO compliant (replace space with T if needed)
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     console.warn("Error formatting date string for input:", dateString, e);
-    return "";
+    return ""; // Return empty or handle error as appropriate
   }
 };
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
+  // Default to today at 2 PM for check-in
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
@@ -63,14 +65,16 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Ensure ISO format
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore parsing errors, use current date as base */ }
   } else {
+    // If no check-in date, default check-in to today 2 PM for checkout calculation base
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
+  // Default to next day at 12 PM for check-out
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
@@ -85,13 +89,14 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
   const [transactionToManage, setTransactionToManage] = useState<Transaction | null>(null);
   const [ratesForAcceptModal, setRatesForAcceptModal] = useState<SimpleRate[]>([]);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [transactionToDecline, setTransactionToDecline] = useState<Transaction | null>(null);
+  const [transactionToDecline, setTransactionToDecline] = useState<Transaction | null>(null); // For decline confirmation
 
 
   const { toast } = useToast();
 
   const acceptManageForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
+    // Default values will be set when opening the modal
   });
   const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
 
@@ -112,8 +117,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     fetchNotifications();
   }, [fetchNotifications]);
 
+  // Effect to handle default date/time for reservation form
   useEffect(() => {
     if (isAcceptManageModalOpen && watchIsAdvanceReservationForm) {
+        // Only set defaults if fields are currently empty
         if (!acceptManageForm.getValues('reserved_check_in_datetime')) {
             acceptManageForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString());
         }
@@ -121,7 +128,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         if (!acceptManageForm.getValues('reserved_check_out_datetime')) {
              acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn));
         }
-    } else if (isAcceptManageModalOpen) {
+    } else if (isAcceptManageModalOpen) { // If not advance, clear the fields
         acceptManageForm.setValue('reserved_check_in_datetime', null);
         acceptManageForm.setValue('reserved_check_out_datetime', null);
     }
@@ -132,18 +139,22 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     setSelectedNotification(notification);
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
-      try {
-        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
-          .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      // Optimistically update UI
+      setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
+        .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())); // Re-sort after update
 
+      try {
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) {
+        if (!result.success && result.notification === undefined) { // Check if it's a soft fail (already read or other minor issue)
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
-          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
-           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+          // Revert optimistic update if server call truly fails to mark as read
+           setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
+            .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
+        // If result.success is true, optimistic update is fine.
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
+        // Revert optimistic update on error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -152,9 +163,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
-    setIsSubmittingAction(true);
+    setIsSubmittingAction(true); // Use this to disable the trigger button
     try {
-      // Assuming getActiveTransactionForRoom can also fetch transactions with status '5' (Pending Branch Acceptance)
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
         getRatesForBranchSimple(tenantId, branchId)
@@ -178,10 +188,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false);
-      setIsAcceptManageModalOpen(true);
+      setIsDetailsModalOpen(false); // Close details modal first
+      setIsAcceptManageModalOpen(true); // Then open the accept/manage modal
     } catch (error) {
-      toast({ title: "Error", description: "Failed to load reservation details or rates.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to load reservation details or rates for management.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
     }
@@ -200,7 +210,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "Could not accept reservation.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not accept reservation due to an unexpected error.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
     }
@@ -208,7 +218,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenDeclineConfirmation = (transaction: Transaction | null) => {
     if (transaction) {
-        setTransactionToDecline(transaction);
+        setTransactionToDecline(transaction); // This will open the AlertDialog since its `open` prop is bound to `!!transactionToDecline`
     }
   };
 
@@ -219,17 +229,17 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close the manage modal if open
-        setIsDetailsModalOpen(false); // Close details modal if open
+        setIsAcceptManageModalOpen(false); // Close the manage modal if it was open
+        setIsDetailsModalOpen(false); // Also close details modal if open
         fetchNotifications(); // Refresh notifications
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "Could not decline reservation.", variant: "destructive" });
+      toast({ title: "Error", description: "Could not decline reservation due to an unexpected error.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
-      setTransactionToDecline(null);
+      setTransactionToDecline(null); // Close the AlertDialog by resetting the state
     }
   };
 
@@ -281,7 +291,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-500 border-red-700"; // Solid red, no blink
+                  cardBgClass = "bg-red-500 border-red-700";
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
@@ -290,10 +300,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   cardAcceptanceTextClass = "font-semibold text-white";
                 }
               }
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) { // For unread general notifications
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
-
 
               return (
                 <Card
@@ -322,6 +331,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         )}
       </CardContent>
 
+      {/* Notification Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -351,7 +361,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
              selectedNotification?.linked_transaction_status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE &&
              (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) && (
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
-                {isSubmittingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4" />}
+                {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                <CalendarCheck className="mr-2 h-4 w-4" />
                 Manage Reservation
               </Button>
             )}
@@ -374,6 +385,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <Form {...acceptManageForm}>
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
+                  {/* Form Fields for Reservation Management */}
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
                     <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
@@ -412,32 +424,34 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                     </>
                   )}
                 </div>
-                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex justify-between">
-                  <AlertDialog open={!!transactionToDecline} onOpenChange={(open) => { if (!open) setTransactionToDecline(null); }}>
-                    <AlertDialogTrigger asChild>
-                      <Button type="button" variant="destructive" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>
-                          <XCircle className="mr-2 h-4 w-4" /> Decline
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>Confirm Decline</AlertDialogTitle>
-                            <ShadAlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>No</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleConfirmDeclineReservation} disabled={isSubmittingAction}>
-                                {isSubmittingAction ? <Loader2 className="animate-spin" /> : "Yes, Decline"}
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                  <div className="space-x-2">
-                    <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                    <Button type="button" onClick={acceptManageForm.handleSubmit(handleAcceptReservationSubmit)} disabled={isSubmittingAction}>
-                      {isSubmittingAction ? <Loader2 className="animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4"/>}
-                      Accept
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex space-x-2">
+                    <AlertDialog open={!!transactionToDecline} onOpenChange={(open) => { if (!open) setTransactionToDecline(null); }}>
+                        <AlertDialogTrigger asChild>
+                            <Button type="button" variant="destructive" className="flex-1" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>
+                                <XCircle className="mr-2 h-4 w-4" /> Decline
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader><AlertDialogTitle>Confirm Decline</AlertDialogTitle>
+                                <ShadAlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>No</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleConfirmDeclineReservation} disabled={isSubmittingAction}>
+                                    {isSubmittingAction ? <Loader2 className="animate-spin" /> : "Yes, Decline"}
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                    
+                    <DialogClose asChild>
+                        <Button type="button" variant="outline" className="flex-1">Cancel</Button>
+                    </DialogClose>
+                    
+                    <Button type="button" className="flex-1" onClick={acceptManageForm.handleSubmit(handleAcceptReservationSubmit)} disabled={isSubmittingAction}>
+                        {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" /> }
+                        <CalendarCheck className="mr-2 h-4 w-4"/> Accept
                     </Button>
-                  </div>
                 </DialogFooter>
               </form>
             </Form>
