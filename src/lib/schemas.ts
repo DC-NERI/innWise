@@ -188,10 +188,11 @@ export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
-// Base fields for transaction-related forms
+
+// Base fields for transaction-related forms (unassigned reservations, bookings)
 const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
-  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  selected_rate_id: z.coerce.number().int().positive().optional().nullable(), // Made optional at base level
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
   is_advance_reservation: z.boolean().optional().default(false),
@@ -211,14 +212,9 @@ const transactionObjectFields = {
     }),
 };
 
-// Base Zod object schema for transactions
-const transactionObjectSchema = z.object(transactionObjectFields);
-
 // Schema for creating transactions (e.g., by staff for booking or new unassigned reservations)
-export const transactionCreateSchema = transactionObjectSchema
-  .extend({
-    selected_rate_id: z.coerce.number().int().positive("A rate must be selected for booking."),
-  })
+// Also used as the data type for createUnassignedReservation action
+export const transactionCreateSchema = z.object(transactionObjectFields)
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
@@ -248,14 +244,14 @@ export const transactionCreateSchema = transactionObjectSchema
   });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
+
 // Schema for staff updating/managing an unassigned reservation (often admin-created)
-// This schema makes selected_rate_id required. Client name is optional as it's pre-filled.
-export const transactionUnassignedUpdateSchema = transactionObjectSchema
+export const transactionUnassignedUpdateSchema = z.object(transactionObjectFields)
   .extend({
-    client_name: z.string().max(255).optional().nullable(), // Client name is pre-filled, so optional for this update
-    selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
+    client_name: z.string().max(255).optional().nullable(), // Client name is pre-filled, less strict validation here
+    selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."), // Rate is required for staff
   })
-  .superRefine((data, ctx) => {
+  .superRefine((data, ctx) => { // Re-apply superRefine for date logic
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
@@ -284,6 +280,7 @@ export const transactionUnassignedUpdateSchema = transactionObjectSchema
   });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
+
 // Schema for staff updating only notes of an active (occupied) transaction
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
@@ -293,7 +290,7 @@ export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSc
 // Schema for staff updating details of a reserved transaction (status '2' or '4')
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  client_payment_method: z.string().max(50).optional().nullable(), // Made optional
+  client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
@@ -309,9 +306,9 @@ export const notificationCreateSchema = z.object({
   message: z.string().min(1, "Message is required.").max(2000, "Message is too long."),
   target_branch_id: z.coerce.number().int().positive().optional().nullable(),
   do_reservation: z.boolean().optional().default(false),
-  // Reservation specific fields (optional, but required if do_reservation is true)
+  // Reservation specific fields
   reservation_client_name: z.string().max(255).optional().nullable(),
-  reservation_selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  reservation_selected_rate_id: z.coerce.number().int().positive().optional().nullable(), // Optional for Admin
   reservation_client_payment_method: z.string().max(50).optional().nullable(),
   reservation_notes: z.string().max(1000).optional().nullable(),
   reservation_is_advance: z.boolean().optional().default(false),
@@ -334,12 +331,13 @@ export const notificationCreateSchema = z.object({
     if (!data.target_branch_id) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Target branch is required to create a linked reservation.", path: ["target_branch_id"] });
     }
-    if (!data.reservation_client_name) {
+    if (!data.reservation_client_name) { // Client name for reservation still required if making one
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
     }
-    if (!data.reservation_selected_rate_id) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Rate for reservation is required.", path: ["reservation_selected_rate_id"] });
-    }
+    // Rate is now optional for admin when do_reservation is true
+    // if (!data.reservation_selected_rate_id) {
+    //   ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Rate for reservation is required.", path: ["reservation_selected_rate_id"] });
+    // }
     if (data.reservation_is_advance) {
       if (!data.reservation_check_in_datetime) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-in date/time for advance reservation is required.", path: ["reservation_check_in_datetime"] });
@@ -355,3 +353,4 @@ export const notificationCreateSchema = z.object({
 });
 export type NotificationCreateData = z.infer<typeof notificationCreateSchema>;
 
+    

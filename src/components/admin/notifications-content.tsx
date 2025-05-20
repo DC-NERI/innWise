@@ -13,7 +13,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw, Trash2 } from 'lucide-react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, SimpleRate, SimpleBranch, TransactionCreateData } from '@/lib/types';
@@ -24,9 +24,9 @@ import {
   getRatesForBranchSimple,
   getBranchesForTenantSimple,
   createNotification,
-  deleteNotification // Added deleteNotification import
+  deleteNotification
 } from '@/actions/admin';
-import { createUnassignedReservation } from '@/actions/staff';
+import { createUnassignedReservation } from '@/actions/staff'; // Re-using staff action
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
@@ -90,14 +90,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const [ratesForAddNotificationSubForm, setRatesForAddNotificationSubForm] = useState<SimpleRate[]>([]);
   const [notificationToDelete, setNotificationToDelete] = useState<Notification | null>(null);
 
-
   const { toast } = useToast();
 
   const createReservationForm = useForm<TransactionCreateData>({
     resolver: zodResolver(transactionCreateSchema),
     defaultValues: {
         client_name: '',
-        selected_rate_id: undefined,
+        selected_rate_id: undefined, // Optional for admin creating notif with reservation
         client_payment_method: undefined,
         notes: '',
         is_advance_reservation: false,
@@ -192,7 +191,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     setSelectedNotification(notification);
     createReservationForm.reset({
         client_name: `For: ${notification.message.substring(0, 30)}${notification.message.length > 30 ? '...' : ''}`,
-        selected_rate_id: undefined,
+        selected_rate_id: undefined, // Optional for admin
         client_payment_method: undefined,
         notes: `Ref: Notification #${notification.id}`,
         is_advance_reservation: false,
@@ -219,12 +218,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     }
     setIsSubmitting(true);
     try {
+      // When admin creates reservation via notification, it's admin_created
       const result = await createUnassignedReservation(
         data,
         selectedNotification.tenant_id, 
         selectedNotification.target_branch_id,
         adminUserId,
-        true 
+        true // is_admin_created_flag
       );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
@@ -289,17 +289,16 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     }
   };
 
-
-  const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string) => (
+  const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
         <FormField control={formInstance.control} name={`${prefix}_client_name`} render={({ field }) => (
             <FormItem><FormLabel>Client Name for Reservation *</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_selected_rate_id`} render={({ field }) => (
             <FormItem>
-                <FormLabel>Select Rate for Reservation</FormLabel>
+                <FormLabel>Select Rate for Reservation {isRateOptional ? '(Optional)' : '*'}</FormLabel>
                 <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={rates.length === 0}>
-                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={rates.length === 0 ? "No rates for branch" : "Select a rate (Optional)"} /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={rates.length === 0 ? "No rates for branch" : `Select a rate ${isRateOptional ? '(Optional)' : ''}`} /></SelectTrigger></FormControl>
                     <SelectContent>{rates.map(rate => (<SelectItem key={rate.id} value={rate.id.toString()}>{rate.name} (₱{Number(rate.price).toFixed(2)})</SelectItem>))}</SelectContent>
                 </Select><FormMessage />
             </FormItem>
@@ -339,7 +338,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         )}
     </div>
   );
-
 
   return (
     <Card>
@@ -390,7 +388,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                                         </FormItem>
                                     )} />
                                 )}
-                                {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation')}
+                                {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation', true)} {/* isRateOptional = true for Admin */}
                             </div>
                             <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -491,7 +489,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             <Form {...createReservationForm}>
                 <form onSubmit={createReservationForm.handleSubmit(handleCreateReservationFromNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                     <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '')}
+                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '', true)} {/* isRateOptional = true for Admin */}
                     </div>
                     <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                         <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -507,4 +505,4 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   );
 }
 
-
+    
