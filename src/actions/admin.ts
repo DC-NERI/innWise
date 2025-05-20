@@ -1144,30 +1144,25 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
   try {
     const query = `
       SELECT
-        r.id, r.tenant_id, r.branch_id, tb.branch_name,
-        r.hotel_rate_id, -- This is JSONB
-        r.room_name, r.room_code, r.floor, r.room_type, r.bed_type, r.capacity,
-        r.is_available, r.status, r.created_at, r.updated_at,
-        t_active.id AS active_transaction_id,
-        t_active.check_in_time AS active_transaction_check_in_time,
+        hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
+        hr.hotel_rate_id, hr.transaction_id, -- Fetch the new transaction_id column
+        hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
+        hr.is_available, hr.status, hr.created_at, hr.updated_at,
         t_active.client_name AS active_transaction_client_name,
+        t_active.check_in_time AS active_transaction_check_in_time,
         hr_active.name AS active_transaction_rate_name
-      FROM hotel_room r
-      JOIN tenant_branch tb ON r.branch_id = tb.id
-      LEFT JOIN LATERAL (
-          SELECT
-              t.id, t.check_in_time, t.client_name, t.hotel_rate_id
-          FROM transactions t
-          WHERE t.hotel_room_id = r.id
-            AND t.tenant_id = r.tenant_id
-            AND t.branch_id = r.branch_id
-            AND (t.status = $3 OR t.status = $4) -- Unpaid (Occupied) or Advance Paid (Reserved)
-          ORDER BY t.created_at DESC
-          LIMIT 1
-      ) t_active ON TRUE
-      LEFT JOIN hotel_rates hr_active ON t_active.hotel_rate_id = hr_active.id AND hr_active.tenant_id = r.tenant_id AND hr_active.branch_id = r.branch_id AND hr_active.status = '1'
-      WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
-      ORDER BY r.floor ASC, r.room_code ASC;
+      FROM hotel_room hr
+      JOIN tenant_branch tb ON hr.branch_id = tb.id
+      LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
+          AND t_active.tenant_id = hr.tenant_id 
+          AND t_active.branch_id = hr.branch_id
+          AND (t_active.status = $3 OR t_active.status = $4) -- Unpaid or Advance Paid
+      LEFT JOIN hotel_rates hr_active ON t_active.hotel_rate_id = hr_active.id 
+          AND hr_active.tenant_id = hr.tenant_id 
+          AND hr_active.branch_id = hr.branch_id 
+          AND hr_active.status = '1'
+      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
+      ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
     const res = await client.query(query, [branchId, tenantId, TRANSACTION_STATUS.UNPAID, TRANSACTION_STATUS.ADVANCE_PAID]);
@@ -1178,29 +1173,26 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         try {
           parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
-            // console.warn(`[listRoomsForBranch] Room ID ${row.id} has invalid hotel_rate_id format:`, row.hotel_rate_id);
             parsedRateIds = [];
           }
         } catch (parseError) {
-          // console.error(`[listRoomsForBranch] Error parsing hotel_rate_id for room ${row.id}:`, parseError);
           parsedRateIds = [];
         }
       } else {
         parsedRateIds = [];
       }
 
-      const activeTransactionId = row.active_transaction_id ? Number(row.active_transaction_id) : null;
+      const activeTransactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
       const activeTransactionClientName = row.active_transaction_client_name || null;
       const activeTransactionCheckInTime = row.active_transaction_check_in_time ? new Date(row.active_transaction_check_in_time).toISOString() : null;
       const activeTransactionRateName = row.active_transaction_rate_name || null;
-
+      
       if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED || Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
-          active_transaction_id_db: row.active_transaction_id,
-          active_transaction_client_name_db: row.active_transaction_client_name,
-          active_transaction_check_in_time_db: row.active_transaction_check_in_time,
-          active_transaction_rate_name_db: row.active_transaction_rate_name,
+          room_transaction_id_db: row.transaction_id, // Log the direct FK
+          joined_transaction_client_name_db: row.active_transaction_client_name,
+          joined_transaction_check_in_time_db: row.active_transaction_check_in_time,
           mapped_client_name: activeTransactionClientName,
           mapped_check_in_time: activeTransactionCheckInTime
         });
@@ -1212,6 +1204,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
+        transaction_id: activeTransactionIdFromRoom, // Use the direct FK from hotel_room
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
@@ -1222,7 +1215,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         status: row.status,
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
-        active_transaction_id: activeTransactionId,
+        active_transaction_id: activeTransactionIdFromRoom, // For consistency in how frontend might use it
         active_transaction_client_name: activeTransactionClientName,
         active_transaction_check_in_time: activeTransactionCheckInTime,
         active_transaction_rate_name: activeTransactionRateName,
@@ -1245,6 +1238,7 @@ export async function createRoom(
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
+  // transaction_id is not set on creation, it's set when a room is booked/reserved
   const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
   const client = await pool.connect();
   try {
@@ -1252,9 +1246,9 @@ export async function createRoom(
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
     const res = await client.query(
-      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1')
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
+      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL)
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
       [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available]
     );
     if (res.rows.length > 0) {
@@ -1279,6 +1273,7 @@ export async function createRoom(
           ...newRow,
           branch_name,
           hotel_rate_id: parsedRateIds,
+          transaction_id: newRow.transaction_id ? Number(newRow.transaction_id) : null,
           is_available: Number(newRow.is_available),
           created_at: new Date(newRow.created_at).toISOString(),
           updated_at: new Date(newRow.updated_at).toISOString(),
@@ -1305,6 +1300,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
+  // transaction_id is managed by booking/checkout actions, not directly in room edit form.
   const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status } = validatedFields.data;
 
   const client = await pool.connect();
@@ -1316,7 +1312,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
       `UPDATE hotel_room
        SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = CURRENT_TIMESTAMP
        WHERE id = $10 AND tenant_id = $11 AND branch_id = $12
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
       [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
@@ -1341,6 +1337,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           ...updatedRow,
           branch_name,
           hotel_rate_id: parsedRateIds,
+          transaction_id: updatedRow.transaction_id ? Number(updatedRow.transaction_id) : null,
           is_available: Number(updatedRow.is_available),
           created_at: new Date(updatedRow.created_at).toISOString(),
           updated_at: new Date(updatedRow.updated_at).toISOString(),
@@ -1365,6 +1362,13 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
 export async function archiveRoom(roomId: number, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
+    // Before archiving, ensure no active transaction is linked. If so, it should be handled first.
+    // This logic might need to be more robust (e.g., prevent archiving if transaction_id is not null).
+    const roomCheck = await client.query('SELECT transaction_id FROM hotel_room WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [roomId, tenantId, branchId]);
+    if (roomCheck.rows.length > 0 && roomCheck.rows[0].transaction_id !== null) {
+        return { success: false, message: "Cannot archive room with an active or pending transaction. Please resolve the transaction first."};
+    }
+
     const res = await client.query(
       `UPDATE hotel_room SET status = '0', updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING id`,
