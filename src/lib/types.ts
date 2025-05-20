@@ -80,7 +80,7 @@ export interface HotelRoom {
   branch_id: number;
   branch_name?: string;
   hotel_rate_id: number[] | null; // Changed to array
-  rate_names?: string[];
+  rate_names?: string[]; // For display
   room_name: string;
   room_code: string;
   floor?: number | null;
@@ -88,15 +88,16 @@ export interface HotelRoom {
   bed_type?: string | null;
   capacity?: number | null;
   is_available: number; // 0: Available, 1: Occupied, 2: Reserved
-  status: string;
+  status: string; // '0' or '1' for the room record itself
   transaction_id?: number | null; // Foreign key to transactions table
   created_at: string;
   updated_at: string;
 
-  // These are for UI display and are populated by joins
+  // These are for UI display and are populated by joins on room.transaction_id
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
+  active_transaction_status?: string | null; // To know if the linked tx is '0', '2', '5' etc.
 }
 
 
@@ -111,25 +112,24 @@ export interface Transaction {
     id: number;
     tenant_id: number;
     branch_id: number;
-    hotel_room_id: number | null;
-    hotel_rate_id: number | null;
+    hotel_room_id: number | null; // Can be null for unassigned reservations
+    hotel_rate_id: number | null; // Can be null if rate is not immediately chosen
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string; // Stored as 'Asia/Manila' wall clock time
-    check_out_time?: string | null; // Stored as 'Asia/Manila' wall clock time
+    check_in_time: string; 
+    check_out_time?: string | null; 
     hours_used?: number | null;
     total_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; // '0': Unpaid, '1': Paid, '2': Advance Paid, '3': Cancelled, '4': Advance Reservation
+    status: string; // '0':Unpaid, '1':Paid, '2':Advance Paid, '3':Cancelled, '4':Advance Reservation, '5':Pending Branch Acceptance
     created_at: string;
     updated_at: string;
-    reserved_check_in_datetime?: string | null; // Stored as 'Asia/Manila' wall clock time
-    reserved_check_out_datetime?: string | null; // Stored as 'Asia/Manila' wall clock time
-
+    reserved_check_in_datetime?: string | null; 
+    reserved_check_out_datetime?: string | null; 
     is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending
-    is_admin_created?: number | null; // 0=default, 1=admin created
+    is_admin_created?: number | null; // 0=default (staff), 1=admin created
 
     // For display purposes, joined from other tables
     room_name?: string | null;
@@ -156,4 +156,5 @@ export interface Notification {
   read_at?: string | null;
   transaction_status: number; // 0: Pending Action, 1: Reservation Created
   transaction_is_accepted?: number | null; // From joined transaction.is_accepted
+  linked_transaction_status?: string | null; // The actual status of the linked transaction (e.g., '0', '5')
 }

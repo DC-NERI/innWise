@@ -21,8 +21,9 @@ import {
   notificationCreateSchema, NotificationCreateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
-import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS } from '@/lib/constants';
-import { createUnassignedReservation } from '@/actions/staff';
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
+import { createUnassignedReservation } from '@/actions/staff'; // Can be used by admin too
+import type { TransactionCreateData } from '@/lib/schemas'; // For typing
 
 
 const pool = new Pool({
@@ -541,7 +542,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
         const currentUserRes = await client.query('SELECT status, tenant_id as current_tenant_id FROM users WHERE id = $1', [userId]);
         if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') {
             const userCurrentTenantId = currentUserRes.rows[0].current_tenant_id;
-            const targetTenantId = tenant_id;
+            const targetTenantId = tenant_id; // This is the tenant_id from the form data
 
             const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [targetTenantId]);
             if (tenantDetails.rows.length > 0) {
@@ -553,11 +554,10 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
                     );
                     const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
                     if (currentUserCount >= max_user_count) {
-                        if (userCurrentTenantId !== targetTenantId) {
-                             return { success: false, message: `Target tenant (ID: ${targetTenantId}) has reached the maximum active user limit of ${max_user_count}.` };
-                        }
-                        else {
-                             return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first or increase the tenant's limit.` };
+                        // If the user is being moved to this tenant AND the limit is reached, it's an issue.
+                        // Or if the user is already in this tenant and being restored.
+                        if (userCurrentTenantId !== targetTenantId || (userCurrentTenantId === targetTenantId && currentUserRes.rows[0].status === '0')) {
+                             return { success: false, message: `Target tenant (ID: ${targetTenantId}) has reached the maximum active user limit of ${max_user_count}. To restore or move this user, please archive an existing active user in that tenant first or increase the tenant's limit.` };
                         }
                     }
                 }
@@ -762,7 +762,7 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
     }
     const currentUserStatus = userCheck.rows[0].current_status;
 
-    if (status === '1' && currentUserStatus === '0') {
+    if (status === '1' && currentUserStatus === '0') { // Restoring an archived user
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
         if (tenantDetails.rows.length > 0) {
             const max_user_count = tenantDetails.rows[0].max_user_count;
@@ -1025,24 +1025,26 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     const query = `
       SELECT
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
-        hr.hotel_rate_id,
+        hr.hotel_rate_id, -- This is now JSON
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
         hr.transaction_id,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
+        t_active.status as active_transaction_status, -- fetch transaction status
         hrt_active.name AS active_transaction_rate_name
       FROM hotel_room hr
       JOIN tenant_branch tb ON hr.branch_id = tb.id
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          -- AND (t_active.status = '${TRANSACTION_STATUS.UNPAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_PAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_RESERVATION}')
+          -- Active transactions are those not Paid (1) or Cancelled (3)
+          AND (t_active.status = '${TRANSACTION_STATUS.UNPAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_PAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_RESERVATION}' OR t_active.status = '${TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE}')
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
           AND hrt_active.branch_id = hr.branch_id
           AND hrt_active.status = '1'
-      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
+      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1' -- Only active room definitions
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
@@ -1056,9 +1058,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          // Attempt to parse if it's a string, otherwise assume it's already an array (from JSONB direct cast perhaps)
-          parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
+          parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : Array.isArray(row.hotel_rate_id) ? row.hotel_rate_id : [];
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
+            console.warn(`[listRoomsForBranch] Parsed hotel_rate_id for room ${row.id} is not a valid number array:`, parsedRateIds);
             parsedRateIds = [];
           }
         } catch (parseError) {
@@ -1071,6 +1073,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
 
       const roomIsAvailableStatus = Number(row.is_available);
       const transactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
+      const activeTransactionStatus = row.active_transaction_status;
 
       if (process.env.NODE_ENV === 'development' && (roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.OCCUPIED || roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.RESERVED)) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
@@ -1079,6 +1082,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
           active_transaction_client_name_db: row.active_transaction_client_name,
           active_transaction_check_in_time_db: row.active_transaction_check_in_time,
           active_transaction_rate_name_db: row.active_transaction_rate_name,
+          active_transaction_status_db: activeTransactionStatus,
           mapped_client_name: row.active_transaction_client_name || null,
           mapped_check_in_time: row.active_transaction_check_in_time || null
         });
@@ -1104,6 +1108,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         active_transaction_client_name: row.active_transaction_client_name || null,
         active_transaction_check_in_time: row.active_transaction_check_in_time || null,
         active_transaction_rate_name: row.active_transaction_rate_name || null,
+        active_transaction_status: activeTransactionStatus || null, // Add this
       } as HotelRoom;
     });
   } catch (error) {
@@ -1143,7 +1148,7 @@ export async function createRoom(
       let parsedRateIds: number[] | null = null;
       if (newRow.hotel_rate_id) {
          try {
-          parsedRateIds = typeof newRow.hotel_rate_id === 'string' ? JSON.parse(newRow.hotel_rate_id) : newRow.hotel_rate_id;
+          parsedRateIds = typeof newRow.hotel_rate_id === 'string' ? JSON.parse(newRow.hotel_rate_id) : Array.isArray(newRow.hotel_rate_id) ? newRow.hotel_rate_id : [];
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1190,6 +1195,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
+    // If room is being made available, ensure transaction_id is cleared
     const transactionIdUpdate = (is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE) ? ', transaction_id = NULL' : '';
 
 
@@ -1208,7 +1214,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
       let parsedRateIds: number[] | null = null;
       if (updatedRow.hotel_rate_id) {
          try {
-          parsedRateIds = typeof updatedRow.hotel_rate_id === 'string' ? JSON.parse(updatedRow.hotel_rate_id) : updatedRow.hotel_rate_id;
+          parsedRateIds = typeof updatedRow.hotel_rate_id === 'string' ? JSON.parse(updatedRow.hotel_rate_id) : Array.isArray(updatedRow.hotel_rate_id) ? updatedRow.hotel_rate_id : [];
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1278,12 +1284,12 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
         n.id, n.tenant_id, n.message, n.status,
         n.target_branch_id, tb.branch_name as target_branch_name,
         n.creator_user_id, u.username as creator_username,
-        n.transaction_id, t.is_accepted as transaction_is_accepted,
+        n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
         n.created_at, n.read_at, n.transaction_status
        FROM notification n
        LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
        LEFT JOIN users u ON n.creator_user_id = u.id
-       LEFT JOIN transactions t ON n.transaction_id = t.id
+       LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
        WHERE n.tenant_id = $1
        ORDER BY n.created_at DESC`,
       [tenantId]
@@ -1293,6 +1299,7 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
         status: Number(row.status),
         transaction_status: Number(row.transaction_status),
         transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
+        linked_transaction_status: row.linked_transaction_status,
     })) as Notification[];
   } catch (error) {
     console.error(`Failed to fetch notifications for tenant ${tenantId}:`, error);
@@ -1318,12 +1325,12 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
           n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
-         LEFT JOIN transactions t ON n.transaction_id = t.id
+         LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [res.rows[0].id]
       );
       return {
@@ -1334,6 +1341,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
             status: Number(fullNotificationRes.rows[0].status),
             transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
             transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+            linked_transaction_status: fullNotificationRes.rows[0].linked_transaction_status,
         } as Notification
       };
     }
@@ -1367,12 +1375,12 @@ export async function updateNotificationTransactionStatus(
           n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
-         LEFT JOIN transactions t ON n.transaction_id = t.id
+         LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [res.rows[0].id]
       );
       return {
@@ -1383,6 +1391,7 @@ export async function updateNotificationTransactionStatus(
             status: Number(fullNotificationRes.rows[0].status),
             transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
             transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+            linked_transaction_status: fullNotificationRes.rows[0].linked_transaction_status,
         } as Notification
        };
     }
@@ -1413,15 +1422,17 @@ export async function createNotification(
     await client.query('BEGIN');
 
     if (do_reservation && target_branch_id) {
+        // Ensure selected_rate_id is correctly extracted for TransactionCreateData
         const reservationData: TransactionCreateData = {
             client_name: reservationFields.reservation_client_name || `Reservation: ${message.substring(0,30)}...`,
-            selected_rate_id: reservationFields.reservation_selected_rate_id,
+            selected_rate_id: reservationFields.reservation_selected_rate_id, // This comes from the form
             client_payment_method: reservationFields.reservation_client_payment_method,
             notes: reservationFields.reservation_notes,
             is_advance_reservation: reservationFields.reservation_is_advance,
             reserved_check_in_datetime: reservationFields.reservation_check_in_datetime,
             reserved_check_out_datetime: reservationFields.reservation_check_out_datetime,
         };
+        // Pass true for is_admin_created_flag
         const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true);
         if (reservationResult.success && reservationResult.transaction) {
             createdReservationId = reservationResult.transaction.id;
@@ -1453,12 +1464,12 @@ export async function createNotification(
           n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
-         LEFT JOIN transactions t ON n.transaction_id = t.id
+         LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [newNotificationId]
       );
       await client.query('COMMIT');
@@ -1470,6 +1481,7 @@ export async function createNotification(
             status: Number(fullNotificationRes.rows[0].status),
             transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
             transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+            linked_transaction_status: fullNotificationRes.rows[0].linked_transaction_status,
         } as Notification,
         createdTransactionId: createdReservationId
       };
@@ -1484,3 +1496,4 @@ export async function createNotification(
     client.release();
   }
 }
+
