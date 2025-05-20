@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom
+  getActiveTransactionForRoom // Keep this for fetching transaction to manage
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -46,17 +46,18 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
+    // Ensure the string is ISO compatible before parsing, then format
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     console.warn("Error formatting date string for input:", dateString, e);
-    return "";
+    return ""; // Return empty string on error to avoid breaking input field
   }
 };
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
+  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); // Default to 2 PM today
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -64,15 +65,15 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Handle potential space
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore if parsing fails, use current date as base */ }
   } else {
-    baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
+    baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0); // Base off 2 PM today if no check-in provided
   }
-  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
+  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0); // Default to 12 PM next day
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -93,6 +94,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
 
   const acceptManageForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
+    // Default values set when opening modal based on transactionToManage
   });
   const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
 
@@ -113,18 +115,21 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     fetchNotifications();
   }, [fetchNotifications]);
 
+  // Effect to handle default date/time values in the Accept/Manage Reservation form
   useEffect(() => {
     if (isAcceptManageModalOpen && watchIsAdvanceReservationForm) {
+        // If "Advance Reservation" is checked and check-in datetime is not set (or is empty), set default
         if (!acceptManageForm.getValues('reserved_check_in_datetime')) {
-            acceptManageForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString());
+            acceptManageForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
         }
+        // If "Advance Reservation" is checked and check-out datetime is not set (or is empty), set default based on check-in
         const currentCheckIn = acceptManageForm.getValues('reserved_check_in_datetime');
         if (!acceptManageForm.getValues('reserved_check_out_datetime')) {
-             acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn));
+             acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn), { shouldValidate: true, shouldDirty: true });
         }
-    } else if (isAcceptManageModalOpen) { 
-        acceptManageForm.setValue('reserved_check_in_datetime', null);
-        acceptManageForm.setValue('reserved_check_out_datetime', null);
+    } else if (isAcceptManageModalOpen) { // If "Advance Reservation" is unchecked
+        acceptManageForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
+        acceptManageForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
     }
   }, [watchIsAdvanceReservationForm, acceptManageForm, isAcceptManageModalOpen]);
 
@@ -133,18 +138,22 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     setSelectedNotification(notification);
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
+      // Optimistically update UI
       setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
         .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
 
       try {
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) { 
+        if (!result.success && result.notification === undefined) { // Server update failed, revert optimistic update
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
+           // Revert optimistic update if server call fails
            setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
+        // If result.success or result.notification is defined, optimistic update is fine or server confirmed.
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
+         // Revert optimistic update on error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -153,11 +162,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
-    setIsSubmittingAction(true);
+    setIsSubmittingAction(true); // Use this to show loading on the "Manage Reservation" button itself
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId)
+        getRatesForBranchSimple(tenantId, branchId) // Fetch rates for the staff's current branch
       ]);
 
       if (!transaction) {
@@ -168,9 +177,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       setTransactionToManage(transaction);
       setRatesForAcceptModal(rates);
 
+      // Pre-fill the form
       acceptManageForm.reset({
-        client_name: transaction.client_name,
-        selected_rate_id: transaction.hotel_rate_id ?? undefined,
+        client_name: transaction.client_name || '',
+        selected_rate_id: transaction.hotel_rate_id ?? undefined, // Use pre-existing rate if available
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
         is_advance_reservation: transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
@@ -178,8 +188,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false);
-      setIsAcceptManageModalOpen(true);
+      setIsDetailsModalOpen(false); // Close details modal
+      setIsAcceptManageModalOpen(true); // Open accept/manage modal
     } catch (error) {
       toast({ title: "Error", description: "Failed to load reservation details or rates for management.", variant: "destructive" });
     } finally {
@@ -195,7 +205,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications();
+        fetchNotifications(); // Refresh the list of notifications
         refreshReservationCount?.();
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
@@ -220,9 +230,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false);
-        setIsDetailsModalOpen(false);
-        fetchNotifications();
+        setIsAcceptManageModalOpen(false); // Close the manage modal if open
+        setIsDetailsModalOpen(false); // Also close details modal if it was the context
+        fetchNotifications(); // Refresh the list
         refreshReservationCount?.();
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
@@ -283,7 +293,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-500 border-red-700";
+                  cardBgClass = "bg-red-500 border-red-700"; // Solid red, no blink
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
@@ -292,7 +302,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardAcceptanceTextClass = "font-semibold text-white";
                 }
               }
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) {
+              // Unread notifications (without a transaction or with a transaction not in a special state) get a primary border
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100')) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -303,7 +314,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   onClick={() => handleCardClick(notif)}
                 >
                   <CardHeader className="pb-2">
-                    <CardTitle className={cn("text-md truncate", cardTitleClass)}>
+                    <CardTitle className={cn("text-md truncate", cardTitleClass)} title={notif.message}>
                         {notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}
                     </CardTitle>
                     <ShadCardDescription className={cn("text-xs", cardDescriptionClass)}>
@@ -362,6 +373,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         </DialogContent>
       </Dialog>
 
+      {/* Accept/Manage Reservation Modal */}
       <Dialog open={isAcceptManageModalOpen} onOpenChange={(open) => {
           if (!open) { setTransactionToManage(null); setRatesForAcceptModal([]); acceptManageForm.reset(); }
           setIsAcceptManageModalOpen(open);
@@ -376,12 +388,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
-                    <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Client Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={acceptManageForm.control} name="selected_rate_id" render={({ field }) => (
-                    <FormItem><FormLabel>Select Rate</FormLabel>
+                    <FormItem><FormLabel>Select Rate *</FormLabel>
                       <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={ratesForAcceptModal.length === 0}>
-                        <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={ratesForAcceptModal.length === 0 ? "No rates available" : "Select a rate (Optional)"} /></SelectTrigger></FormControl>
+                        <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={ratesForAcceptModal.length === 0 ? "No rates available" : "Select a rate"} /></SelectTrigger></FormControl>
                         <SelectContent>{ratesForAcceptModal.map(rate => (<SelectItem key={rate.id} value={rate.id.toString()}>{rate.name} (₱{Number(rate.price).toFixed(2)})</SelectItem>))}</SelectContent>
                       </Select><FormMessage />
                     </FormItem>
