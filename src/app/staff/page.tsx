@@ -12,7 +12,7 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import { format as formatDateTime, parseISO } from 'date-fns';
+import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const StaffSettingsContent = () => (
@@ -204,20 +204,22 @@ const StaffDashboardPage: NextPage = () => {
               {branchName && <span className="mr-2">{branchName} -</span>}
               {dateTimeDisplay}
             </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
-            >
-              <Eye className="mr-2 h-4 w-4" /> View Available
-            </Button>
+            {activeView === 'room-status' && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
+              >
+                <Eye className="mr-2 h-4 w-4" /> View Available
+              </Button>
+            )}
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {activeView === 'room-status' && tenantId && branchId && (
+          {activeView === 'room-status' && tenantId && branchId && userId && (
             <RoomStatusContent 
               tenantId={tenantId} 
               branchId={branchId} 
@@ -253,4 +255,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
