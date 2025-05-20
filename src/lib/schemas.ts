@@ -196,25 +196,30 @@ export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
 // --- Transaction Schemas ---
 
-// Base Zod object for transaction fields.
-export const transactionObjectFields = {
+// Base fields for transaction forms
+const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected.").optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
   is_advance_reservation: z.boolean().optional().default(false),
   reserved_check_in_datetime: z.string()
-    .datetime({ message: "Invalid check-in datetime string." })
     .optional()
     .nullable()
-    .transform(val => val === "" ? null : val), // Transform empty string to null
+    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null for consistent handling
+    .refine(val => val === null || !isNaN(new Date(val).getTime()), {
+      message: "Invalid check-in datetime string.",
+    }),
   reserved_check_out_datetime: z.string()
-    .datetime({ message: "Invalid check-out datetime string." })
     .optional()
     .nullable()
-    .transform(val => val === "" ? null : val), // Transform empty string to null
+    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null
+    .refine(val => val === null || !isNaN(new Date(val).getTime()), {
+      message: "Invalid check-out datetime string.",
+    }),
 };
 
+// Schema for creating new transactions (used in booking and unassigned reservations)
 export const transactionCreateSchema = z.object(transactionObjectFields)
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
@@ -241,19 +246,13 @@ export const transactionCreateSchema = z.object(transactionObjectFields)
           });
         }
       }
-    } else {
-        // If not an advance reservation, rate ID might be required depending on your booking flow
-        // For staff "Book Room" flow, it is required. For general "Add Reservation", it's optional.
-        // This schema is used by "Add New Reservation" where it can be optional.
-        // For "Book Room" direct check-in, the selected_rate_id IS required from the form.
-        // The form validation on "Book Room" dialog should implicitly ensure rateId is passed.
     }
   });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
-
+// Schema for updating unassigned reservations (might be similar to create or have specific fields)
 export const transactionUnassignedUpdateSchema = z.object(transactionObjectFields)
- .superRefine((data, ctx) => {
+ .superRefine((data, ctx) => { // Duplicating superRefine logic for consistency during update
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
@@ -288,10 +287,10 @@ export const transactionUpdateNotesSchema = z.object({
 });
 export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
 
-// For editing details of a "Reserved" transaction by staff.
+// For editing details of a "Reserved" transaction by staff (status '2').
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  client_payment_method: z.string().min(1, "Payment method is required").max(50), // Made required for this specific update form
+  client_payment_method: z.string().min(1, "Payment method is required").max(50),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
