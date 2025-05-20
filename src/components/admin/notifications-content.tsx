@@ -11,15 +11,27 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Bell, CheckSquare, CalendarPlus, PlusCircle } from 'lucide-react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw } from 'lucide-react'; // Added RefreshCw
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, SimpleRate, SimpleBranch, TransactionCreateData } from '@/lib/types';
-import { notificationCreateSchema, NotificationCreateData, transactionCreateSchema } from '@/lib/schemas'; // Using transactionCreateSchema for sub-form
-import { listNotificationsForTenant, markNotificationAsRead, updateNotificationTransactionStatus, getRatesForBranchSimple, getBranchesForTenantSimple, createNotification } from '@/actions/admin';
+import { notificationCreateSchema, NotificationCreateData, transactionCreateSchema } from '@/lib/schemas';
+import {
+  listNotificationsForTenant,
+  updateNotificationTransactionStatus,
+  getRatesForBranchSimple,
+  getBranchesForTenantSimple,
+  createNotification
+} from '@/actions/admin';
 import { createUnassignedReservation } from '@/actions/staff';
-import { NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT, NOTIFICATION_TRANSACTION_STATUS, NOTIFICATION_TRANSACTION_STATUS_TEXT, TRANSACTION_IS_ACCEPTED_STATUS_TEXT, TRANSACTION_STATUS } from '@/lib/constants';
+import {
+  NOTIFICATION_STATUS, // Keep for status interpretation if needed, but button is removed
+  NOTIFICATION_STATUS_TEXT,
+  NOTIFICATION_TRANSACTION_STATUS,
+  NOTIFICATION_TRANSACTION_STATUS_TEXT,
+  TRANSACTION_IS_ACCEPTED_STATUS_TEXT
+} from '@/lib/constants';
 import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
 
 interface NotificationsContentProps {
@@ -122,7 +134,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     fetchNotificationsAndBranches();
   }, [fetchNotificationsAndBranches]);
 
-  // Effect for "Create Reservation" dialog from existing notification
    useEffect(() => {
     if (watchIsAdvanceReservationCreate && isCreateReservationDialogOpen) {
         if (!createReservationForm.getValues('reserved_check_in_datetime')) {
@@ -132,14 +143,12 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         if (!createReservationForm.getValues('reserved_check_out_datetime')) {
              createReservationForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn), { shouldValidate: true });
         }
-    } else if (isCreateReservationDialogOpen) { // If not advance, clear the dates
+    } else if (isCreateReservationDialogOpen) { 
         createReservationForm.setValue('reserved_check_in_datetime', null);
         createReservationForm.setValue('reserved_check_out_datetime', null);
     }
   }, [watchIsAdvanceReservationCreate, createReservationForm, isCreateReservationDialogOpen]);
 
-
-  // Effect for "Add Notification" dialog's reservation sub-form
   useEffect(() => {
     if (watchDoReservationForNotif && watchIsAdvanceForNotifSubForm) {
         if (!addNotificationForm.getValues('reservation_check_in_datetime')) {
@@ -161,9 +170,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             try {
                 const rates = await getRatesForBranchSimple(watchTargetBranchForNotif, tenantId);
                 setRatesForAddNotificationSubForm(rates);
-                if (rates.length > 0 && !addNotificationForm.getValues('reservation_selected_rate_id')) {
-                   // addNotificationForm.setValue('reservation_selected_rate_id', rates[0].id);
-                }
+                // Optional: Auto-select first rate if not already selected
+                // if (rates.length > 0 && !addNotificationForm.getValues('reservation_selected_rate_id')) {
+                //    addNotificationForm.setValue('reservation_selected_rate_id', rates[0].id);
+                // }
             } catch (error) {
                 toast({title: "Error", description: "Could not fetch rates for selected branch.", variant: "destructive"});
                 setRatesForAddNotificationSubForm([]);
@@ -174,24 +184,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         setRatesForAddNotificationSubForm([]);
     }
   }, [watchDoReservationForNotif, watchTargetBranchForNotif, tenantId, addNotificationForm, toast]);
-
-
-  const handleMarkAsRead = async (notificationId: number) => {
-    setIsSubmitting(true);
-    try {
-      const result = await markNotificationAsRead(notificationId, tenantId);
-      if (result.success && result.notification) {
-        setNotifications(prev => prev.map(n => n.id === notificationId ? result.notification! : n));
-        toast({ title: "Success", description: "Notification marked as read." });
-      } else {
-        toast({ title: "Error", description: result.message, variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to mark notification as read.", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
 
   const handleOpenCreateReservationDialog = async (notification: Notification) => {
     if (!notification.target_branch_id) {
@@ -208,18 +200,19 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
     });
-    setIsLoading(true);
+    setIsLoading(true); // Use a different loading state if needed, or ensure this doesn't clash
     try {
         const rates = await getRatesForBranchSimple(notification.target_branch_id, tenantId);
         setRatesForCreateReservationDialog(rates);
-        if (rates.length > 0) {
-            // createReservationForm.setValue('selected_rate_id', rates[0].id);
-        }
+        // Optional: Auto-select first rate
+        // if (rates.length > 0) {
+        //     createReservationForm.setValue('selected_rate_id', rates[0].id);
+        // }
     } catch (error) {
         toast({title: "Error", description: "Could not fetch rates for target branch.", variant: "destructive"});
         setRatesForCreateReservationDialog([]);
     } finally {
-        setIsLoading(false);
+        setIsLoading(false); // Or the specific loading state
     }
     setIsCreateReservationDialogOpen(true);
   };
@@ -233,10 +226,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     try {
       const result = await createUnassignedReservation(
         data,
-        selectedNotification.tenant_id, // Use notification's tenant_id
+        selectedNotification.tenant_id, 
         selectedNotification.target_branch_id,
         adminUserId,
-        true // is_admin_created_flag
+        true 
       );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
@@ -245,7 +238,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             selectedNotification.id,
             NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED,
             result.transaction.id,
-            tenantId // Use current admin's tenantId for scoping the notification update
+            tenantId 
         );
         if (updateNotifResult.success && updateNotifResult.notification) {
              setNotifications(prev => prev.map(n => n.id === selectedNotification.id ? updateNotifResult.notification! : n));
@@ -343,53 +336,58 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             </div>
             <CardDescription>Manage notifications and take actions.</CardDescription>
         </div>
-        <Dialog open={isAddNotificationDialogOpen} onOpenChange={(open) => {
-            if (!open) { addNotificationForm.reset(defaultNotificationFormValues); setRatesForAddNotificationSubForm([]); }
-            setIsAddNotificationDialogOpen(open);
-        }}>
-            <DialogTrigger asChild>
-                <Button><PlusCircle className="mr-2 h-4 w-4" /> Add Notification</Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-lg p-1 flex flex-col max-h-[85vh]">
-                <DialogHeader className="p-2 border-b">
-                    <DialogTitle>Create New Notification</DialogTitle>
-                </DialogHeader>
-                <Form {...addNotificationForm}>
-                    <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                        <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                            <FormField control={addNotificationForm.control} name="message" render={({ field }) => (
-                                <FormItem><FormLabel>Message *</FormLabel><FormControl><Textarea placeholder="Enter notification message..." {...field} className="w-full" rows={3} /></FormControl><FormMessage /></FormItem>
-                            )} />
-                            <FormField control={addNotificationForm.control} name="target_branch_id" render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Target Branch (Optional)</FormLabel>
-                                    <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()}>
-                                        <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select branch if applicable" /></SelectTrigger></FormControl>
-                                        <SelectContent>{availableTenantBranches.map(branch => (<SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>))}</SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )} />
-                            {watchTargetBranchForNotif && (
-                                <FormField control={addNotificationForm.control} name="do_reservation" render={({ field }) => (
-                                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full bg-background">
-                                        <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-                                        <div className="space-y-1 leading-none"><FormLabel>Create Reservation with this Notification?</FormLabel></div>
+        <div className="flex space-x-2">
+            <Button variant="outline" onClick={fetchNotificationsAndBranches} disabled={isLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh List
+            </Button>
+            <Dialog open={isAddNotificationDialogOpen} onOpenChange={(open) => {
+                if (!open) { addNotificationForm.reset(defaultNotificationFormValues); setRatesForAddNotificationSubForm([]); }
+                setIsAddNotificationDialogOpen(open);
+            }}>
+                <DialogTrigger asChild>
+                    <Button><PlusCircle className="mr-2 h-4 w-4" /> Add Notification</Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg p-1 flex flex-col max-h-[85vh]">
+                    <DialogHeader className="p-2 border-b">
+                        <DialogTitle>Create New Notification</DialogTitle>
+                    </DialogHeader>
+                    <Form {...addNotificationForm}>
+                        <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                            <div className="flex-grow overflow-y-auto p-3 space-y-3">
+                                <FormField control={addNotificationForm.control} name="message" render={({ field }) => (
+                                    <FormItem><FormLabel>Message *</FormLabel><FormControl><Textarea placeholder="Enter notification message..." {...field} className="w-full" rows={3} /></FormControl><FormMessage /></FormItem>
+                                )} />
+                                <FormField control={addNotificationForm.control} name="target_branch_id" render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Target Branch (Optional)</FormLabel>
+                                        <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()}>
+                                            <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select branch if applicable" /></SelectTrigger></FormControl>
+                                            <SelectContent>{availableTenantBranches.map(branch => (<SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>))}</SelectContent>
+                                        </Select>
+                                        <FormMessage />
                                     </FormItem>
                                 )} />
-                            )}
-                            {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation')}
-                        </div>
-                        <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
-                            <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                            <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Notification"}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                </Form>
-            </DialogContent>
-        </Dialog>
+                                {watchTargetBranchForNotif && (
+                                    <FormField control={addNotificationForm.control} name="do_reservation" render={({ field }) => (
+                                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full bg-background">
+                                            <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                                            <div className="space-y-1 leading-none"><FormLabel>Create Reservation with this Notification?</FormLabel></div>
+                                        </FormItem>
+                                    )} />
+                                )}
+                                {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation')}
+                            </div>
+                            <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
+                                <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                                <Button type="submit" disabled={isSubmitting}>
+                                    {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Notification"}
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </Form>
+                </DialogContent>
+            </Dialog>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -402,8 +400,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
               <TableHead>Message</TableHead>
               <TableHead>Creator</TableHead>
               <TableHead>Target Branch</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Reservation Status</TableHead>
+              <TableHead>Notification Status</TableHead>
+              <TableHead>Reservation Link Status</TableHead>
               <TableHead>Transaction Acceptance</TableHead>
               <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -417,13 +415,9 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                   <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status]}</TableCell>
                   <TableCell>{NOTIFICATION_TRANSACTION_STATUS_TEXT[notif.transaction_status]}</TableCell>
                   <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
-                  <TableCell>{format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}</TableCell>
+                  <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    {notif.status === NOTIFICATION_STATUS.UNREAD && (
-                      <Button variant="outline" size="sm" onClick={() => handleMarkAsRead(notif.id)} disabled={isSubmitting}>
-                        <CheckSquare className="mr-1 h-3 w-3" /> Mark Read
-                      </Button>
-                    )}
+                    {/* "Mark as Read" button removed as per request */}
                     {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION && (
                       <Button variant="default" size="sm" onClick={() => handleOpenCreateReservationDialog(notif)} disabled={isSubmitting}>
                         <CalendarPlus className="mr-1 h-3 w-3" /> Create Reservation
@@ -475,3 +469,4 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     </Card>
   );
 }
+
