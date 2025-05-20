@@ -11,7 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw } from 'lucide-react'; // Added RefreshCw
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
@@ -22,11 +23,12 @@ import {
   updateNotificationTransactionStatus,
   getRatesForBranchSimple,
   getBranchesForTenantSimple,
-  createNotification
+  createNotification,
+  deleteNotification // Added deleteNotification import
 } from '@/actions/admin';
 import { createUnassignedReservation } from '@/actions/staff';
 import {
-  NOTIFICATION_STATUS, // Keep for status interpretation if needed, but button is removed
+  NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
   NOTIFICATION_TRANSACTION_STATUS,
   NOTIFICATION_TRANSACTION_STATUS_TEXT,
@@ -86,6 +88,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
 
   const [ratesForCreateReservationDialog, setRatesForCreateReservationDialog] = useState<SimpleRate[]>([]);
   const [ratesForAddNotificationSubForm, setRatesForAddNotificationSubForm] = useState<SimpleRate[]>([]);
+  const [notificationToDelete, setNotificationToDelete] = useState<Notification | null>(null);
 
 
   const { toast } = useToast();
@@ -170,10 +173,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             try {
                 const rates = await getRatesForBranchSimple(watchTargetBranchForNotif, tenantId);
                 setRatesForAddNotificationSubForm(rates);
-                // Optional: Auto-select first rate if not already selected
-                // if (rates.length > 0 && !addNotificationForm.getValues('reservation_selected_rate_id')) {
-                //    addNotificationForm.setValue('reservation_selected_rate_id', rates[0].id);
-                // }
             } catch (error) {
                 toast({title: "Error", description: "Could not fetch rates for selected branch.", variant: "destructive"});
                 setRatesForAddNotificationSubForm([]);
@@ -200,19 +199,15 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
     });
-    setIsLoading(true); // Use a different loading state if needed, or ensure this doesn't clash
+    setIsLoading(true);
     try {
         const rates = await getRatesForBranchSimple(notification.target_branch_id, tenantId);
         setRatesForCreateReservationDialog(rates);
-        // Optional: Auto-select first rate
-        // if (rates.length > 0) {
-        //     createReservationForm.setValue('selected_rate_id', rates[0].id);
-        // }
     } catch (error) {
         toast({title: "Error", description: "Could not fetch rates for target branch.", variant: "destructive"});
         setRatesForCreateReservationDialog([]);
     } finally {
-        setIsLoading(false); // Or the specific loading state
+        setIsLoading(false); 
     }
     setIsCreateReservationDialogOpen(true);
   };
@@ -274,6 +269,26 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         setIsSubmitting(false);
     }
   };
+
+  const handleDeleteNotification = async (notificationId: number) => {
+    if (!notificationId) return;
+    setIsSubmitting(true);
+    try {
+        const result = await deleteNotification(notificationId, tenantId);
+        if (result.success) {
+            toast({ title: "Success", description: "Notification deleted." });
+            setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        } else {
+            toast({ title: "Delete Failed", description: result.message || "Could not delete notification.", variant: "destructive" });
+        }
+    } catch (error) {
+        toast({ title: "Error", description: "An unexpected error occurred while deleting notification.", variant: "destructive" });
+    } finally {
+        setIsSubmitting(false);
+        setNotificationToDelete(null);
+    }
+  };
+
 
   const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
@@ -347,7 +362,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 <DialogTrigger asChild>
                     <Button><PlusCircle className="mr-2 h-4 w-4" /> Add Notification</Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-lg p-1 flex flex-col max-h-[85vh]">
+                <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
                     <DialogHeader className="p-2 border-b">
                         <DialogTitle>Create New Notification</DialogTitle>
                     </DialogHeader>
@@ -417,7 +432,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                   <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
                   <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    {/* "Mark as Read" button removed as per request */}
                     {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION && (
                       <Button variant="default" size="sm" onClick={() => handleOpenCreateReservationDialog(notif)} disabled={isSubmitting}>
                         <CalendarPlus className="mr-1 h-3 w-3" /> Create Reservation
@@ -426,6 +440,29 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                      {notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED && (
                         <span className="text-xs text-green-600">Processed (Tx ID: {notif.transaction_id || 'N/A'})</span>
                     )}
+                    <AlertDialog open={notificationToDelete?.id === notif.id} onOpenChange={(open) => { if (!open) setNotificationToDelete(null); }}>
+                        <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" onClick={() => setNotificationToDelete(notif)} disabled={isSubmitting}>
+                                <Trash2 className="mr-1 h-3 w-3" /> Delete
+                            </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Are you sure you want to permanently delete this notification?
+                                    <br />
+                                    <span className="font-semibold">Message:</span> "{notificationToDelete?.message.substring(0, 100)}{notificationToDelete && notificationToDelete.message.length > 100 ? '...' : ''}"
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel onClick={() => setNotificationToDelete(null)}>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDeleteNotification(notificationToDelete!.id)} disabled={isSubmitting}>
+                                    {isSubmitting ? <Loader2 className="animate-spin" /> : "Delete"}
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                   </TableCell>
                 </TableRow>
               ))}
@@ -446,7 +483,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
           }
           setIsCreateReservationDialogOpen(open);
       }}>
-        <DialogContent className="sm:max-w-lg p-1 flex flex-col max-h-[85vh]">
+        <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader className="p-2 border-b">
                 <DialogTitle>Create Reservation from Notification</DialogTitle>
                 <CardDescription>For Branch: {selectedNotification?.target_branch_name || 'N/A'}</CardDescription>
@@ -469,4 +506,5 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     </Card>
   );
 }
+
 

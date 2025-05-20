@@ -1038,7 +1038,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          -- Active transactions are those not Paid (1) or Cancelled (3)
+          -- Active transactions are those that meet our "active" criteria
           AND (t_active.status = '${TRANSACTION_STATUS.UNPAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_PAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_RESERVATION}' OR t_active.status = '${TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE}')
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
@@ -1287,7 +1287,7 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
         n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
         n.created_at, n.read_at, n.transaction_status
        FROM notification n
-       LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+       LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
        LEFT JOIN users u ON n.creator_user_id = u.id
        LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
        WHERE n.tenant_id = $1
@@ -1328,7 +1328,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
-         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
          LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [res.rows[0].id]
@@ -1378,7 +1378,7 @@ export async function updateNotificationTransactionStatus(
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
-         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
          LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [res.rows[0].id]
@@ -1467,7 +1467,7 @@ export async function createNotification(
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
           n.created_at, n.read_at, n.transaction_status
          FROM notification n
-         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
          LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id
          WHERE n.id = $1`, [newNotificationId]
@@ -1497,3 +1497,30 @@ export async function createNotification(
   }
 }
 
+export async function deleteNotification(notificationId: number, tenantId: number): Promise<{ success: boolean; message?: string }> {
+  if (isNaN(notificationId) || notificationId <= 0 || isNaN(tenantId) || tenantId <= 0) {
+    return { success: false, message: "Invalid notification ID or tenant ID." };
+  }
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      'DELETE FROM notification WHERE id = $1 AND tenant_id = $2',
+      [notificationId, tenantId]
+    );
+    if (res.rowCount > 0) {
+      return { success: true, message: "Notification deleted successfully." };
+    }
+    return { success: false, message: "Notification not found or not authorized to delete." };
+  } catch (error) {
+    console.error(`Failed to delete notification ${notificationId}:`, error);
+    // Check for foreign key constraint violation if a transaction is linked
+    if (error instanceof Error && (error as any).code === '23503') {
+        return { success: false, message: "Cannot delete notification. It might be linked to an existing transaction. Please resolve the transaction first or contact support." };
+    }
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+    
