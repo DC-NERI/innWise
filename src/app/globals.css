@@ -114,3 +114,13 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  @keyframes pulse-opacity-gentle {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.85; }
+  }
+  .animate-pulse-opacity-gentle {
+    animation: pulse-opacity-gentle 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+}

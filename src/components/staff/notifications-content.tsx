@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom
+  getActiveTransactionForRoom // Ensure this can fetch status '5' transactions
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -45,8 +45,10 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
+    // Ensure we replace space with 'T' for proper ISO parsing if DB format is "YYYY-MM-DD HH:MM:SS"
     return format(parseISO(dateString.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
+    console.warn("Error formatting date string for input:", dateString, e);
     return "";
   }
 };
@@ -61,7 +63,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Ensure space replacement
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
@@ -76,7 +78,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
 
 export default function NotificationsContent({ tenantId, branchId, staffUserId }: NotificationsContentProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isAcceptManageModalOpen, setIsAcceptManageModalOpen] = useState(false);
@@ -95,14 +97,14 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const fetchNotifications = useCallback(async () => {
     if (!tenantId || !branchId) return;
-    setIsLoading(true);
+    setIsLoadingNotifications(true);
     try {
       const fetchedNotifications = await listNotificationsForBranch(tenantId, branchId);
       setNotifications(fetchedNotifications.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch notifications.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      setIsLoadingNotifications(false);
     }
   }, [tenantId, branchId, toast]);
 
@@ -131,24 +133,33 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
       try {
+        // Optimistically update UI
+        setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
+          .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (result.success && result.notification) {
-          setNotifications(prev => prev.map(n => n.id === notification.id ? result.notification! : n)
-            .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        if (!result.success) {
+          // Revert optimistic update on failure
+          toast({title: "Info", description: "Failed to mark notification as read on server.", variant:"default"})
+          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n) 
+           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
+        // Revert optimistic update on error
+         setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
+          .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
     }
   };
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id) return;
-    setIsSubmittingAction(true);
+    setIsSubmittingAction(true); // Use general purpose submitting flag or a new one like setIsModalLoading
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId)
+        getRatesForBranchSimple(tenantId, branchId) // Branch ID for rates should be target_branch_id of notif
       ]);
 
       if (!transaction) {
@@ -186,7 +197,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications();
+        fetchNotifications(); // Refresh notifications list
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -210,8 +221,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false);
-        fetchNotifications();
+        setIsAcceptManageModalOpen(false); // Close accept modal if decline came from there
+        setIsDetailsModalOpen(false); // Also close details modal
+        fetchNotifications(); // Refresh notifications list
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -233,12 +245,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           </div>
           <CardDescription>View messages and notifications for your branch.</CardDescription>
         </div>
-        <Button variant="outline" onClick={fetchNotifications} disabled={isLoading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /> Refresh List
+        <Button variant="outline" onClick={fetchNotifications} disabled={isLoadingNotifications}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingNotifications ? 'animate-spin' : ''}`} /> Refresh List
         </Button>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoadingNotifications ? (
           <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
         ) : notifications.length === 0 ? (
           <p className="text-muted-foreground text-center py-8">No notifications for this branch.</p>
@@ -247,7 +259,15 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             {notifications.map(notif => (
               <Card
                 key={notif.id}
-                className={cn("hover:shadow-lg transition-shadow cursor-pointer", notif.status === NOTIFICATION_STATUS.UNREAD ? "border-primary border-2" : "")}
+                className={cn(
+                  "hover:shadow-lg transition-shadow cursor-pointer",
+                  notif.status === NOTIFICATION_STATUS.UNREAD && "border-primary border-2",
+                  notif.transaction_id && {
+                    [cn("bg-yellow-100 dark:bg-yellow-800/30 border-yellow-300 dark:border-yellow-700 animate-pulse-opacity-gentle")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING,
+                    [cn("bg-green-100 dark:bg-green-800/30 border-green-300 dark:border-green-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
+                    [cn("bg-red-100 dark:bg-red-800/30 border-red-300 dark:border-red-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED,
+                  }
+                )}
                 onClick={() => handleCardClick(notif)}
               >
                 <CardHeader className="pb-2">
@@ -293,7 +313,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           <DialogFooter className="sm:justify-between">
             {selectedNotification?.transaction_id &&
              selectedNotification?.linked_transaction_status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE &&
-             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING || selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT) && (
+             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) && (
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
                 {isSubmittingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4" />}
                 Manage Reservation
@@ -304,6 +324,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         </DialogContent>
       </Dialog>
 
+      {/* Accept/Manage Reservation Modal */}
       <Dialog open={isAcceptManageModalOpen} onOpenChange={(open) => {
           if (!open) { setTransactionToManage(null); setRatesForAcceptModal([]); acceptManageForm.reset(); }
           setIsAcceptManageModalOpen(open);
@@ -317,6 +338,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <Form {...acceptManageForm}>
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
+                  {/* Form Fields for editing reservation */}
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
                     <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
@@ -359,12 +381,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   <AlertDialog open={!!transactionToDecline} onOpenChange={(open) => { if (!open) setTransactionToDecline(null); }}>
                     <AlertDialogTrigger asChild>
                       <Button type="button" variant="destructive" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>
-                          <XCircle className="mr-2 h-4 w-4" /> Decline
+                          <XCircle className="mr-2 h-4 w-4" /> Decline Reservation
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                         <AlertDialogHeader><AlertDialogTitle>Confirm Decline</AlertDialogTitle>
-                            <AlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This cannot be undone.</AlertDialogDescription>
+                            <AlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                             <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>Cancel</AlertDialogCancel>
