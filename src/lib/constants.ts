@@ -26,3 +26,23 @@ export const TRANSACTION_STATUS_TEXT: { [key: string]: string } = {
   [TRANSACTION_STATUS.CANCELLED]: 'Cancelled',
   [TRANSACTION_STATUS.ADVANCE_RESERVATION]: 'Advance Reservation',
 };
+
+export const NOTIFICATION_STATUS = {
+  UNREAD: 0,
+  READ: 1,
+} as const;
+
+export const NOTIFICATION_STATUS_TEXT: { [key: number]: string } = {
+  [NOTIFICATION_STATUS.UNREAD]: 'Unread',
+  [NOTIFICATION_STATUS.READ]: 'Read',
+};
+
+export const NOTIFICATION_TRANSACTION_STATUS = {
+  PENDING_ACTION: 0,
+  RESERVATION_CREATED: 1,
+} as const;
+
+export const NOTIFICATION_TRANSACTION_STATUS_TEXT: { [key: number]: string } = {
+  [NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION]: 'Pending Action',
+  [NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED]: 'Reservation Created',
+};

@@ -1,23 +1,31 @@
 
 export type UserRole = "admin" | "sysad" | "staff";
 
-export interface User { // Renamed from AuthenticatedUser for broader use
-  id: string | number; // number from DB, string for some contexts
+export interface User {
+  id: string | number; 
   tenant_id?: number | null;
-  tenant_name?: string | null; // For listing users with their tenant
+  tenant_name?: string | null; 
   tenant_branch_id?: number | null;
-  branch_name?: string | null; // For displaying branch name
+  branch_name?: string | null; 
   first_name: string;
   last_name: string;
   username: string;
   email?: string | null;
   role: UserRole;
-  status: string; // Ensure status is always present
-  created_at: string; // ISO date string
-  updated_at: string; // ISO date string
-  last_log_in?: string | null; // ISO date string
-  userId?: number; // from login result, ensure consistency
+  status: string; 
+  created_at: string; 
+  updated_at: string; 
+  last_log_in?: string | null; 
 }
+
+// For simpler user display (e.g., creator of notification)
+export interface SimpleUser {
+  id: number;
+  username: string;
+  first_name?: string;
+  last_name?: string;
+}
+
 
 export interface Tenant {
   id: number;
@@ -27,26 +35,26 @@ export interface Tenant {
   tenant_contact_info?: string | null;
   max_branch_count?: number | null;
   max_user_count?: number | null;
-  created_at: string; // ISO date string
-  updated_at: string; // ISO date string
+  created_at: string; 
+  updated_at: string; 
   status: string;
 }
 
 export interface Branch {
   id: number;
   tenant_id: number;
-  tenant_name?: string; // Optional: for listing branches with tenant name
+  tenant_name?: string; 
   branch_name: string;
   branch_code: string;
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
   status: string;
-  created_at: string; // ISO date string
-  updated_at: string; // ISO date string
+  created_at: string; 
+  updated_at: string; 
 }
 
-// For simpler branch selection
+
 export interface SimpleBranch {
   id: number;
   branch_name: string;
@@ -56,49 +64,46 @@ export interface HotelRate {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; // For display
+  branch_name?: string; 
   name: string;
   price: number;
   hours: number;
   excess_hour_price?: number | null;
   description?: string | null;
-  status: string; // '0' or '1'
-  created_at: string; // ISO date string
-  updated_at: string; // ISO date string
+  status: string; 
+  created_at: string; 
+  updated_at: string; 
 }
 
 export interface HotelRoom {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; // For display
+  branch_name?: string; 
   hotel_rate_id: number[] | null; 
-  rate_names?: string[]; // For display, derived from hotel_rate_id
+  rate_names?: string[]; 
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved (as per last update)
-  status: string; // '0' or '1' (for the room record itself, not booking status)
-  transaction_id?: number | null; // Foreign key to transactions table
-  created_at: string; // ISO date string
-  updated_at: string; // ISO date string
-
-  // These fields are populated by joins if a transaction is linked via transaction_id
-  active_transaction_id?: number | null; 
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
+  status: string; 
+  transaction_id?: number | null;
+  created_at: string; 
+  updated_at: string; 
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null; 
   active_transaction_rate_name?: string | null;
 }
 
-// For simpler rate selection
+
 export interface SimpleRate {
   id: number;
   name: string;
   price: number;
-  hours: number; // Added hours
+  hours: number;
 }
 
 export interface Transaction {
@@ -114,7 +119,7 @@ export interface Transaction {
     check_out_time?: string | null; 
     hours_used?: number | null;
     total_amount?: number | null;
-    created_by_user_id: number;
+    created_by_user_id: number; 
     check_out_by_user_id?: number | null;
     status: string; 
     created_at: string; 
@@ -126,7 +131,22 @@ export interface Transaction {
     checked_out_by_username?: string;
 }
 
-// For grouping rooms by floor in RoomStatusContent
+
 export interface GroupedRooms {
   [floor: string]: HotelRoom[];
+}
+
+export interface Notification {
+  id: number;
+  tenant_id: number;
+  message: string;
+  status: number; // 0: unread, 1: read
+  target_branch_id?: number | null;
+  target_branch_name?: string | null; // For display
+  creator_user_id?: number | null;
+  creator_username?: string | null; // For display
+  transaction_id?: number | null;
+  created_at: string;
+  read_at?: string | null;
+  transaction_status: number; // 0: Pending Action, 1: Reservation Created
 }

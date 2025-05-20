@@ -4,10 +4,12 @@
 import pg from 'pg';
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10)); // BIGINT to number
+pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue)); // NUMERIC to float
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
-import type { Tenant, Branch, User, SimpleBranch, HotelRate, HotelRoom, SimpleRate } from '@/lib/types';
+import type { Tenant, Branch, User, SimpleBranch, HotelRate, HotelRoom, SimpleRate, Notification } from '@/lib/types';
 import {
   branchUpdateSchema,
   tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData,
@@ -18,7 +20,7 @@ import {
   hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
-import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS } from '@/lib/constants';
 
 
 const pool = new Pool({
@@ -35,7 +37,6 @@ export async function listTenants(): Promise<Tenant[]> {
   const client = await pool.connect();
   try {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
-    // Timestamps are now strings
     return res.rows as Tenant[];
   } catch (error) {
     console.error('Failed to fetch tenants:', error);
@@ -1022,9 +1023,10 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     const query = `
       SELECT
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
-        hr.hotel_rate_id, hr.transaction_id, 
+        hr.hotel_rate_id, 
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
+        hr.transaction_id, -- This is the key link now
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
         hrt_active.name AS active_transaction_rate_name 
@@ -1033,29 +1035,25 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id 
           AND t_active.branch_id = hr.branch_id
-          AND (t_active.status = $3 OR t_active.status = $4) -- Unpaid or Advance Paid
+          -- No need to filter t_active.status here if hr.transaction_id is the source of truth
+          -- for the *currently active* transaction link. The status of this linked transaction
+          -- determines the room's state (occupied or reserved).
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id 
           AND hrt_active.tenant_id = hr.tenant_id 
           AND hrt_active.branch_id = hr.branch_id 
-          AND hrt_active.status = '1'
-      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
+          AND hrt_active.status = '1' -- Ensure the rate itself is active
+      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1' -- Room definition is active
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
-    const res = await client.query(query, [branchId, tenantId, TRANSACTION_STATUS.UNPAID, TRANSACTION_STATUS.ADVANCE_PAID]);
+    const res = await client.query(query, [branchId, tenantId]);
+    console.log(`[listRoomsForBranch Server Log] Fetched ${res.rows.length} rooms for branch ${branchId}`);
 
     return res.rows.map(row => {
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          const rawRateIdData = row.hotel_rate_id;
-          if (typeof rawRateIdData === 'string') {
-            parsedRateIds = JSON.parse(rawRateIdData);
-          } else if (typeof rawRateIdData === 'object' && rawRateIdData !== null) {
-            parsedRateIds = Array.isArray(rawRateIdData) ? rawRateIdData : [];
-          } else {
-            parsedRateIds = [];
-          }
+          parsedRateIds = Array.isArray(row.hotel_rate_id) ? row.hotel_rate_id : JSON.parse(row.hotel_rate_id);
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
             parsedRateIds = [];
           }
@@ -1066,21 +1064,19 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       } else {
         parsedRateIds = [];
       }
-
-      const activeTransactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
-      const activeTransactionClientName = row.active_transaction_client_name || null;
-      const activeTransactionCheckInTime = row.active_transaction_check_in_time || null; // Already a string
-      const activeTransactionRateName = row.active_transaction_rate_name || null;
       
-      if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED || Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED) {
+      const roomIsAvailableStatus = Number(row.is_available);
+      const transactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
+
+      if (roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.OCCUPIED || roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.RESERVED) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
           room_transaction_id_db: row.transaction_id,
           active_transaction_client_name_db: row.active_transaction_client_name,
           active_transaction_check_in_time_db: row.active_transaction_check_in_time,
           active_transaction_rate_name_db: row.active_transaction_rate_name,
-          mapped_client_name: activeTransactionClientName,
-          mapped_check_in_time: activeTransactionCheckInTime
+          mapped_client_name: row.active_transaction_client_name || null,
+          mapped_check_in_time: row.active_transaction_check_in_time || null
         });
       }
 
@@ -1090,21 +1086,20 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
-        transaction_id: activeTransactionIdFromRoom, 
+        transaction_id: transactionIdFromRoom,
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
         room_type: row.room_type,
         bed_type: row.bed_type,
         capacity: row.capacity,
-        is_available: Number(row.is_available),
+        is_available: roomIsAvailableStatus,
         status: row.status,
         created_at: row.created_at, 
         updated_at: row.updated_at, 
-        active_transaction_id: activeTransactionIdFromRoom,
-        active_transaction_client_name: activeTransactionClientName,
-        active_transaction_check_in_time: activeTransactionCheckInTime,
-        active_transaction_rate_name: activeTransactionRateName,
+        active_transaction_client_name: row.active_transaction_client_name || null,
+        active_transaction_check_in_time: row.active_transaction_check_in_time || null,
+        active_transaction_rate_name: row.active_transaction_rate_name || null,
       } as HotelRoom;
     });
   } catch (error) {
@@ -1144,7 +1139,7 @@ export async function createRoom(
       let parsedRateIds: number[] | null = null;
       if (newRow.hotel_rate_id) {
          try {
-          parsedRateIds = typeof newRow.hotel_rate_id === 'string' ? JSON.parse(newRow.hotel_rate_id) : newRow.hotel_rate_id;
+          parsedRateIds = Array.isArray(newRow.hotel_rate_id) ? newRow.hotel_rate_id : JSON.parse(newRow.hotel_rate_id);
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1191,9 +1186,14 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
+    // When updating a room, if its availability is changed to 'Available' (0),
+    // ensure its transaction_id is cleared.
+    const transactionIdUpdate = (is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE) ? ', transaction_id = NULL' : '';
+
+
     const res = await client.query(
       `UPDATE hotel_room
-       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${transactionIdUpdate}
        WHERE id = $10 AND tenant_id = $11 AND branch_id = $12
        RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
       [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
@@ -1206,7 +1206,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
       let parsedRateIds: number[] | null = null;
       if (updatedRow.hotel_rate_id) {
          try {
-          parsedRateIds = typeof updatedRow.hotel_rate_id === 'string' ? JSON.parse(updatedRow.hotel_rate_id) : updatedRow.hotel_rate_id;
+          parsedRateIds = Array.isArray(updatedRow.hotel_rate_id) ? updatedRow.hotel_rate_id : JSON.parse(updatedRow.hotel_rate_id);
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1260,6 +1260,105 @@ export async function archiveRoom(roomId: number, tenantId: number, branchId: nu
     return { success: false, message: "Room not found or already archived." };
   } catch (error) {
     console.error(`Failed to archive room ${roomId}:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+// Notification Actions
+export async function listNotificationsForTenant(tenantId: number): Promise<Notification[]> {
+  if (isNaN(tenantId) || tenantId <= 0) return [];
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `SELECT 
+        n.id, n.tenant_id, n.message, n.status, 
+        n.target_branch_id, tb.branch_name as target_branch_name,
+        n.creator_user_id, u.username as creator_username,
+        n.transaction_id, n.created_at, n.read_at, n.transaction_status
+       FROM notification n
+       LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+       LEFT JOIN users u ON n.creator_user_id = u.id
+       WHERE n.tenant_id = $1
+       ORDER BY n.created_at DESC`,
+      [tenantId]
+    );
+    return res.rows as Notification[];
+  } catch (error) {
+    console.error(`Failed to fetch notifications for tenant ${tenantId}:`, error);
+    throw new Error(`Database error: Could not fetch notifications. ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
+
+export async function markNotificationAsRead(notificationId: number, tenantId: number): Promise<{ success: boolean; message?: string; notification?: Notification }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE notification 
+       SET status = $1, read_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') 
+       WHERE id = $2 AND tenant_id = $3
+       RETURNING *`,
+      [NOTIFICATION_STATUS.READ, notificationId, tenantId]
+    );
+    if (res.rows.length > 0) {
+      // Re-fetch with joins for creator/branch names to match listNotificationsForTenant structure
+      const fullNotificationRes = await client.query(
+        `SELECT 
+          n.id, n.tenant_id, n.message, n.status, 
+          n.target_branch_id, tb.branch_name as target_branch_name,
+          n.creator_user_id, u.username as creator_username,
+          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+         FROM notification n
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN users u ON n.creator_user_id = u.id
+         WHERE n.id = $1`, [res.rows[0].id]
+      );
+      return { success: true, message: "Notification marked as read.", notification: fullNotificationRes.rows[0] as Notification };
+    }
+    return { success: false, message: "Notification not found or no change made." };
+  } catch (error) {
+    console.error(`Failed to mark notification ${notificationId} as read:`, error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateNotificationTransactionStatus(
+  notificationId: number, 
+  newTransactionStatus: number, 
+  linkedTransactionId: number | null,
+  tenantId: number
+): Promise<{ success: boolean; message?: string; notification?: Notification }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `UPDATE notification 
+       SET transaction_status = $1, transaction_id = $2, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+       WHERE id = $3 AND tenant_id = $4
+       RETURNING *`,
+      [newTransactionStatus, linkedTransactionId, notificationId, tenantId]
+    );
+     if (res.rows.length > 0) {
+      const fullNotificationRes = await client.query(
+        `SELECT 
+          n.id, n.tenant_id, n.message, n.status, 
+          n.target_branch_id, tb.branch_name as target_branch_name,
+          n.creator_user_id, u.username as creator_username,
+          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+         FROM notification n
+         LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
+         LEFT JOIN users u ON n.creator_user_id = u.id
+         WHERE n.id = $1`, [res.rows[0].id]
+      );
+      return { success: true, message: "Notification transaction status updated.", notification: fullNotificationRes.rows[0] as Notification };
+    }
+    return { success: false, message: "Notification not found or no change made." };
+  } catch (error) {
+    console.error(`Failed to update transaction status for notification ${notificationId}:`, error);
     return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
   } finally {
     client.release();

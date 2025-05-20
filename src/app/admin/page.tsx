@@ -6,18 +6,19 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Settings, LogOut, Tags, BedDouble } from 'lucide-react';
+import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell } from 'lucide-react'; // Added Bell
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
+import NotificationsContent from '@/components/admin/notifications-content'; // Added import
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'settings'>('branches');
+  const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'settings'>('branches');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -26,6 +27,7 @@ const AdminDashboardPage: NextPage = () => {
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<number | null>(null); // Added adminUserId state
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -38,6 +40,7 @@ const AdminDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
+      const storedUserId = localStorage.getItem('userId'); // Retrieve admin's user ID
 
       if (storedRole) {
         setUserRole(storedRole);
@@ -54,8 +57,9 @@ const AdminDashboardPage: NextPage = () => {
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
+      if (storedUserId) setUserId(parseInt(storedUserId, 10)); // Set adminUserId
 
-      if (storedRole === 'sysad') { // Should not happen if role check above works
+      if (storedRole === 'sysad') { 
          setTenantName("System Administrator");
       } else if (storedTenantName) {
         setTenantName(storedTenantName);
@@ -160,6 +164,15 @@ const AdminDashboardPage: NextPage = () => {
                 Rooms
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('notifications')}
+                isActive={activeView === 'notifications'}
+              >
+                <Bell />
+                Notifications
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -200,6 +213,13 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && <RoomsContent tenantId={tenantId} />}
           {activeView === 'rooms' && tenantId === null && <p>Loading tenant information for room management...</p>}
           
+          {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId !== null && (
+            <NotificationsContent tenantId={tenantId} adminUserId={userId} />
+          )}
+          {activeView === 'notifications' && (tenantId === null || userId === null) && (
+            <p>Loading tenant or user information for notifications...</p>
+          )}
+
           {activeView === 'settings' && userRole === 'admin' && (
             <div>
               <h2 className="text-2xl font-semibold">Settings</h2>
