@@ -7,11 +7,12 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, LogIn, BedDouble, Building } from 'lucide-react';
-import { getTenantDetails } from '@/actions/admin'; 
+import { Settings, LogOut, BedDouble, Building, CalendarPlus } from 'lucide-react'; // Added CalendarPlus
+import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
-import GuestCheckInContent from '@/components/staff/guest-checkin-content';
+// import GuestCheckInContent from '@/components/staff/guest-checkin-content'; // Removed
 import RoomStatusContent from '@/components/staff/room-status-content';
+import ReservationsContent from '@/components/staff/reservations-content'; // New
 
 const StaffSettingsContent = () => (
   <div>
@@ -22,9 +23,9 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'check-in' | 'room-status' | 'settings'>('room-status'); 
+  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'settings'>('room-status');
   const [dateTime, setDateTime] = useState({ date: '', time: '' });
-  
+
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
@@ -57,14 +58,14 @@ const StaffDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'staff') { 
+        if (storedRole !== 'staff') {
             console.warn("[staff/page.tsx] Role is not staff, redirecting to /");
-            router.push('/'); 
+            router.push('/');
             return;
         }
       } else {
         console.warn("[staff/page.tsx] No role found, redirecting to /");
-        router.push('/'); 
+        router.push('/');
         return;
       }
 
@@ -74,7 +75,7 @@ const StaffDashboardPage: NextPage = () => {
       if (storedLastName) setLastName(storedLastName);
       if (storedBranchId) setBranchId(parseInt(storedBranchId, 10));
       if (storedBranchName) setBranchName(storedBranchName);
-      
+
       if (storedUserId && !isNaN(parseInt(storedUserId, 10))) {
         const parsedUserId = parseInt(storedUserId, 10);
         if (parsedUserId > 0) {
@@ -94,8 +95,8 @@ const StaffDashboardPage: NextPage = () => {
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') { 
-                localStorage.setItem('userTenantName', tenant.tenant_name); 
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('userTenantName', tenant.tenant_name);
             }
           } else {
             setTenantName("Tenant Not Found");
@@ -105,7 +106,7 @@ const StaffDashboardPage: NextPage = () => {
           setTenantName("Error Fetching Tenant Info");
         });
       } else {
-        setTenantName("Tenant Information Unavailable"); 
+        setTenantName("Tenant Information Unavailable");
       }
     }
 
@@ -123,7 +124,7 @@ const StaffDashboardPage: NextPage = () => {
       });
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [router]); 
+  }, [router]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -136,13 +137,13 @@ const StaffDashboardPage: NextPage = () => {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
-      localStorage.removeItem('userId'); 
+      localStorage.removeItem('userId');
     }
     router.push('/');
   };
 
   const displayName = firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : username;
-  
+
   return (
     <SidebarProvider defaultOpen>
       <Sidebar>
@@ -167,22 +168,22 @@ const StaffDashboardPage: NextPage = () => {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
-                onClick={() => setActiveView('check-in')}
-                isActive={activeView === 'check-in'}
-                className="justify-start"
-              >
-                <LogIn className="h-5 w-5" />
-                Guest Check-in
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
                 onClick={() => setActiveView('room-status')}
                 isActive={activeView === 'room-status'}
                 className="justify-start"
               >
                 <BedDouble className="h-5 w-5" />
                 Room Status
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('reservations')}
+                isActive={activeView === 'reservations'}
+                className="justify-start"
+              >
+                <CalendarPlus className="h-5 w-5" />
+                Reservations
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -215,18 +216,20 @@ const StaffDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {activeView === 'check-in' && <GuestCheckInContent />}
           {activeView === 'room-status' && tenantId && branchId && (
             <RoomStatusContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
-          {activeView === 'room-status' && (!tenantId || !branchId) && (
+          {activeView === 'reservations' && tenantId && branchId && staffUserId && (
+            <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
+          )}
+          {(activeView === 'room-status' || activeView === 'reservations') && (!tenantId || !branchId) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
                   <Building className="h-6 w-6 text-primary" />
-                  <CardTitle>Room Status</CardTitle>
+                  <CardTitle>{activeView === 'room-status' ? 'Room Status' : 'Reservations'}</CardTitle>
                 </div>
-                 <CardDescription>View and update room availability and cleanliness.</CardDescription>
+                 <CardDescription>Manage room availability or reservations.</CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">

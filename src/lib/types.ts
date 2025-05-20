@@ -72,7 +72,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string; // For display
-  hotel_rate_id: number[] | null; 
+  hotel_rate_id: number[] | null;
   rate_names?: string[]; // For display, derived from hotel_rate_id
   room_name: string;
   room_code: string;
@@ -101,22 +101,21 @@ export interface Transaction {
     id: number;
     tenant_id: number;
     branch_id: number;
-    hotel_room_id: number;
-    hotel_rate_id: number; 
+    hotel_room_id: number | null; // Made nullable for unassigned reservations
+    hotel_rate_id: number;
     client_name: string;
     client_payment_method: string;
     notes?: string | null;
-    check_in_time: string; // ISO date string
+    check_in_time: string; // ISO date string (for unassigned, this is reservation creation time)
     check_out_time?: string | null; // ISO date string
     hours_used?: number | null;
-    total_amount?: number | null; 
+    total_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; // '0': Unpaid, '1': Paid, '2': Advance Paid
+    status: string; // '0': Unpaid/Occupied, '1': Paid, '2': Advance Paid/Reserved, '3': Cancelled
     created_at: string; // ISO date string
     updated_at: string; // ISO date string
-    room_name?: string; 
-    rate_name?: string; 
+    room_name?: string | null; // From join if room assigned
+    rate_name?: string;
     checked_out_by_username?: string;
 }
-    

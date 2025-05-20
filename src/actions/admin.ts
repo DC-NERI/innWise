@@ -1167,7 +1167,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       ) t_active ON TRUE
       LEFT JOIN hotel_rates hr_active ON t_active.hotel_rate_id = hr_active.id AND hr_active.tenant_id = r.tenant_id AND hr_active.branch_id = r.branch_id AND hr_active.status = '1'
       WHERE r.branch_id = $1 AND r.tenant_id = $2 AND r.status = '1'
-      ORDER BY r.floor ASC, r.room_name ASC;
+      ORDER BY r.floor ASC, r.room_code ASC;
     `;
 
     const res = await client.query(query, [branchId, tenantId, TRANSACTION_STATUS.UNPAID, TRANSACTION_STATUS.ADVANCE_PAID]);
@@ -1189,13 +1189,11 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         parsedRateIds = [];
       }
 
-      // Explicit mapping for active transaction details
       const activeTransactionId = row.active_transaction_id ? Number(row.active_transaction_id) : null;
       const activeTransactionClientName = row.active_transaction_client_name || null;
       const activeTransactionCheckInTime = row.active_transaction_check_in_time ? new Date(row.active_transaction_check_in_time).toISOString() : null;
       const activeTransactionRateName = row.active_transaction_rate_name || null;
 
-      // Server-side logging for debugging missing data on refresh
       if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED || Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,

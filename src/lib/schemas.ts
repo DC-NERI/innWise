@@ -189,7 +189,7 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  room_code: z.string().min(1, "Room code is required").max(50),
+  // room_code is part of hotelRoomCreateSchema now, so it will be included in update
   is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
   status: z.enum(['0', '1']).default('1'),
 });
@@ -215,3 +215,10 @@ export const transactionReservedUpdateSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
+
+// Schema for assigning room to unassigned reservation
+export const assignRoomAndCheckInSchema = z.object({
+  selected_room_id: z.coerce.number().int().positive("A valid room must be selected."),
+  // selected_rate_id might not be needed here if we use the rate from the original unassigned reservation
+});
+export type AssignRoomAndCheckInData = z.infer<typeof assignRoomAndCheckInSchema>;
