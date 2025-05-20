@@ -108,7 +108,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
       }
 
       await client.query(
-        'UPDATE users SET last_log_in = CURRENT_TIMESTAMP WHERE id = $1',
+        'UPDATE users SET last_log_in = (CURRENT_TIMESTAMP AT TIME ZONE \'Asia/Manila\') WHERE id = $1',
         [user.id]
       );
       
@@ -144,3 +144,5 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     return { message: errorMessage, success: false };
   }
 }
+
+    

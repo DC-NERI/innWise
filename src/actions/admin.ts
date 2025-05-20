@@ -54,6 +54,7 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
   const { tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count } = validatedFields.data;
   const client = await pool.connect();
   try {
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -99,7 +100,7 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
   try {
     const res = await client.query(
       `UPDATE tenants
-       SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, max_branch_count = $5, max_user_count = $6, status = $7, updated_at = CURRENT_TIMESTAMP
+       SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, max_branch_count = $5, max_user_count = $6, status = $7, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $8
        RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status`,
       [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, status, tenantId]
@@ -127,7 +128,7 @@ export async function archiveTenant(tenantId: number): Promise<{ success: boolea
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `UPDATE tenants SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      `UPDATE tenants SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') WHERE id = $1 RETURNING id`,
       [tenantId]
     );
     if (res.rowCount > 0) {
@@ -235,7 +236,7 @@ export async function updateBranchDetails(
   try {
     const res = await client.query(
       `UPDATE tenant_branch
-       SET branch_name = $1, branch_code = $2, branch_address = $3, contact_number = $4, email_address = $5, updated_at = CURRENT_TIMESTAMP
+       SET branch_name = $1, branch_code = $2, branch_address = $3, contact_number = $4, email_address = $5, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $6
        RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [branch_name, branch_code, branch_address, contact_number, email_address, branchId]
@@ -283,15 +284,14 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
   const { tenant_id, branch_name, branch_address, contact_number, email_address, status } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // Check limits if restoring a branch
     if (status === '1') {
         const currentBranchRes = await client.query('SELECT status, tenant_id FROM tenant_branch WHERE id = $1', [branchId]);
-        if (currentBranchRes.rows.length > 0 && currentBranchRes.rows[0].status === '0') { // Only check if actually restoring
+        if (currentBranchRes.rows.length > 0 && currentBranchRes.rows[0].status === '0') {
             const branchTenantId = currentBranchRes.rows[0].tenant_id;
             const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [branchTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_branch_count = tenantDetails.rows[0].max_branch_count;
-                if (max_branch_count !== null && max_branch_count > 0) { // Only check if limit is set
+                if (max_branch_count !== null && max_branch_count > 0) { 
                     const currentBranchCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
                         [branchTenantId]
@@ -307,7 +307,7 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
 
     const res = await client.query(
       `UPDATE tenant_branch
-       SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = CURRENT_TIMESTAMP
+       SET tenant_id = $1, branch_name = $2, branch_address = $3, contact_number = $4, email_address = $5, status = $6, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $7
        RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [tenant_id, branch_name, branch_address, contact_number, email_address, status, branchId]
@@ -360,7 +360,7 @@ export async function archiveBranch(branchId: number): Promise<{ success: boolea
     }
 
     const res = await client.query(
-      `UPDATE tenant_branch SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      `UPDATE tenant_branch SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') WHERE id = $1 RETURNING id`,
       [branchId]
     );
     if (res.rowCount > 0) {
@@ -390,7 +390,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
     }
     const max_branch_count = tenantDetails.rows[0].max_branch_count;
 
-    if (max_branch_count !== null && max_branch_count > 0) { // Only check if limit is set (not null and > 0)
+    if (max_branch_count !== null && max_branch_count > 0) {
       const currentBranchCountRes = await client.query(
         "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
         [tenant_id]
@@ -400,7 +400,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
         return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To add a new active branch, please archive an existing one first or increase the tenant's limit.` };
       }
     }
-
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status)
        VALUES ($1, $2, $3, $4, $5, $6, '1')
@@ -523,7 +523,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
         }
         const max_user_count = tenantDetails.rows[0].max_user_count;
 
-        if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
+        if (max_user_count !== null && max_user_count > 0) { 
             const currentUserCountRes = await client.query(
                 "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                 [tenant_id]
@@ -537,7 +537,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
 
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
-
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
@@ -607,22 +607,19 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
             const userCurrentTenantId = currentUserRes.rows[0].current_tenant_id;
             const targetTenantId = tenant_id;
 
-            // If user is being moved to a new tenant or restored to the same tenant, check the target tenant's limit
             const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [targetTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_user_count = tenantDetails.rows[0].max_user_count;
-                if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
+                if (max_user_count !== null && max_user_count > 0) { 
                     const currentUserCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                         [targetTenantId]
                     );
                     const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
                     if (currentUserCount >= max_user_count) {
-                         // If user is being moved to a new tenant, and that tenant is full
                         if (userCurrentTenantId !== targetTenantId) {
                              return { success: false, message: `Target tenant (ID: ${targetTenantId}) has reached the maximum active user limit of ${max_user_count}.` };
                         }
-                        // If user is being restored in the same tenant, and that tenant is full
                         else {
                              return { success: false, message: `Tenant has reached the maximum active user limit of ${max_user_count}. To restore this user, please archive an existing active user first or increase the tenant's limit.` };
                         }
@@ -645,7 +642,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
 
     const res = await client.query(
       `UPDATE users
-       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_id = $5, tenant_branch_id = $6, status = $7, updated_at = CURRENT_TIMESTAMP ${password_hash_update_string}
+       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_id = $5, tenant_branch_id = $6, status = $7, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${password_hash_update_string}
        WHERE id = $${queryParams.length}
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       queryParams
@@ -698,7 +695,7 @@ export async function archiveUser(userId: number): Promise<{ success: boolean; m
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `UPDATE users SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id`,
+      `UPDATE users SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') WHERE id = $1 RETURNING id`,
       [userId]
     );
     if (res.rowCount > 0) {
@@ -779,7 +776,7 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
     }
     const max_user_count = tenantDetails.rows[0].max_user_count;
 
-    if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
+    if (max_user_count !== null && max_user_count > 0) { 
         const currentUserCountRes = await client.query(
             "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
             [callingTenantId]
@@ -793,7 +790,7 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
 
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
-
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
@@ -867,11 +864,11 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
     }
     const currentUserStatus = userCheck.rows[0].current_status;
 
-    if (status === '1' && currentUserStatus === '0') { // If restoring user
+    if (status === '1' && currentUserStatus === '0') { 
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
         if (tenantDetails.rows.length > 0) {
             const max_user_count = tenantDetails.rows[0].max_user_count;
-            if (max_user_count !== null && max_user_count > 0) { // Only check if limit is set
+            if (max_user_count !== null && max_user_count > 0) { 
                 const currentUserCountRes = await client.query(
                     "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                     [callingTenantId]
@@ -898,7 +895,7 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
 
     const res = await client.query(
       `UPDATE users
-       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_branch_id = $5, status = $6, updated_at = CURRENT_TIMESTAMP ${password_hash_update_string}
+       SET first_name = $1, last_name = $2, email = $3, role = $4, tenant_branch_id = $5, status = $6, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${password_hash_update_string}
        WHERE id = $${queryParams.length} AND tenant_id = $${queryParams.length + 1}
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       [...queryParams, callingTenantId]
@@ -959,7 +956,7 @@ export async function archiveUserAdmin(userId: number, callingTenantId: number):
     }
 
     const res = await client.query(
-      `UPDATE users SET status = '0', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND tenant_id = $2 RETURNING id`,
+      `UPDATE users SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') WHERE id = $1 AND tenant_id = $2 RETURNING id`,
       [userId, callingTenantId]
     );
     if (res.rowCount > 0) {
@@ -1017,6 +1014,7 @@ export async function createRate(
   const { name, price, hours, excess_hour_price, description } = validatedFields.data;
   const client = await pool.connect();
   try {
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO hotel_rates (tenant_id, branch_id, name, price, hours, excess_hour_price, description, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, '1')
@@ -1064,7 +1062,7 @@ export async function updateRate(
   try {
     const res = await client.query(
       `UPDATE hotel_rates
-       SET name = $1, price = $2, hours = $3, excess_hour_price = $4, description = $5, status = $6, updated_at = CURRENT_TIMESTAMP
+       SET name = $1, price = $2, hours = $3, excess_hour_price = $4, description = $5, status = $6, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $7 AND tenant_id = $8 AND branch_id = $9
        RETURNING id, tenant_id, branch_id, name, price, hours, excess_hour_price, description, status, created_at, updated_at`,
       [name, price, hours, excess_hour_price, description, status, rateId, tenantId, branchId]
@@ -1099,7 +1097,7 @@ export async function archiveRate(rateId: number, tenantId: number, branchId: nu
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `UPDATE hotel_rates SET status = '0', updated_at = CURRENT_TIMESTAMP
+      `UPDATE hotel_rates SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING id`,
       [rateId, tenantId, branchId]
     );
@@ -1145,7 +1143,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     const query = `
       SELECT
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
-        hr.hotel_rate_id, hr.transaction_id, -- Fetch the new transaction_id column
+        hr.hotel_rate_id, hr.transaction_id, 
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
         t_active.client_name AS active_transaction_client_name,
@@ -1171,11 +1169,21 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
+          // Ensure we handle both stringified JSON and actual JSONB from DB if type changes
+          const rawRateIdData = row.hotel_rate_id;
+          if (typeof rawRateIdData === 'string') {
+            parsedRateIds = JSON.parse(rawRateIdData);
+          } else if (typeof rawRateIdData === 'object' && rawRateIdData !== null) {
+            // If it's already an array or an object from JSONB (less likely if type is just JSON)
+            parsedRateIds = Array.isArray(rawRateIdData) ? rawRateIdData : [];
+          } else {
+            parsedRateIds = [];
+          }
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
             parsedRateIds = [];
           }
         } catch (parseError) {
+          console.error(`Error parsing hotel_rate_id JSON for room ${row.id}:`, row.hotel_rate_id, parseError);
           parsedRateIds = [];
         }
       } else {
@@ -1190,9 +1198,11 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED || Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
-          room_transaction_id_db: row.transaction_id, // Log the direct FK
-          joined_transaction_client_name_db: row.active_transaction_client_name,
-          joined_transaction_check_in_time_db: row.active_transaction_check_in_time,
+          room_transaction_id_db: row.transaction_id,
+          active_transaction_id_db: row.active_transaction_id,
+          active_transaction_client_name_db: row.active_transaction_client_name,
+          active_transaction_check_in_time_db: row.active_transaction_check_in_time,
+          active_transaction_rate_name_db: row.active_transaction_rate_name,
           mapped_client_name: activeTransactionClientName,
           mapped_check_in_time: activeTransactionCheckInTime
         });
@@ -1204,7 +1214,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
-        transaction_id: activeTransactionIdFromRoom, // Use the direct FK from hotel_room
+        transaction_id: activeTransactionIdFromRoom,
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
@@ -1215,7 +1225,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         status: row.status,
         created_at: new Date(row.created_at).toISOString(),
         updated_at: new Date(row.updated_at).toISOString(),
-        active_transaction_id: activeTransactionIdFromRoom, // For consistency in how frontend might use it
+        active_transaction_id: activeTransactionIdFromRoom,
         active_transaction_client_name: activeTransactionClientName,
         active_transaction_check_in_time: activeTransactionCheckInTime,
         active_transaction_rate_name: activeTransactionRateName,
@@ -1238,13 +1248,13 @@ export async function createRoom(
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  // transaction_id is not set on creation, it's set when a room is booked/reserved
+
   const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
   const client = await pool.connect();
   try {
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
-
+    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL)
@@ -1300,7 +1310,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  // transaction_id is managed by booking/checkout actions, not directly in room edit form.
+
   const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status } = validatedFields.data;
 
   const client = await pool.connect();
@@ -1310,7 +1320,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
 
     const res = await client.query(
       `UPDATE hotel_room
-       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = CURRENT_TIMESTAMP
+       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $10 AND tenant_id = $11 AND branch_id = $12
        RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
       [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
@@ -1362,15 +1372,14 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
 export async function archiveRoom(roomId: number, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
-    // Before archiving, ensure no active transaction is linked. If so, it should be handled first.
-    // This logic might need to be more robust (e.g., prevent archiving if transaction_id is not null).
+
     const roomCheck = await client.query('SELECT transaction_id FROM hotel_room WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [roomId, tenantId, branchId]);
     if (roomCheck.rows.length > 0 && roomCheck.rows[0].transaction_id !== null) {
         return { success: false, message: "Cannot archive room with an active or pending transaction. Please resolve the transaction first."};
     }
 
     const res = await client.query(
-      `UPDATE hotel_room SET status = '0', updated_at = CURRENT_TIMESTAMP
+      `UPDATE hotel_room SET status = '0', updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 RETURNING id`,
       [roomId, tenantId, branchId]
     );
@@ -1385,3 +1394,5 @@ export async function archiveRoom(roomId: number, tenantId: number, branchId: nu
     client.release();
   }
 }
+
+    
