@@ -27,7 +27,7 @@ import {
   assignRoomAndCheckIn,
   cancelReservation
 } from '@/actions/staff';
-import { TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT, ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
+import { TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT } from '@/lib/constants';
 import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO } from 'date-fns';
 
 interface ReservationsContentProps {
@@ -36,22 +36,21 @@ interface ReservationsContentProps {
   staffUserId: number;
 }
 
-const getDefaultCheckInDateTimeString = () => {
+const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); 
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
 
-const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null) => {
+const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): string => {
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString); // Use parseISO for "yyyy-MM-ddTHH:mm"
+        const parsedCheckIn = parseISO(checkInDateString);
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
     } catch (e) {
-        // If parsing fails, fallback to current time for base
         console.warn("Failed to parse checkInDateString for default checkout, using current time as base.");
     }
   } else { 
@@ -119,7 +118,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   });
 
   useEffect(() => {
-    if (isAddReservationDialogOpen) { 
+    if (isAddReservationDialogOpen && addReservationForm.formState.isDirty) { // Only set defaults if checkbox is toggled or form is dirty
       if (watchIsAdvanceReservationAdd) {
         if (!addReservationForm.getValues('reserved_check_in_datetime')) {
           addReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
@@ -135,7 +134,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   }, [watchIsAdvanceReservationAdd, addReservationForm, isAddReservationDialogOpen]);
 
   useEffect(() => {
-    if (isEditReservationDialogOpen) { 
+    if (isEditReservationDialogOpen && editReservationForm.formState.isDirty) { // Only set defaults if checkbox is toggled or form is dirty
         if (watchIsAdvanceReservationEdit) {
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
                 editReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
@@ -182,7 +181,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId);
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
-        setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
+            const dateA = a.reserved_check_in_datetime ? new Date(a.reserved_check_in_datetime.replace(' ', 'T')) : new Date(a.created_at.replace(' ', 'T'));
+            const dateB = b.reserved_check_in_datetime ? new Date(b.reserved_check_in_datetime.replace(' ', 'T')) : new Date(b.created_at.replace(' ', 'T'));
+            return dateA.getTime() - dateB.getTime();
+        }));
         setIsAddReservationDialogOpen(false);
         addReservationForm.reset(defaultUnassignedReservationFormValues);
       } else {
@@ -202,7 +205,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     let checkInDateTime = null;
     if (reservation.reserved_check_in_datetime) {
         try {
-            checkInDateTime = format(parseISO(reservation.reserved_check_in_datetime), "yyyy-MM-dd'T'HH:mm");
+            checkInDateTime = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
         } catch (e) { console.warn("Error parsing reserved_check_in_datetime for edit form:", reservation.reserved_check_in_datetime); }
     } else if (isAdvance) {
         checkInDateTime = getDefaultCheckInDateTimeString();
@@ -211,7 +214,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     let checkOutDateTime = null;
     if (reservation.reserved_check_out_datetime) {
         try {
-            checkOutDateTime = format(parseISO(reservation.reserved_check_out_datetime), "yyyy-MM-dd'T'HH:mm");
+            checkOutDateTime = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
         } catch (e) { console.warn("Error parsing reserved_check_out_datetime for edit form:", reservation.reserved_check_out_datetime); }
     } else if (isAdvance) {
         checkOutDateTime = getDefaultCheckOutDateTimeString(checkInDateTime);
@@ -240,7 +243,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Reservation updated." });
             setUnassignedReservations(prev => 
-                prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => {
+                    const dateA = a.reserved_check_in_datetime ? new Date(a.reserved_check_in_datetime.replace(' ', 'T')) : new Date(a.created_at.replace(' ', 'T'));
+                    const dateB = b.reserved_check_in_datetime ? new Date(b.reserved_check_in_datetime.replace(' ', 'T')) : new Date(b.created_at.replace(' ', 'T'));
+                    return dateA.getTime() - dateB.getTime();
+                })
             );
             setIsEditReservationDialogOpen(false);
             setSelectedReservationForEdit(null);
@@ -266,7 +273,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     }
     setIsSubmitting(true);
     try {
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // roomId is null for unassigned
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); 
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
@@ -444,8 +451,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Reservation
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md p-3 flex flex-col max-h-[85vh]">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
+            <DialogHeader className="p-2 border-b">
               <DialogTitle>Create Unassigned Reservation</DialogTitle>
             </DialogHeader>
             <Form {...addReservationForm}>
@@ -453,7 +460,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                  <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                     {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd)}
                 </div>
-                <DialogFooter className="bg-card py-4 border-t px-3 sticky bottom-0 z-10">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Reservation"}
@@ -480,8 +487,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                   <TableCell>{TRANSACTION_STATUS_TEXT[res.status as keyof typeof TRANSACTION_STATUS_TEXT] || 'Unknown'}</TableCell>
                   <TableCell>
                     {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime 
-                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'MMM dd, yyyy HH:mm')}`
-                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm')}`: 'N/A')}
+                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aaaa')}`
+                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aaaa')}`: 'N/A')}
                   </TableCell>
                   <TableCell className="text-right space-x-1">
                      <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
@@ -490,11 +497,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                      <AlertDialog 
                         open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id} 
                         onOpenChange={(open) => {
-                            if (!open) {
+                            if (!open && transactionToCancel?.id === res.id) { // only act if this specific dialog is being closed
                                 setIsCancelReservationConfirmOpen(false);
                                 setTransactionToCancel(null);
-                            } else { // only set to true if triggered by button, not just any change
-                                if (transactionToCancel?.id === res.id) setIsCancelReservationConfirmOpen(true);
                             }
                         }}
                      >
@@ -536,8 +541,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }
         setIsEditReservationDialogOpen(open);
       }}>
-        <DialogContent className="sm:max-w-md p-3 flex flex-col max-h-[85vh]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
+          <DialogHeader className="p-2 border-b">
             <DialogTitle>Edit Unassigned Reservation</DialogTitle>
             <CardDescription>Client: {selectedReservationForEdit?.client_name}</CardDescription>
           </DialogHeader>
@@ -546,7 +551,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                  {renderReservationFormFields(editReservationForm, watchIsAdvanceReservationEdit)}
               </div>
-              <DialogFooter className="bg-card py-4 border-t px-3 sticky bottom-0 z-10">
+              <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
@@ -611,7 +616,3 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
-    
-
-    
-

@@ -12,6 +12,8 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
+import { format as formatDateTime } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 
 const StaffSettingsContent = () => (
   <div>
@@ -23,7 +25,7 @@ const StaffSettingsContent = () => (
 
 const StaffDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'settings'>('room-status');
-  const [dateTime, setDateTime] = useState({ date: '', time: '' });
+  const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [tenantId, setTenantId] = useState<number | null>(null);
@@ -35,8 +37,8 @@ const StaffDashboardPage: NextPage = () => {
   const [branchName, setBranchName] = useState<string | null>(null);
   const [userId, setUserId] = useState<number | null>(null);
 
-
   const router = useRouter();
+  const manilaTimeZone = 'Asia/Manila';
 
   useEffect(() => {
     console.log("[staff/page.tsx] useEffect running to retrieve localStorage data");
@@ -82,11 +84,12 @@ const StaffDashboardPage: NextPage = () => {
           console.log("[staff/page.tsx] Set userId from localStorage:", parsedUserId);
         } else {
           console.warn("[staff/page.tsx] Parsed userId from localStorage is not a positive number:", parsedUserId);
+          setUserId(null); // Ensure it's null if invalid
         }
       } else {
         console.warn("[staff/page.tsx] userId not found or invalid in localStorage:", storedUserId);
+        setUserId(null); // Ensure it's null
       }
-
 
       if (storedTenantName) {
         setTenantName(storedTenantName);
@@ -110,17 +113,8 @@ const StaffDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const now = new Date();
-      const optionsDate: Intl.DateTimeFormatOptions = {
-        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila'
-      };
-      const optionsTime: Intl.DateTimeFormatOptions = {
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila'
-      };
-      setDateTime({
-        date: now.toLocaleDateString('en-US', optionsDate),
-        time: now.toLocaleTimeString('en-US', optionsTime),
-      });
+      const nowInManila = utcToZonedTime(new Date(), manilaTimeZone);
+      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
     }, 1000);
     return () => clearInterval(intervalId);
   }, [router]);
@@ -208,7 +202,7 @@ const StaffDashboardPage: NextPage = () => {
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="text-sm font-bold text-foreground">
             {branchName && <span className="mr-2">{branchName} -</span>}
-            {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
+            {dateTimeDisplay}
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout

@@ -11,18 +11,21 @@ import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
+import { format as formatDateTime } from 'date-fns';
+import { utcToZonedTime } from 'date-fns-tz';
 
 const SysAdDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'tenants' | 'branches' | 'users' | 'settings'>('tenants');
-  const [dateTime, setDateTime] = useState({ date: '', time: '' });
+  const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
   
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [tenantName, setTenantName] = useState<string>("System Administrator"); // SysAd always sees this
+  const [tenantName, setTenantName] = useState<string>("System Administrator"); 
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
 
   const router = useRouter();
+  const manilaTimeZone = 'Asia/Manila';
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -33,7 +36,7 @@ const SysAdDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'sysad') { // Redirect if not sysad
+        if (storedRole !== 'sysad') { 
             router.push('/');
             return;
         }
@@ -47,17 +50,8 @@ const SysAdDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const now = new Date();
-      const optionsDate: Intl.DateTimeFormatOptions = {
-        year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Manila'
-      };
-      const optionsTime: Intl.DateTimeFormatOptions = {
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: 'Asia/Manila'
-      };
-      setDateTime({
-        date: now.toLocaleDateString('en-US', optionsDate),
-        time: now.toLocaleTimeString('en-US', optionsTime),
-      });
+      const nowInManila = utcToZonedTime(new Date(), manilaTimeZone);
+      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
     }, 1000);
     return () => clearInterval(intervalId);
   }, [router]);
@@ -70,6 +64,9 @@ const SysAdDashboardPage: NextPage = () => {
       localStorage.removeItem('username');
       localStorage.removeItem('userFirstName');
       localStorage.removeItem('userLastName');
+      localStorage.removeItem('userTenantBranchId');
+      localStorage.removeItem('userBranchName');
+      localStorage.removeItem('userId');
     }
     router.push('/');
   };
@@ -150,7 +147,7 @@ const SysAdDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="text-sm font-bold text-foreground">
-            {dateTime.date && dateTime.time ? `${dateTime.date} - ${dateTime.time}` : 'Loading date and time...'}
+            {dateTimeDisplay}
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout
