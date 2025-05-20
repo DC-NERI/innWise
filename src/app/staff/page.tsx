@@ -12,7 +12,7 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import NotificationsContent from '@/components/staff/notifications-content'; // Import new component
+import NotificationsContent from '@/components/staff/notifications-content';
 import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
@@ -118,11 +118,12 @@ const StaffDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const nowInManila = toZonedTime(new Date(), manilaTimeZone);
+      const now = new Date();
+      const nowInManila = toZonedTime(now, manilaTimeZone);
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aa'));
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [router]);
+  }, [router, manilaTimeZone]);
 
   const fetchReservationCount = useCallback(async () => {
     if (tenantId && branchId) {
@@ -140,8 +141,8 @@ const StaffDashboardPage: NextPage = () => {
 
 
   useEffect(() => {
-    fetchReservationCount();
-    const countInterval = setInterval(fetchReservationCount, 60000);
+    fetchReservationCount(); // Initial fetch
+    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every 60 seconds
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
@@ -278,6 +279,7 @@ const StaffDashboardPage: NextPage = () => {
               tenantId={tenantId}
               branchId={branchId}
               staffUserId={userId}
+              refreshReservationCount={fetchReservationCount}
             />
           )}
           {(activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications') && (!tenantId || !branchId || !userId) && (

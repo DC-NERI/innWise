@@ -40,23 +40,22 @@ interface NotificationsContentProps {
   tenantId: number;
   branchId: number;
   staffUserId: number;
+  refreshReservationCount?: () => void;
 }
 
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
-    // Ensure the string is ISO compliant (replace space with T if needed)
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     console.warn("Error formatting date string for input:", dateString, e);
-    return ""; // Return empty or handle error as appropriate
+    return "";
   }
 };
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  // Default to today at 2 PM for check-in
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
@@ -65,22 +64,20 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Ensure ISO format
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore parsing errors, use current date as base */ }
+    } catch (e) { /* ignore */ }
   } else {
-    // If no check-in date, default check-in to today 2 PM for checkout calculation base
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  // Default to next day at 12 PM for check-out
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
 
 
-export default function NotificationsContent({ tenantId, branchId, staffUserId }: NotificationsContentProps) {
+export default function NotificationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: NotificationsContentProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
@@ -89,14 +86,13 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
   const [transactionToManage, setTransactionToManage] = useState<Transaction | null>(null);
   const [ratesForAcceptModal, setRatesForAcceptModal] = useState<SimpleRate[]>([]);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [transactionToDecline, setTransactionToDecline] = useState<Transaction | null>(null); // For decline confirmation
+  const [transactionToDecline, setTransactionToDecline] = useState<Transaction | null>(null);
 
 
   const { toast } = useToast();
 
   const acceptManageForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
-    // Default values will be set when opening the modal
   });
   const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
 
@@ -117,10 +113,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     fetchNotifications();
   }, [fetchNotifications]);
 
-  // Effect to handle default date/time for reservation form
   useEffect(() => {
     if (isAcceptManageModalOpen && watchIsAdvanceReservationForm) {
-        // Only set defaults if fields are currently empty
         if (!acceptManageForm.getValues('reserved_check_in_datetime')) {
             acceptManageForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString());
         }
@@ -128,7 +122,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         if (!acceptManageForm.getValues('reserved_check_out_datetime')) {
              acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn));
         }
-    } else if (isAcceptManageModalOpen) { // If not advance, clear the fields
+    } else if (isAcceptManageModalOpen) { 
         acceptManageForm.setValue('reserved_check_in_datetime', null);
         acceptManageForm.setValue('reserved_check_out_datetime', null);
     }
@@ -139,22 +133,18 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     setSelectedNotification(notification);
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
-      // Optimistically update UI
       setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
-        .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())); // Re-sort after update
+        .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
 
       try {
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) { // Check if it's a soft fail (already read or other minor issue)
+        if (!result.success && result.notification === undefined) { 
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
-          // Revert optimistic update if server call truly fails to mark as read
            setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
-        // If result.success is true, optimistic update is fine.
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
-        // Revert optimistic update on error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -163,7 +153,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
-    setIsSubmittingAction(true); // Use this to disable the trigger button
+    setIsSubmittingAction(true);
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
@@ -188,8 +178,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false); // Close details modal first
-      setIsAcceptManageModalOpen(true); // Then open the accept/manage modal
+      setIsDetailsModalOpen(false);
+      setIsAcceptManageModalOpen(true);
     } catch (error) {
       toast({ title: "Error", description: "Failed to load reservation details or rates for management.", variant: "destructive" });
     } finally {
@@ -205,7 +195,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Refresh notifications to show updated status
+        fetchNotifications();
+        refreshReservationCount?.();
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -218,7 +209,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenDeclineConfirmation = (transaction: Transaction | null) => {
     if (transaction) {
-        setTransactionToDecline(transaction); // This will open the AlertDialog since its `open` prop is bound to `!!transactionToDecline`
+        setTransactionToDecline(transaction);
     }
   };
 
@@ -229,9 +220,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close the manage modal if it was open
-        setIsDetailsModalOpen(false); // Also close details modal if open
-        fetchNotifications(); // Refresh notifications
+        setIsAcceptManageModalOpen(false);
+        setIsDetailsModalOpen(false);
+        fetchNotifications();
+        refreshReservationCount?.();
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -239,7 +231,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       toast({ title: "Error", description: "Could not decline reservation due to an unexpected error.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
-      setTransactionToDecline(null); // Close the AlertDialog by resetting the state
+      setTransactionToDecline(null);
     }
   };
 
@@ -331,7 +323,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         )}
       </CardContent>
 
-      {/* Notification Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -371,7 +362,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         </DialogContent>
       </Dialog>
 
-      {/* Accept/Manage Reservation Modal */}
       <Dialog open={isAcceptManageModalOpen} onOpenChange={(open) => {
           if (!open) { setTransactionToManage(null); setRatesForAcceptModal([]); acceptManageForm.reset(); }
           setIsAcceptManageModalOpen(open);
@@ -385,7 +375,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <Form {...acceptManageForm}>
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                  {/* Form Fields for Reservation Management */}
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
                     <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
