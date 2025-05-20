@@ -2,7 +2,7 @@
 "use client";
 
 import type { NextPage } from 'next';
-import { useState, useEffect, useCallback } from 'react'; // Added useCallback
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,10 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import NotificationsContent from '@/components/staff/notifications-content';
+import NotificationsContent from '@/components/staff/notifications-content'; // Import new component
 import { listUnassignedReservations } from '@/actions/staff';
-import { format as formatDateTime } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
+
 
 const StaffSettingsContent = () => (
   <div>
@@ -134,14 +134,14 @@ const StaffDashboardPage: NextPage = () => {
         setUnassignedReservationsCount(0);
       }
     } else {
-      setUnassignedReservationsCount(0); // Reset if no tenant/branch
+      setUnassignedReservationsCount(0);
     }
   }, [tenantId, branchId]);
 
 
   useEffect(() => {
-    fetchReservationCount(); // Initial fetch
-    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
+    fetchReservationCount();
+    const countInterval = setInterval(fetchReservationCount, 60000);
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
@@ -270,24 +270,30 @@ const StaffDashboardPage: NextPage = () => {
               tenantId={tenantId}
               branchId={branchId}
               staffUserId={userId}
-              refreshReservationCount={fetchReservationCount} // Pass the callback here
+              refreshReservationCount={fetchReservationCount}
             />
           )}
-           {activeView === 'notifications' && (
-            <NotificationsContent />
+           {activeView === 'notifications' && tenantId && branchId && userId && (
+            <NotificationsContent
+              tenantId={tenantId}
+              branchId={branchId}
+              staffUserId={userId}
+            />
           )}
-          {(activeView === 'room-status' || activeView === 'reservations') && (!tenantId || !branchId) && (
+          {(activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications') && (!tenantId || !branchId || !userId) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
                   <Building className="h-6 w-6 text-primary" />
-                  <CardTitle>{activeView === 'room-status' ? 'Room Status' : 'Reservations'}</CardTitle>
+                  <CardTitle>
+                    {activeView === 'room-status' ? 'Room Status' : activeView === 'reservations' ? 'Reservations' : 'Notifications'}
+                  </CardTitle>
                 </div>
-                 <CardDescription>Manage room availability or reservations.</CardDescription>
+                 <CardDescription>Manage room availability, reservations, or notifications.</CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">
-                  Branch information not available. Please ensure you are assigned to a branch.
+                  Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
                 </p>
               </CardContent>
             </Card>
@@ -300,3 +306,4 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
