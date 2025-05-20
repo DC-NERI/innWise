@@ -13,7 +13,7 @@ import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime, parseISO } from 'date-fns';
+import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
@@ -80,7 +80,7 @@ const AdminDashboardPage: NextPage = () => {
 
     const intervalId = setInterval(() => {
       const nowInManila = toZonedTime(new Date(), manilaTimeZone);
-      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
+      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aa'));
     }, 1000);
     return () => clearInterval(intervalId);
   }, [router]); 
@@ -213,5 +213,3 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-
-    

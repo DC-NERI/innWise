@@ -46,7 +46,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString); // Handles "yyyy-MM-ddTHH:mm"
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); 
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         } else {
@@ -136,20 +136,20 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   }, [watchIsAdvanceReservationAdd, addReservationForm, isAddReservationDialogOpen]);
 
   useEffect(() => {
-    if (isEditReservationDialogOpen) {
+    if (isEditReservationDialogOpen && selectedReservationForEdit) {
         if (watchIsAdvanceReservationEdit) {
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
-                editReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
+                 editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
             }
             if (!editReservationForm.getValues('reserved_check_out_datetime')) {
-                editReservationForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(editReservationForm.getValues('reserved_check_in_datetime')), { shouldValidate: true, shouldDirty: true });
+                editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(editReservationForm.getValues('reserved_check_in_datetime')), { shouldValidate: true, shouldDirty: true });
             }
         } else {
             editReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
             editReservationForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
         }
     }
-  }, [watchIsAdvanceReservationEdit, editReservationForm, isEditReservationDialogOpen]);
+  }, [watchIsAdvanceReservationEdit, editReservationForm, isEditReservationDialogOpen, selectedReservationForEdit]);
 
 
   const fetchInitialData = useCallback(async () => {
@@ -184,8 +184,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
-            const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(a.created_at.replace(' ', 'T'));
-            const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(b.created_at.replace(' ', 'T'));
+            const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : (a.created_at ? parseISO(a.created_at.replace(' ', 'T')) : new Date(0));
+            const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : (b.created_at ? parseISO(b.created_at.replace(' ', 'T')) : new Date(0));
             return dateA.getTime() - dateB.getTime();
         }));
         setIsAddReservationDialogOpen(false);
@@ -246,9 +246,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             toast({ title: "Success", description: "Reservation updated." });
             setUnassignedReservations(prev => 
                 prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => {
-                    const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(a.created_at.replace(' ', 'T'));
-                    const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(b.created_at.replace(' ', 'T'));
-                    return dateA.getTime() - dateB.getTime();
+                   const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : (a.created_at ? parseISO(a.created_at.replace(' ', 'T')) : new Date(0));
+                   const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : (b.created_at ? parseISO(b.created_at.replace(' ', 'T')) : new Date(0));
+                   return dateA.getTime() - dateB.getTime();
                 })
             );
             setIsEditReservationDialogOpen(false);
@@ -331,6 +331,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
+        // Potentially trigger a refresh of room status content if it's visible or via a shared state/event
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -347,7 +348,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   ) => {
     const formValues = formInstance.getValues(); 
     return (
-      <>
+      <div className="p-1 space-y-3">
         <FormField control={formInstance.control} name="client_name" render={({ field }) => (
           <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
@@ -417,7 +418,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                     className="w-[90%]"
                     {...field} 
                     value={field.value || ""} 
-                    min={formValues.reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
+                    min={formValues.reserved_check_in_datetime ? format(parseISO(formValues.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
                 <FormMessage />
@@ -425,7 +426,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             )} />
           </>
         )}
-      </>
+      </div>
     );
   }
 
@@ -459,7 +460,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             </DialogHeader>
             <Form {...addReservationForm}>
               <form onSubmit={addReservationForm.handleSubmit(handleAddReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                 <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+                 <div className="flex-grow overflow-y-auto">
                     {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd)}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -489,8 +490,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                   <TableCell>{TRANSACTION_STATUS_TEXT[res.status as keyof typeof TRANSACTION_STATUS_TEXT] || 'Unknown'}</TableCell>
                   <TableCell>
                     {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime 
-                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aaaa')}`
-                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aaaa')}`: 'N/A')}
+                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`
+                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm:ss aa')}`: 'N/A')}
                   </TableCell>
                   <TableCell className="text-right space-x-1">
                      <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
@@ -540,6 +541,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       <Dialog open={isEditReservationDialogOpen} onOpenChange={(open) => {
         if (!open) {
             setSelectedReservationForEdit(null);
+            // editReservationForm.reset(); // Reset will be handled by useEffect based on selectedReservationForEdit
         }
         setIsEditReservationDialogOpen(open);
       }}>
@@ -550,7 +552,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
           </DialogHeader>
           <Form {...editReservationForm}>
             <form onSubmit={editReservationForm.handleSubmit(handleEditReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-               <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+               <div className="flex-grow overflow-y-auto">
                  {renderReservationFormFields(editReservationForm, watchIsAdvanceReservationEdit)}
               </div>
               <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -618,5 +620,3 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
-
-    

@@ -11,7 +11,7 @@ import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime, parseISO } from 'date-fns';
+import { format as formatDateTime } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const SysAdDashboardPage: NextPage = () => {
@@ -51,7 +51,7 @@ const SysAdDashboardPage: NextPage = () => {
 
     const intervalId = setInterval(() => {
       const nowInManila = toZonedTime(new Date(), manilaTimeZone);
-      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
+      setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aa'));
     }, 1000);
     return () => clearInterval(intervalId);
   }, [router]);
@@ -166,5 +166,3 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
-
-    
