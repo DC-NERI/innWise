@@ -13,8 +13,8 @@ import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime } from 'date-fns';
-import { utcToZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, parseISO } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'settings'>('branches');
@@ -79,7 +79,7 @@ const AdminDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const nowInManila = utcToZonedTime(new Date(), manilaTimeZone);
+      const nowInManila = toZonedTime(new Date(), manilaTimeZone);
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
     }, 1000);
     return () => clearInterval(intervalId);
@@ -128,9 +128,8 @@ const AdminDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('users')}
                 isActive={activeView === 'users'}
-                className="justify-start"
               >
-                <Users className="h-5 w-5" />
+                <Users />
                 Users
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -138,9 +137,8 @@ const AdminDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
-                className="justify-start"
               >
-                <Building className="h-5 w-5" />
+                <Building />
                 Branches
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -148,9 +146,8 @@ const AdminDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('rates')}
                 isActive={activeView === 'rates'}
-                className="justify-start"
               >
-                <Tags className="h-5 w-5" />
+                <Tags />
                 Rates
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -158,9 +155,8 @@ const AdminDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('rooms')}
                 isActive={activeView === 'rooms'}
-                className="justify-start"
               >
-                <BedDouble className="h-5 w-5" />
+                <BedDouble />
                 Rooms
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -173,9 +169,8 @@ const AdminDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
-                  className="justify-start"
                 >
-                  <Settings className="h-5 w-5" />
+                  <Settings />
                    Settings
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -218,3 +213,5 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
+
+    

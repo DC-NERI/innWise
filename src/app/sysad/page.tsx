@@ -11,8 +11,8 @@ import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime } from 'date-fns';
-import { utcToZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, parseISO } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 
 const SysAdDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'tenants' | 'branches' | 'users' | 'settings'>('tenants');
@@ -50,7 +50,7 @@ const SysAdDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const nowInManila = utcToZonedTime(new Date(), manilaTimeZone);
+      const nowInManila = toZonedTime(new Date(), manilaTimeZone);
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
     }, 1000);
     return () => clearInterval(intervalId);
@@ -99,9 +99,8 @@ const SysAdDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('tenants')}
                 isActive={activeView === 'tenants'}
-                className="justify-start"
               >
-                <Building2 className="h-5 w-5" />
+                <Building2 />
                 Tenants
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -109,9 +108,8 @@ const SysAdDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
-                className="justify-start"
               >
-                <Network className="h-5 w-5" />
+                <Network />
                 Branches
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -119,9 +117,8 @@ const SysAdDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('users')}
                 isActive={activeView === 'users'}
-                className="justify-start"
               >
-                <Users className="h-5 w-5" />
+                <Users />
                 Users
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -134,9 +131,8 @@ const SysAdDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
-                  className="justify-start"
                 >
-                  <Settings className="h-5 w-5" />
+                  <Settings />
                    Settings
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -170,3 +166,5 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
+
+    

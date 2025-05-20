@@ -46,12 +46,14 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString);
+        const parsedCheckIn = parseISO(checkInDateString); // Handles "yyyy-MM-ddTHH:mm"
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
+        } else {
+            console.warn("Failed to parse checkInDateString for default checkout (A), using current time as base:", checkInDateString);
         }
     } catch (e) {
-        console.warn("Failed to parse checkInDateString for default checkout, using current time as base.");
+        console.warn("Failed to parse checkInDateString for default checkout (B), using current time as base:", checkInDateString, e);
     }
   } else { 
     baseDate = setHours(baseDate, 14); 
@@ -117,8 +119,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     defaultValues: defaultAssignRoomFormValues,
   });
 
-  useEffect(() => {
-    if (isAddReservationDialogOpen && addReservationForm.formState.isDirty) { // Only set defaults if checkbox is toggled or form is dirty
+ useEffect(() => {
+    if (isAddReservationDialogOpen) {
       if (watchIsAdvanceReservationAdd) {
         if (!addReservationForm.getValues('reserved_check_in_datetime')) {
           addReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
@@ -134,7 +136,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
   }, [watchIsAdvanceReservationAdd, addReservationForm, isAddReservationDialogOpen]);
 
   useEffect(() => {
-    if (isEditReservationDialogOpen && editReservationForm.formState.isDirty) { // Only set defaults if checkbox is toggled or form is dirty
+    if (isEditReservationDialogOpen) {
         if (watchIsAdvanceReservationEdit) {
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
                 editReservationForm.setValue('reserved_check_in_datetime', getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
@@ -182,8 +184,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
-            const dateA = a.reserved_check_in_datetime ? new Date(a.reserved_check_in_datetime.replace(' ', 'T')) : new Date(a.created_at.replace(' ', 'T'));
-            const dateB = b.reserved_check_in_datetime ? new Date(b.reserved_check_in_datetime.replace(' ', 'T')) : new Date(b.created_at.replace(' ', 'T'));
+            const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(a.created_at.replace(' ', 'T'));
+            const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(b.created_at.replace(' ', 'T'));
             return dateA.getTime() - dateB.getTime();
         }));
         setIsAddReservationDialogOpen(false);
@@ -244,8 +246,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             toast({ title: "Success", description: "Reservation updated." });
             setUnassignedReservations(prev => 
                 prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => {
-                    const dateA = a.reserved_check_in_datetime ? new Date(a.reserved_check_in_datetime.replace(' ', 'T')) : new Date(a.created_at.replace(' ', 'T'));
-                    const dateB = b.reserved_check_in_datetime ? new Date(b.reserved_check_in_datetime.replace(' ', 'T')) : new Date(b.created_at.replace(' ', 'T'));
+                    const dateA = a.reserved_check_in_datetime ? parseISO(a.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(a.created_at.replace(' ', 'T'));
+                    const dateB = b.reserved_check_in_datetime ? parseISO(b.reserved_check_in_datetime.replace(' ', 'T')) : parseISO(b.created_at.replace(' ', 'T'));
                     return dateA.getTime() - dateB.getTime();
                 })
             );
@@ -386,7 +388,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         <FormField control={formInstance.control} name="is_advance_reservation" render={({ field }) => (
           <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
             <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
-            <div className="space-y-1 leading-none"><FormLabel>Is this an Advance Future Reservation?</FormLabel></div>
+            <div className="space-y-1 leading-none"><FormLabel>Advance Future Reservation?</FormLabel></div>
           </FormItem>
         )} />
         {isAdvance && (
@@ -497,7 +499,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                      <AlertDialog 
                         open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id} 
                         onOpenChange={(open) => {
-                            if (!open && transactionToCancel?.id === res.id) { // only act if this specific dialog is being closed
+                            if (!open && transactionToCancel?.id === res.id) { 
                                 setIsCancelReservationConfirmOpen(false);
                                 setTransactionToCancel(null);
                             }
@@ -616,3 +618,5 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
+
+    

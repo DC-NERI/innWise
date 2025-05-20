@@ -12,8 +12,8 @@ import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
-import { format as formatDateTime } from 'date-fns';
-import { utcToZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, parseISO } from 'date-fns';
+import { toZonedTime } from 'date-fns-tz';
 
 const StaffSettingsContent = () => (
   <div>
@@ -113,7 +113,7 @@ const StaffDashboardPage: NextPage = () => {
     }
 
     const intervalId = setInterval(() => {
-      const nowInManila = utcToZonedTime(new Date(), manilaTimeZone);
+      const nowInManila = toZonedTime(new Date(), manilaTimeZone);
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aaaa'));
     }, 1000);
     return () => clearInterval(intervalId);
@@ -163,9 +163,8 @@ const StaffDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('room-status')}
                 isActive={activeView === 'room-status'}
-                className="justify-start"
               >
-                <BedDouble className="h-5 w-5" />
+                <BedDouble />
                 Room Status
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -173,9 +172,8 @@ const StaffDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('reservations')}
                 isActive={activeView === 'reservations'}
-                className="justify-start"
               >
-                <CalendarPlus className="h-5 w-5" />
+                <CalendarPlus />
                 Reservations
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -188,9 +186,8 @@ const StaffDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
-                  className="justify-start"
                 >
-                  <Settings className="h-5 w-5" />
+                  <Settings />
                    Settings
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -239,3 +236,5 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
+    
