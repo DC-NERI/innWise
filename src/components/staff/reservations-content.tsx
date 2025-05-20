@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog'; // Added DialogTrigger
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -76,7 +76,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       ]);
       setUnassignedReservations(reservations);
       setAllBranchRates(rates);
-      if (rates.length > 0) {
+      if (rates.length > 0 && addReservationForm.getValues('selected_rate_id') === undefined) {
         addReservationForm.setValue('selected_rate_id', rates[0].id);
       }
     } catch (error) {
@@ -92,7 +92,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
 
   const handleAddUnassignedReservationSubmit = async (data: TransactionCreateData) => {
     if (!tenantId || !branchId || !staffUserId || !data.selected_rate_id) {
-      toast({ title: "Error", description: "Missing required information.", variant: "destructive" });
+      toast({ title: "Error", description: "Missing required information (Tenant, Branch, Staff, or Rate).", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -120,11 +120,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     if (!tenantId || !branchId) return;
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); // For fetching available rooms
+    setIsLoading(true); 
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(rooms);
-      if (rooms.length > 0) {
+      if (rooms.length > 0 && assignRoomForm.getValues('selected_room_id') === undefined) {
          assignRoomForm.setValue('selected_room_id', rooms[0].id);
       }
     } catch (error) {
@@ -152,8 +152,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       );
       if (result.success) {
         toast({ title: "Success", description: `Reservation for ${selectedReservationForAssignment.client_name} checked in to room.` });
-        fetchInitialData(); // Refresh unassigned reservations list
-        // Optionally, if you have a shared state or event bus, notify RoomStatusContent to update its view
+        fetchInitialData(); 
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
       } else {
@@ -183,9 +182,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }}>
           <DialogTrigger asChild>
             <Button onClick={() => {
-                 if (allBranchRates.length > 0) {
+                 if (allBranchRates.length > 0 && addReservationForm.getValues('selected_rate_id') === undefined) {
                     addReservationForm.setValue('selected_rate_id', allBranchRates[0].id);
-                 } else {
+                 } else if (allBranchRates.length === 0) {
                     addReservationForm.setValue('selected_rate_id', undefined as unknown as number);
                  }
                 setIsAddReservationDialogOpen(true);
