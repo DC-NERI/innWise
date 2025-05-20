@@ -197,17 +197,24 @@ export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 // --- Transaction Schemas ---
 
 // Base Zod object for transaction fields.
-const transactionObjectFields = {
+export const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
-  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  selected_rate_id: z.coerce.number().int().positive("A rate must be selected.").optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
   is_advance_reservation: z.boolean().optional().default(false),
-  reserved_check_in_datetime: z.string().datetime({ message: "Invalid datetime string. Must be UTC or parseable by new Date()." }).optional().nullable(),
-  reserved_check_out_datetime: z.string().datetime({ message: "Invalid datetime string. Must be UTC or parseable by new Date()." }).optional().nullable(),
+  reserved_check_in_datetime: z.string()
+    .datetime({ message: "Invalid check-in datetime string." })
+    .optional()
+    .nullable()
+    .transform(val => val === "" ? null : val), // Transform empty string to null
+  reserved_check_out_datetime: z.string()
+    .datetime({ message: "Invalid check-out datetime string." })
+    .optional()
+    .nullable()
+    .transform(val => val === "" ? null : val), // Transform empty string to null
 };
 
-// Schema for creating transactions, with superRefine for conditional logic
 export const transactionCreateSchema = z.object(transactionObjectFields)
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
@@ -225,7 +232,43 @@ export const transactionCreateSchema = z.object(transactionObjectFields)
           path: ["reserved_check_out_datetime"],
         });
       }
-      // Optional: Validate that check_out is after check_in
+      if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
+        if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Reserved check-out date/time must be after check-in date/time.",
+            path: ["reserved_check_out_datetime"],
+          });
+        }
+      }
+    } else {
+        // If not an advance reservation, rate ID might be required depending on your booking flow
+        // For staff "Book Room" flow, it is required. For general "Add Reservation", it's optional.
+        // This schema is used by "Add New Reservation" where it can be optional.
+        // For "Book Room" direct check-in, the selected_rate_id IS required from the form.
+        // The form validation on "Book Room" dialog should implicitly ensure rateId is passed.
+    }
+  });
+export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
+
+
+export const transactionUnassignedUpdateSchema = z.object(transactionObjectFields)
+ .superRefine((data, ctx) => {
+    if (data.is_advance_reservation) {
+      if (!data.reserved_check_in_datetime) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Reserved check-in date and time are required for advance reservations.",
+          path: ["reserved_check_in_datetime"],
+        });
+      }
+      if (!data.reserved_check_out_datetime) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Reserved check-out date and time are required for advance reservations.",
+          path: ["reserved_check_out_datetime"],
+        });
+      }
       if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
         if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
           ctx.addIssue({
@@ -237,41 +280,6 @@ export const transactionCreateSchema = z.object(transactionObjectFields)
       }
     }
   });
-export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
-
-// Schema for updating unassigned reservations.
-// This schema now uses the base Zod object directly.
-// If it needs its own .superRefine() or specific .extend() for update-only fields,
-// they can be added here. For now, it shares the same fields as creation.
-export const transactionUnassignedUpdateSchema = z.object(transactionObjectFields)
-    .superRefine((data, ctx) => { // Adding the same refinement logic here for consistency if needed during updates
-        if (data.is_advance_reservation) {
-          if (!data.reserved_check_in_datetime) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Reserved check-in date and time are required for advance reservations.",
-              path: ["reserved_check_in_datetime"],
-            });
-          }
-          if (!data.reserved_check_out_datetime) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Reserved check-out date and time are required for advance reservations.",
-              path: ["reserved_check_out_datetime"],
-            });
-          }
-          if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
-            if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
-              ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "Reserved check-out date/time must be after check-in date/time.",
-                path: ["reserved_check_out_datetime"],
-              });
-            }
-          }
-        }
-    }); // If no further modifications for update, it can be just z.object(transactionObjectFields)
-
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
 
@@ -280,15 +288,19 @@ export const transactionUpdateNotesSchema = z.object({
 });
 export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
 
+// For editing details of a "Reserved" transaction by staff.
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  client_payment_method: z.string().min(1, "Payment method is required").max(50),
+  client_payment_method: z.string().min(1, "Payment method is required").max(50), // Made required for this specific update form
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
+
 
 // Schema for assigning room to unassigned reservation
 export const assignRoomAndCheckInSchema = z.object({
   selected_room_id: z.coerce.number().int().positive("A valid room must be selected."),
 });
 export type AssignRoomAndCheckInData = z.infer<typeof assignRoomAndCheckInSchema>;
+
+    

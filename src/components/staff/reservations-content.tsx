@@ -25,7 +25,7 @@ import {
   listAvailableRoomsForBranch,
   assignRoomAndCheckIn
 } from '@/actions/staff';
-import { TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT } from '@/lib/constants'; // Added TRANSACTION_STATUS and TRANSACTION_STATUS_TEXT
+import { TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT } from '@/lib/constants';
 import { format } from 'date-fns';
 
 interface ReservationsContentProps {
@@ -45,7 +45,7 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 };
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, // Explicitly type as number, knowing it will be set
+  selected_room_id: undefined as unknown as number,
 };
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId }: ReservationsContentProps) {
@@ -73,7 +73,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
 
   const editReservationForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
-    // Default values are set when the dialog opens for editing
   });
   const watchIsAdvanceReservationEdit = editReservationForm.watch("is_advance_reservation");
 
@@ -114,7 +113,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId);
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
-        setUnassignedReservations(prev => [result.transaction!, ...prev]);
+        setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         setIsAddReservationDialogOpen(false);
         addReservationForm.reset(defaultUnassignedReservationFormValues);
       } else {
@@ -156,7 +155,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Reservation updated." });
             setUnassignedReservations(prev => 
-                prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r)
+                prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             );
             setIsEditReservationDialogOpen(false);
             setSelectedReservationForEdit(null);
@@ -180,7 +179,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(rooms);
       if (rooms.length > 0) {
-         assignRoomForm.setValue('selected_room_id', rooms[0].id);
+         // assignRoomForm.setValue('selected_room_id', rooms[0].id); // Don't auto-select, let user choose
+      } else {
+        toast({ title: "No Rooms Available", description: "There are no currently available rooms in this branch to assign.", variant: "default"});
       }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch available rooms.", variant: "destructive" });
@@ -207,7 +208,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
       );
       if (result.success) {
         toast({ title: "Success", description: `Reservation for ${selectedReservationForAssignment.client_name} checked in to room.` });
-        fetchInitialData(); 
+        // Refresh unassigned list
+        setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
+        // Optionally, you might want to trigger a refresh of the RoomStatusContent if they are separate and not sharing state
+        // For now, just removing from this list.
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
       } else {
@@ -220,22 +224,27 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     }
   };
 
-  const renderReservationFormFields = (formInstance: typeof addReservationForm | typeof editReservationForm, isAdvance: boolean | undefined) => {
+  const renderReservationFormFields = (formInstance: typeof addReservationForm | typeof editReservationForm, isAdvance: boolean | undefined, currentFormValues: any) => {
     const now = new Date();
-    const defaultCheckIn = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0); // Today 2 PM
-    const defaultCheckOut = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 12, 0, 0); // Next day 12 PM
+    // Default check-in: today 2 PM
+    const defaultCheckInDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 0, 0);
+    // Default check-out: next day 12 PM
+    const defaultCheckOutDate = new Date(defaultCheckInDate);
+    defaultCheckOutDate.setDate(defaultCheckInDate.getDate() + 1);
+    defaultCheckOutDate.setHours(12,0,0,0);
+
 
     return (
       <>
         <FormField control={formInstance.control} name="client_name" render={({ field }) => (
-          <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} /></FormControl><FormMessage /></FormItem>
+          <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
             <FormLabel>Select Rate</FormLabel>
             <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={allBranchRates.length === 0}>
               <FormControl>
-                <SelectTrigger>
+                <SelectTrigger className="w-[90%]">
                   <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available" : "Select a rate (Optional)"} />
                 </SelectTrigger>
               </FormControl>
@@ -253,7 +262,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         <FormField control={formInstance.control} name="client_payment_method" render={({ field }) => (
           <FormItem><FormLabel>Payment Method</FormLabel>
             <Select onValueChange={field.onChange} value={field.value ?? undefined}>
-              <FormControl><SelectTrigger><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
+              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
               <SelectContent>
                 <SelectItem value="Cash">Cash</SelectItem><SelectItem value="Card">Card</SelectItem>
                 <SelectItem value="Online Payment">Online Payment</SelectItem><SelectItem value="Other">Other</SelectItem>
@@ -262,10 +271,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
           </FormItem>
         )} />
         <FormField control={formInstance.control} name="notes" render={({ field }) => (
-          <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} /></FormControl><FormMessage /></FormItem>
+          <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name="is_advance_reservation" render={({ field }) => (
-          <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm">
+          <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
             <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
             <div className="space-y-1 leading-none"><FormLabel>Is this an Advance Future Reservation?</FormLabel></div>
           </FormItem>
@@ -278,8 +287,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                 <FormControl>
                   <Input 
                     type="datetime-local" 
+                    className="w-[90%]"
                     {...field} 
-                    value={field.value || format(defaultCheckIn, "yyyy-MM-dd'T'HH:mm")}
+                    value={field.value || format(defaultCheckInDate, "yyyy-MM-dd'T'HH:mm")}
                     min={format(now, "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -292,9 +302,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                 <FormControl>
                   <Input 
                     type="datetime-local" 
+                    className="w-[90%]"
                     {...field} 
-                    value={field.value || format(defaultCheckOut, "yyyy-MM-dd'T'HH:mm")}
-                    min={formInstance.getValues("reserved_check_in_datetime") || format(now, "yyyy-MM-dd'T'HH:mm")}
+                    value={field.value || format(defaultCheckOutDate, "yyyy-MM-dd'T'HH:mm")}
+                    min={currentFormValues.reserved_check_in_datetime ? format(new Date(currentFormValues.reserved_check_in_datetime), "yyyy-MM-dd'T'HH:mm") : format(now, "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
                 <FormMessage />
@@ -322,28 +333,24 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }}>
           <DialogTrigger asChild>
             <Button onClick={() => {
-                 if (allBranchRates.length > 0) {
-                    addReservationForm.setValue('selected_rate_id', allBranchRates[0].id);
-                 } else {
-                    addReservationForm.setValue('selected_rate_id', undefined);
-                 }
                  addReservationForm.reset({
                     ...defaultUnassignedReservationFormValues,
-                    selected_rate_id: allBranchRates.length > 0 ? allBranchRates[0].id : undefined
                  });
                  setIsAddReservationDialogOpen(true);
             }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Reservation
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-md p-3 flex flex-col max-h-[85vh]">
             <DialogHeader>
               <DialogTitle>Create Unassigned Reservation</DialogTitle>
             </DialogHeader>
             <Form {...addReservationForm}>
-              <form onSubmit={addReservationForm.handleSubmit(handleAddReservationSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-                {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd)}
-                <DialogFooter className="pt-4 sticky bottom-0 bg-background pb-1">
+              <form onSubmit={addReservationForm.handleSubmit(handleAddReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                 <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+                    {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd, addReservationForm.getValues())}
+                </div>
+                <DialogFooter className="bg-card py-4 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Reservation"}
@@ -371,7 +378,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                   <TableCell>
                     {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime 
                       ? `For: ${format(new Date(res.reserved_check_in_datetime), 'MMM dd, yyyy HH:mm')}`
-                      : `Created: ${format(new Date(res.created_at), 'MMM dd, yyyy HH:mm')}`}
+                      : (res.created_at ? `Created: ${format(new Date(res.created_at), 'MMM dd, yyyy HH:mm')}`: 'N/A')}
                   </TableCell>
                   <TableCell className="text-right space-x-1">
                      <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
@@ -396,15 +403,17 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }
         setIsEditReservationDialogOpen(open);
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md p-3 flex flex-col max-h-[85vh]">
           <DialogHeader>
             <DialogTitle>Edit Unassigned Reservation</DialogTitle>
             <CardDescription>Client: {selectedReservationForEdit?.client_name}</CardDescription>
           </DialogHeader>
           <Form {...editReservationForm}>
-            <form onSubmit={editReservationForm.handleSubmit(handleEditReservationSubmit)} className="space-y-4 py-4 max-h-[70vh] overflow-y-auto pr-2">
-              {renderReservationFormFields(editReservationForm, watchIsAdvanceReservationEdit)}
-              <DialogFooter className="pt-4 sticky bottom-0 bg-background pb-1">
+            <form onSubmit={editReservationForm.handleSubmit(handleEditReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+               <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+                 {renderReservationFormFields(editReservationForm, watchIsAdvanceReservationEdit, editReservationForm.getValues())}
+              </div>
+              <DialogFooter className="bg-card py-4 border-t px-3 sticky bottom-0 z-10">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? <Loader2 className="animate-spin" /> : "Save Changes"}
@@ -424,7 +433,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         }
         setIsAssignRoomDialogOpen(open);
       }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md p-3">
           <DialogHeader>
             <DialogTitle>Assign Room & Check-in</DialogTitle>
             {selectedReservationForAssignment && (
@@ -435,13 +444,13 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
             )}
           </DialogHeader>
           <Form {...assignRoomForm}>
-            <form onSubmit={assignRoomForm.handleSubmit(handleAssignRoomAndCheckInSubmit)} className="space-y-4 py-4">
+            <form onSubmit={assignRoomForm.handleSubmit(handleAssignRoomAndCheckInSubmit)} className="space-y-4 py-2">
               <FormField control={assignRoomForm.control} name="selected_room_id" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Select Available Room *</FormLabel>
                   <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={isLoading || availableRooms.length === 0}>
                     <FormControl>
-                      <SelectTrigger>
+                      <SelectTrigger className="w-[90%]">
                         <SelectValue placeholder={isLoading ? "Loading rooms..." : availableRooms.length === 0 ? "No rooms available" : "Select a room"} />
                       </SelectTrigger>
                     </FormControl>
@@ -469,3 +478,5 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     </Card>
   );
 }
+
+    
