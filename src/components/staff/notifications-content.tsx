@@ -18,9 +18,9 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom // Re-use to get transaction details
+  getActiveTransactionForRoom
 } from '@/actions/staff';
-import { getRatesForBranchSimple } from '@/actions/admin'; // To fetch rates for the accept modal
+import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -29,11 +29,10 @@ import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMillise
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
-  NOTIFICATION_TRANSACTION_STATUS,
-  NOTIFICATION_TRANSACTION_STATUS_TEXT,
+  TRANSACTION_STATUS,
+  TRANSACTION_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS,
-  TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
-  TRANSACTION_STATUS
+  TRANSACTION_IS_ACCEPTED_STATUS_TEXT
 } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
@@ -43,13 +42,12 @@ interface NotificationsContentProps {
   staffUserId: number;
 }
 
-// Helper function to format date strings for datetime-local input
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
     return format(parseISO(dateString.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
-    return ""; // Or handle error appropriately
+    return "";
   }
 };
 
@@ -100,7 +98,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     setIsLoading(true);
     try {
       const fetchedNotifications = await listNotificationsForBranch(tenantId, branchId);
-      setNotifications(fetchedNotifications);
+      setNotifications(fetchedNotifications.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch notifications.", variant: "destructive" });
     } finally {
@@ -135,7 +133,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       try {
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
         if (result.success && result.notification) {
-          setNotifications(prev => prev.map(n => n.id === notification.id ? result.notification! : n));
+          setNotifications(prev => prev.map(n => n.id === notification.id ? result.notification! : n)
+            .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
@@ -145,7 +144,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id) return;
-    setIsSubmittingAction(true); // Use a general loading indicator for modal prep
+    setIsSubmittingAction(true);
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
@@ -165,7 +164,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         selected_rate_id: transaction.hotel_rate_id ?? undefined,
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
-        is_advance_reservation: transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION || transaction.status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime,
+        is_advance_reservation: transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
         reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
@@ -187,7 +186,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Refresh list
+        fetchNotifications(); 
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -211,8 +210,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Also close accept modal if open
-        fetchNotifications(); // Refresh list
+        setIsAcceptManageModalOpen(false); 
+        fetchNotifications(); 
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -220,7 +219,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       toast({ title: "Error", description: "Could not decline reservation.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
-      setTransactionToDecline(null); // Close confirmation dialog
+      setTransactionToDecline(null); 
     }
   };
 
@@ -254,7 +253,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                 <CardHeader className="pb-2">
                   <CardTitle className="text-md truncate">{notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}</CardTitle>
                   <CardDescription className="text-xs">
-                    From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm') : 'N/A'}
+                    From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm aa') : 'N/A'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="text-xs">
@@ -269,7 +268,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         )}
       </CardContent>
 
-      {/* Notification Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -292,7 +290,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           <DialogFooter className="sm:justify-between">
             {selectedNotification?.transaction_id &&
              selectedNotification?.linked_transaction_status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE &&
-             selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING && (
+             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING || selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT) && ( 
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
                 {isSubmittingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4" />}
                 Manage Reservation
@@ -303,7 +301,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         </DialogContent>
       </Dialog>
 
-      {/* Accept/Manage Reservation Modal */}
       <Dialog open={isAcceptManageModalOpen} onOpenChange={(open) => {
           if (!open) { setTransactionToManage(null); setRatesForAcceptModal([]); acceptManageForm.reset(); }
           setIsAcceptManageModalOpen(open);
@@ -317,7 +314,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <Form {...acceptManageForm}>
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                  {/* Form fields similar to ReservationsContent - rendered via helper or directly */}
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
                     <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
@@ -388,7 +384,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           )}
         </DialogContent>
       </Dialog>
-
     </Card>
   );
 }
