@@ -118,9 +118,9 @@ body {
 @layer utilities {
   @keyframes pulse-opacity-gentle {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.85; }
+    50% { opacity: 0.5; } /* Made more pronounced */
   }
   .animate-pulse-opacity-gentle {
-    animation: pulse-opacity-gentle 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: pulse-opacity-gentle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; /* Shortened duration */
   }
 }
