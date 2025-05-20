@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom // Ensure this can fetch status '5' transactions
+  getActiveTransactionForRoom
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -45,7 +45,6 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
-    // Ensure we replace space with 'T' for proper ISO parsing if DB format is "YYYY-MM-DD HH:MM:SS"
     return format(parseISO(dateString.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
     console.warn("Error formatting date string for input:", dateString, e);
@@ -63,7 +62,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); // Ensure space replacement
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); 
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
@@ -133,20 +132,19 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
       try {
-        // Optimistically update UI
         setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success) {
-          // Revert optimistic update on failure
-          toast({title: "Info", description: "Failed to mark notification as read on server.", variant:"default"})
+        if (!result.success && result.notification === undefined) { // Check if notification wasn't returned on failure
+          toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
           setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n) 
            .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+        } else if (!result.success && result.notification) { // If notification object is returned on failure (e.g. "not found")
+           // No need to revert if server confirmed it's already read or not found
         }
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
-        // Revert optimistic update on error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -155,11 +153,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id) return;
-    setIsSubmittingAction(true); // Use general purpose submitting flag or a new one like setIsModalLoading
+    setIsSubmittingAction(true); 
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId) // Branch ID for rates should be target_branch_id of notif
+        getRatesForBranchSimple(tenantId, branchId) 
       ]);
 
       if (!transaction) {
@@ -180,7 +178,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false); // Close details modal
+      setIsDetailsModalOpen(false); 
       setIsAcceptManageModalOpen(true);
     } catch (error) {
       toast({ title: "Error", description: "Failed to load reservation details or rates.", variant: "destructive" });
@@ -197,7 +195,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Refresh notifications list
+        fetchNotifications(); 
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -221,9 +219,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close accept modal if decline came from there
-        setIsDetailsModalOpen(false); // Also close details modal
-        fetchNotifications(); // Refresh notifications list
+        setIsAcceptManageModalOpen(false); 
+        setIsDetailsModalOpen(false); 
+        fetchNotifications(); 
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -263,7 +261,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   "hover:shadow-lg transition-shadow cursor-pointer",
                   notif.status === NOTIFICATION_STATUS.UNREAD && "border-primary border-2",
                   notif.transaction_id && {
-                    [cn("bg-yellow-100 dark:bg-yellow-800/30 border-yellow-300 dark:border-yellow-700 animate-pulse-opacity-gentle")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING,
+                    [cn("bg-red-100 dark:bg-red-800/30 border-red-300 dark:border-red-700 animate-pulse-opacity-gentle")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING,
                     [cn("bg-green-100 dark:bg-green-800/30 border-green-300 dark:border-green-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
                     [cn("bg-red-100 dark:bg-red-800/30 border-red-300 dark:border-red-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED,
                   }
@@ -296,7 +294,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           {selectedNotification && (
             <div className="py-4 space-y-2">
               <div>
-                <strong>Message:</strong>
+                <p className="font-semibold">Message:</p>
                 <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1">{selectedNotification.message}</pre>
               </div>
               <p><strong>From:</strong> {selectedNotification.creator_username || "System"}</p>
@@ -338,7 +336,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <Form {...acceptManageForm}>
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                  {/* Form Fields for editing reservation */}
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
                     <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
