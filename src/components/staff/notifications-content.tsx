@@ -4,14 +4,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescription } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle as ShadDialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog'; // Renamed DialogTitle to avoid conflict with CardTitle
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionAliased, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { MessageSquare, Loader2, RefreshCw, CalendarCheck, XCircle, Edit3 } from "lucide-react";
+import { MessageSquare, Loader2, RefreshCw, CalendarCheck, XCircle, Edit3, CheckCircle2, User, CalendarClock, Ban } from "lucide-react";
 import type { Notification, Transaction, SimpleRate } from '@/lib/types';
 import {
   listNotificationsForBranch,
@@ -283,7 +283,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-500 border-red-700"; // Solid red, no blink
+                  cardBgClass = "bg-red-500 border-red-700";
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
@@ -303,11 +303,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   onClick={() => handleCardClick(notif)}
                 >
                   <CardHeader className="pb-2">
-                    <ShadCardTitle className={cn("text-md truncate", cardTitleClass)} title={notif.message}>
+                    <CardTitle className={cn("text-md truncate", cardTitleClass)} title={notif.message}>
                         {notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}
-                    </ShadCardTitle>
+                    </CardTitle>
                     <ShadCardDescription className={cn("text-xs", cardDescriptionClass)}>
-                      From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm aa') : 'N/A'}
+                      From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}
                     </ShadCardDescription>
                   </CardHeader>
                   <CardContent className={cn("text-xs", cardContentTextClass)}>
@@ -326,7 +326,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Notification Details</DialogTitle>
+            <ShadDialogTitle>Notification Details</ShadDialogTitle>
           </DialogHeader>
           {selectedNotification && (
             <div className="py-4 space-y-2">
@@ -369,8 +369,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       }}>
         <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
           <DialogHeader className="p-2 border-b">
-            <DialogTitle>Manage Admin-Created Reservation</DialogTitle>
-            <ShadDialogDescription>Client: {transactionToManage?.client_name}</ShadDialogDescription>
+            <ShadDialogTitle>Manage Admin-Created Reservation</ShadDialogTitle>
+            <ShadDialogDescriptionAliased>Client: {transactionToManage?.client_name}</ShadDialogDescriptionAliased>
           </DialogHeader>
           {transactionToManage && (
             <Form {...acceptManageForm}>
@@ -422,8 +422,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                             </Button>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Confirm Decline</AlertDialogTitle>
-                                <ShadAlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescription>
+                            <AlertDialogHeader><ShadAlertDialogTitle>Confirm Decline</ShadAlertDialogTitle>
+                                <ShadAlertDialogDescriptionAliased>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescriptionAliased>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>No</AlertDialogCancel>
@@ -451,4 +451,3 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     </Card>
   );
 }
-
