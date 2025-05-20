@@ -18,7 +18,7 @@ import {
   markStaffNotificationAsRead,
   acceptReservationByStaff,
   declineReservationByStaff,
-  getActiveTransactionForRoom
+  getActiveTransactionForRoom // Ensure this is correctly named and imported if used for fetching transaction details.
 } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -154,13 +154,14 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
     setIsSubmittingAction(true);
     try {
+      // Assuming getActiveTransactionForRoom can also fetch transactions with status '5' (Pending Branch Acceptance)
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(branchId, tenantId) // Corrected to use branchId from props
+        getRatesForBranchSimple(tenantId, branchId)
       ]);
 
       if (!transaction) {
-        toast({ title: "Error", description: "Linked transaction not found or is inactive.", variant: "destructive" });
+        toast({ title: "Error", description: "Linked transaction not found or is not in a manageable state.", variant: "destructive" });
         setIsSubmittingAction(false);
         return;
       }
@@ -194,7 +195,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications();
+        fetchNotifications(); // Refresh notifications to show updated status
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -218,9 +219,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false);
-        setIsDetailsModalOpen(false);
-        fetchNotifications();
+        setIsAcceptManageModalOpen(false); // Close the manage modal if open
+        setIsDetailsModalOpen(false); // Close details modal if open
+        fetchNotifications(); // Refresh notifications
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -259,8 +260,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
               let cardDescriptionClass = "text-muted-foreground";
               let cardContentTextClass = "text-card-foreground";
               let cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-primary" : "text-muted-foreground";
-              let cardLinkedStatusTextClass = "font-semibold"; // Default for linked status
-              let cardAcceptanceTextClass = "font-semibold"; // Default for acceptance status
+              let cardLinkedStatusTextClass = "font-semibold";
+              let cardAcceptanceTextClass = "font-semibold";
 
               if (notif.transaction_id) {
                 if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
@@ -280,7 +281,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-500 border-red-700";
+                  cardBgClass = "bg-red-500 border-red-700"; // Solid red, no blink
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
@@ -289,7 +290,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   cardAcceptanceTextClass = "font-semibold text-white";
                 }
               }
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) {
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) { // For unread general notifications
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -415,7 +416,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                   <AlertDialog open={!!transactionToDecline} onOpenChange={(open) => { if (!open) setTransactionToDecline(null); }}>
                     <AlertDialogTrigger asChild>
                       <Button type="button" variant="destructive" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>
-                          <XCircle className="mr-2 h-4 w-4" /> Decline Reservation
+                          <XCircle className="mr-2 h-4 w-4" /> Decline
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
@@ -423,7 +424,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                             <ShadAlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                            <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>No</AlertDialogCancel>
                             <AlertDialogAction onClick={handleConfirmDeclineReservation} disabled={isSubmittingAction}>
                                 {isSubmittingAction ? <Loader2 className="animate-spin" /> : "Yes, Decline"}
                             </AlertDialogAction>
@@ -431,10 +432,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                     </AlertDialogContent>
                   </AlertDialog>
                   <div className="space-x-2">
-                    <DialogClose asChild><Button type="button" variant="outline">Cancel Update</Button></DialogClose>
+                    <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                     <Button type="button" onClick={acceptManageForm.handleSubmit(handleAcceptReservationSubmit)} disabled={isSubmittingAction}>
                       {isSubmittingAction ? <Loader2 className="animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4"/>}
-                      Accept Reservation
+                      Accept
                     </Button>
                   </div>
                 </DialogFooter>
