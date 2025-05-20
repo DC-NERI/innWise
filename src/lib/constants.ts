@@ -12,11 +12,11 @@ export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const TRANSACTION_STATUS = {
-  UNPAID: '0', // Guest has checked in, payment pending at checkout
-  PAID: '1',   // Transaction completed and paid
-  ADVANCE_PAID: '2', // Reservation made, potentially with advance payment (for immediate/soon assignment)
-  CANCELLED: '3', // Reservation or booking was cancelled
-  ADVANCE_RESERVATION: '4', // A future dated reservation with specific check-in/out times
+  UNPAID: '0',
+  PAID: '1',
+  ADVANCE_PAID: '2',
+  CANCELLED: '3',
+  ADVANCE_RESERVATION: '4',
 } as const;
 
 export const TRANSACTION_STATUS_TEXT: { [key: string]: string } = {
@@ -38,11 +38,25 @@ export const NOTIFICATION_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const NOTIFICATION_TRANSACTION_STATUS = {
-  PENDING_ACTION: 0,
-  RESERVATION_CREATED: 1,
+  PENDING_ACTION: 0, // Admin needs to act (e.g., create reservation)
+  RESERVATION_CREATED: 1, // Admin has created a reservation linked to this notification
 } as const;
 
 export const NOTIFICATION_TRANSACTION_STATUS_TEXT: { [key: number]: string } = {
   [NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION]: 'Pending Action',
   [NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED]: 'Reservation Created',
+};
+
+export const TRANSACTION_IS_ACCEPTED_STATUS = {
+    DEFAULT: 0,
+    NOT_ACCEPTED: 1,
+    ACCEPTED: 2,
+    PENDING: 3,
+} as const;
+
+export const TRANSACTION_IS_ACCEPTED_STATUS_TEXT: { [key: number]: string} = {
+    [TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT]: 'Default',
+    [TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED]: 'Not Accepted',
+    [TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED]: 'Accepted by Branch',
+    [TRANSACTION_IS_ACCEPTED_STATUS.PENDING]: 'Pending Branch Action',
 };

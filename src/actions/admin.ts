@@ -22,6 +22,7 @@ import {
 } from '@/lib/schemas';
 import type { z } from 'zod';
 import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS } from '@/lib/constants';
+import { createUnassignedReservation } from '@/actions/staff';
 
 
 const pool = new Pool({
@@ -266,7 +267,7 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
             const tenantDetails = await client.query('SELECT max_branch_count FROM tenants WHERE id = $1', [branchTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_branch_count = tenantDetails.rows[0].max_branch_count;
-                if (max_branch_count !== null && max_branch_count > 0) { 
+                if (max_branch_count !== null && max_branch_count > 0) {
                     const currentBranchCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM tenant_branch WHERE tenant_id = $1 AND status = '1'",
                         [branchTenantId]
@@ -470,7 +471,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
         }
         const max_user_count = tenantDetails.rows[0].max_user_count;
 
-        if (max_user_count !== null && max_user_count > 0) { 
+        if (max_user_count !== null && max_user_count > 0) {
             const currentUserCountRes = await client.query(
                 "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                 [tenant_id]
@@ -545,7 +546,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
             const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [targetTenantId]);
             if (tenantDetails.rows.length > 0) {
                 const max_user_count = tenantDetails.rows[0].max_user_count;
-                if (max_user_count !== null && max_user_count > 0) { 
+                if (max_user_count !== null && max_user_count > 0) {
                     const currentUserCountRes = await client.query(
                         "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                         [targetTenantId]
@@ -685,7 +686,7 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
     }
     const max_user_count = tenantDetails.rows[0].max_user_count;
 
-    if (max_user_count !== null && max_user_count > 0) { 
+    if (max_user_count !== null && max_user_count > 0) {
         const currentUserCountRes = await client.query(
             "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
             [callingTenantId]
@@ -761,11 +762,11 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
     }
     const currentUserStatus = userCheck.rows[0].current_status;
 
-    if (status === '1' && currentUserStatus === '0') { 
+    if (status === '1' && currentUserStatus === '0') {
         const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [callingTenantId]);
         if (tenantDetails.rows.length > 0) {
             const max_user_count = tenantDetails.rows[0].max_user_count;
-            if (max_user_count !== null && max_user_count > 0) { 
+            if (max_user_count !== null && max_user_count > 0) {
                 const currentUserCountRes = await client.query(
                     "SELECT COUNT(*) as count FROM users WHERE tenant_id = $1 AND status = '1'",
                     [callingTenantId]
@@ -1024,28 +1025,29 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     const query = `
       SELECT
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
-        hr.hotel_rate_id, 
+        hr.hotel_rate_id,
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
-        hr.transaction_id, 
+        hr.transaction_id,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
-        hrt_active.name AS active_transaction_rate_name 
+        hrt_active.name AS active_transaction_rate_name
       FROM hotel_room hr
       JOIN tenant_branch tb ON hr.branch_id = tb.id
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
-          AND t_active.tenant_id = hr.tenant_id 
+          AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-      LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id 
-          AND hrt_active.tenant_id = hr.tenant_id 
-          AND hrt_active.branch_id = hr.branch_id 
+          -- AND (t_active.status = '${TRANSACTION_STATUS.UNPAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_PAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_RESERVATION}')
+      LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
+          AND hrt_active.tenant_id = hr.tenant_id
+          AND hrt_active.branch_id = hr.branch_id
           AND hrt_active.status = '1'
       WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
     const res = await client.query(query, [branchId, tenantId]);
-    
+
     if (process.env.NODE_ENV === 'development') {
         console.log(`[listRoomsForBranch Server Log] Fetched ${res.rows.length} rooms for branch ${branchId}`);
     }
@@ -1054,7 +1056,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          parsedRateIds = Array.isArray(row.hotel_rate_id) ? row.hotel_rate_id : JSON.parse(row.hotel_rate_id);
+          // Attempt to parse if it's a string, otherwise assume it's already an array (from JSONB direct cast perhaps)
+          parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : row.hotel_rate_id;
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
             parsedRateIds = [];
           }
@@ -1065,7 +1068,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       } else {
         parsedRateIds = [];
       }
-      
+
       const roomIsAvailableStatus = Number(row.is_available);
       const transactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
 
@@ -1096,8 +1099,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         capacity: row.capacity,
         is_available: roomIsAvailableStatus,
         status: row.status,
-        created_at: row.created_at, 
-        updated_at: row.updated_at, 
+        created_at: row.created_at,
+        updated_at: row.updated_at,
         active_transaction_client_name: row.active_transaction_client_name || null,
         active_transaction_check_in_time: row.active_transaction_check_in_time || null,
         active_transaction_rate_name: row.active_transaction_rate_name || null,
@@ -1140,7 +1143,7 @@ export async function createRoom(
       let parsedRateIds: number[] | null = null;
       if (newRow.hotel_rate_id) {
          try {
-          parsedRateIds = Array.isArray(newRow.hotel_rate_id) ? newRow.hotel_rate_id : JSON.parse(newRow.hotel_rate_id);
+          parsedRateIds = typeof newRow.hotel_rate_id === 'string' ? JSON.parse(newRow.hotel_rate_id) : newRow.hotel_rate_id;
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1205,7 +1208,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
       let parsedRateIds: number[] | null = null;
       if (updatedRow.hotel_rate_id) {
          try {
-          parsedRateIds = Array.isArray(updatedRow.hotel_rate_id) ? updatedRow.hotel_rate_id : JSON.parse(updatedRow.hotel_rate_id);
+          parsedRateIds = typeof updatedRow.hotel_rate_id === 'string' ? JSON.parse(updatedRow.hotel_rate_id) : updatedRow.hotel_rate_id;
           if (!Array.isArray(parsedRateIds)) parsedRateIds = [];
         } catch { parsedRateIds = []; }
       } else {
@@ -1271,19 +1274,26 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `SELECT 
-        n.id, n.tenant_id, n.message, n.status, 
+      `SELECT
+        n.id, n.tenant_id, n.message, n.status,
         n.target_branch_id, tb.branch_name as target_branch_name,
         n.creator_user_id, u.username as creator_username,
-        n.transaction_id, n.created_at, n.read_at, n.transaction_status
+        n.transaction_id, t.is_accepted as transaction_is_accepted,
+        n.created_at, n.read_at, n.transaction_status
        FROM notification n
        LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
        LEFT JOIN users u ON n.creator_user_id = u.id
+       LEFT JOIN transactions t ON n.transaction_id = t.id
        WHERE n.tenant_id = $1
        ORDER BY n.created_at DESC`,
       [tenantId]
     );
-    return res.rows as Notification[];
+    return res.rows.map(row => ({
+        ...row,
+        status: Number(row.status),
+        transaction_status: Number(row.transaction_status),
+        transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
+    })) as Notification[];
   } catch (error) {
     console.error(`Failed to fetch notifications for tenant ${tenantId}:`, error);
     throw new Error(`Database error: Could not fetch notifications. ${error instanceof Error ? error.message : String(error)}`);
@@ -1296,25 +1306,36 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `UPDATE notification 
-       SET status = $1, read_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') 
+      `UPDATE notification
+       SET status = $1, read_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $2 AND tenant_id = $3
-       RETURNING *`,
+       RETURNING id`,
       [NOTIFICATION_STATUS.READ, notificationId, tenantId]
     );
     if (res.rows.length > 0) {
       const fullNotificationRes = await client.query(
-        `SELECT 
-          n.id, n.tenant_id, n.message, n.status, 
+        `SELECT
+          n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
+         LEFT JOIN transactions t ON n.transaction_id = t.id
          WHERE n.id = $1`, [res.rows[0].id]
       );
-      return { success: true, message: "Notification marked as read.", notification: fullNotificationRes.rows[0] as Notification };
+      return {
+        success: true,
+        message: "Notification marked as read.",
+        notification: {
+            ...fullNotificationRes.rows[0],
+            status: Number(fullNotificationRes.rows[0].status),
+            transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
+            transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+        } as Notification
+      };
     }
     return { success: false, message: "Notification not found or no change made." };
   } catch (error) {
@@ -1326,33 +1347,44 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
 }
 
 export async function updateNotificationTransactionStatus(
-  notificationId: number, 
-  newTransactionStatus: number, 
+  notificationId: number,
+  newTransactionStatus: number,
   linkedTransactionId: number | null,
   tenantId: number
 ): Promise<{ success: boolean; message?: string; notification?: Notification }> {
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `UPDATE notification 
+      `UPDATE notification
        SET transaction_status = $1, transaction_id = $2, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $3 AND tenant_id = $4
-       RETURNING *`,
+       RETURNING id`,
       [newTransactionStatus, linkedTransactionId, notificationId, tenantId]
     );
      if (res.rows.length > 0) {
       const fullNotificationRes = await client.query(
-        `SELECT 
-          n.id, n.tenant_id, n.message, n.status, 
+        `SELECT
+          n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
+         LEFT JOIN transactions t ON n.transaction_id = t.id
          WHERE n.id = $1`, [res.rows[0].id]
       );
-      return { success: true, message: "Notification transaction status updated.", notification: fullNotificationRes.rows[0] as Notification };
+      return {
+        success: true,
+        message: "Notification transaction status updated.",
+        notification: {
+            ...fullNotificationRes.rows[0],
+            status: Number(fullNotificationRes.rows[0].status),
+            transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
+            transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+        } as Notification
+       };
     }
     return { success: false, message: "Notification not found or no change made." };
   } catch (error) {
@@ -1367,49 +1399,85 @@ export async function createNotification(
   data: NotificationCreateData,
   tenantId: number,
   creatorUserId: number
-): Promise<{ success: boolean; message?: string; notification?: Notification }> {
+): Promise<{ success: boolean; message?: string; notification?: Notification, createdTransactionId?: number | null }> {
   const validatedFields = notificationCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  const { message, target_branch_id } = validatedFields.data;
+  const { message, target_branch_id, do_reservation, ...reservationFields } = validatedFields.data;
   const client = await pool.connect();
+  let createdReservationId: number | null = null;
+  let finalTransactionStatus = NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION;
+
   try {
+    await client.query('BEGIN');
+
+    if (do_reservation && target_branch_id) {
+        const reservationData: TransactionCreateData = {
+            client_name: reservationFields.reservation_client_name || `Reservation: ${message.substring(0,30)}...`,
+            selected_rate_id: reservationFields.reservation_selected_rate_id,
+            client_payment_method: reservationFields.reservation_client_payment_method,
+            notes: reservationFields.reservation_notes,
+            is_advance_reservation: reservationFields.reservation_is_advance,
+            reserved_check_in_datetime: reservationFields.reservation_check_in_datetime,
+            reserved_check_out_datetime: reservationFields.reservation_check_out_datetime,
+        };
+        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true);
+        if (reservationResult.success && reservationResult.transaction) {
+            createdReservationId = reservationResult.transaction.id;
+            finalTransactionStatus = NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED;
+        } else {
+            await client.query('ROLLBACK');
+            return { success: false, message: `Failed to create linked reservation: ${reservationResult.message || 'Unknown error'}` };
+        }
+    }
+
     const res = await client.query(
-      `INSERT INTO notification (tenant_id, message, status, target_branch_id, creator_user_id, transaction_status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
-       RETURNING *`,
+      `INSERT INTO notification (tenant_id, message, status, target_branch_id, creator_user_id, transaction_id, transaction_status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
+       RETURNING id`,
       [
         tenantId,
         message,
         NOTIFICATION_STATUS.UNREAD,
         target_branch_id,
         creatorUserId,
-        NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION,
+        createdReservationId,
+        finalTransactionStatus,
       ]
     );
     if (res.rows.length > 0) {
-      const newNotification = res.rows[0];
-      // Fetch related names for the returned object
+      const newNotificationId = res.rows[0].id;
       const fullNotificationRes = await client.query(
-        `SELECT 
-          n.id, n.tenant_id, n.message, n.status, 
+        `SELECT
+          n.id, n.tenant_id, n.message, n.status,
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
-          n.transaction_id, n.created_at, n.read_at, n.transaction_status
+          n.transaction_id, t.is_accepted as transaction_is_accepted,
+          n.created_at, n.read_at, n.transaction_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
          LEFT JOIN users u ON n.creator_user_id = u.id
-         WHERE n.id = $1`, [newNotification.id]
+         LEFT JOIN transactions t ON n.transaction_id = t.id
+         WHERE n.id = $1`, [newNotificationId]
       );
+      await client.query('COMMIT');
       return {
         success: true,
-        message: "Notification created successfully.",
-        notification: fullNotificationRes.rows[0] as Notification,
+        message: "Notification created successfully." + (createdReservationId ? " Linked reservation also created." : ""),
+        notification: {
+            ...fullNotificationRes.rows[0],
+            status: Number(fullNotificationRes.rows[0].status),
+            transaction_status: Number(fullNotificationRes.rows[0].transaction_status),
+            transaction_is_accepted: fullNotificationRes.rows[0].transaction_is_accepted !== null ? Number(fullNotificationRes.rows[0].transaction_is_accepted) : null,
+        } as Notification,
+        createdTransactionId: createdReservationId
       };
     }
+    await client.query('ROLLBACK');
     return { success: false, message: "Notification creation failed." };
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Failed to create notification:', error);
     return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
   } finally {

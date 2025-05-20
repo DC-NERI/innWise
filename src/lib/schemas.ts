@@ -7,7 +7,6 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
-// For Admin role updating branches of their tenant
 export const branchUpdateSchema = z.object({
   branch_name: z.string().min(1, "Branch name is required").max(255, "Branch name too long"),
   branch_code: z.string().min(1, "Branch code is required").max(50, "Branch code too long"),
@@ -63,14 +62,13 @@ export const userCreateSchema = z.object({
 });
 export type UserCreateData = z.infer<typeof userCreateSchema>;
 
-// Schema for Admin creating users (tenant_id implicit, role limited)
 export const userCreateSchemaAdmin = z.object({
   first_name: z.string().min(1, "First name is required").max(100),
   last_name: z.string().min(1, "Last name is required").max(100),
   username: z.string().min(1, "Username is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff"]).default("staff"), // Admin can only create admin or staff
+  role: z.enum(["admin", "staff"]).default("staff"),
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
@@ -115,13 +113,12 @@ export const userUpdateSchemaSysAd = z.object({
 });
 export type UserUpdateDataSysAd = z.infer<typeof userUpdateSchemaSysAd>;
 
-// Schema for Admin updating users (tenant_id implicit and non-editable, role limited)
 export const userUpdateSchemaAdmin = z.object({
   first_name: z.string().min(1, "First name is required").max(100),
   last_name: z.string().min(1, "Last name is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff"]).default("staff"), // Admin can only assign admin or staff
+  role: z.enum(["admin", "staff"]).default("staff"),
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
@@ -146,7 +143,6 @@ export const branchCreateSchema = z.object({
 });
 export type BranchCreateData = z.infer<typeof branchCreateSchema>;
 
-// For SysAd updating any branch
 export const branchUpdateSchemaSysAd = z.object({
   tenant_id: z.coerce.number().int().positive({ message: "Tenant ID is required" }),
   branch_name: z.string().min(1, "Branch name is required").max(255),
@@ -158,7 +154,6 @@ export const branchUpdateSchemaSysAd = z.object({
 export type BranchUpdateDataSysAd = z.infer<typeof branchUpdateSchemaSysAd>;
 
 
-// Hotel Rate Schemas
 export const hotelRateCreateSchema = z.object({
   name: z.string().min(1, "Rate name is required").max(100),
   price: z.coerce.number().positive("Price must be a positive number"),
@@ -173,7 +168,6 @@ export const hotelRateUpdateSchema = hotelRateCreateSchema.extend({
 });
 export type HotelRateUpdateData = z.infer<typeof hotelRateUpdateSchema>;
 
-// Hotel Room Schemas
 export const hotelRoomCreateSchema = z.object({
   hotel_rate_ids: z.array(z.coerce.number().int().positive())
                      .min(1, "At least one rate must be selected.")
@@ -189,14 +183,11 @@ export const hotelRoomCreateSchema = z.object({
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE), // Added from create
   status: z.enum(['0', '1']).default('1'),
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
-// --- Transaction Schemas ---
 
-// Base fields for transaction forms, used to build more specific schemas
 const transactionObjectFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected.").optional().nullable(),
@@ -206,22 +197,21 @@ const transactionObjectFields = {
   reserved_check_in_datetime: z.string()
     .optional()
     .nullable()
-    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null
+    .transform(val => (val === "" || val === undefined ? null : val))
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
-      message: "Invalid check-in datetime string.",
+      message: "Invalid reserved check-in datetime string.",
     }),
   reserved_check_out_datetime: z.string()
     .optional()
     .nullable()
-    .transform(val => (val === "" || val === undefined ? null : val)) // Ensure empty strings/undefined become null
+    .transform(val => (val === "" || val === undefined ? null : val))
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
-      message: "Invalid check-out datetime string.",
+      message: "Invalid reserved check-out datetime string.",
     }),
 };
 
-const transactionObjectSchema = z.object(transactionObjectFields);
+export const transactionObjectSchema = z.object(transactionObjectFields);
 
-// Schema for creating new transactions (used in booking and unassigned reservations)
 export const transactionCreateSchema = transactionObjectSchema
   .superRefine((data, ctx) => {
     if (data.is_advance_reservation) {
@@ -252,9 +242,8 @@ export const transactionCreateSchema = transactionObjectSchema
   });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
-// Schema for updating unassigned reservations
 export const transactionUnassignedUpdateSchema = transactionObjectSchema
- .superRefine((data, ctx) => {
+ .superRefine((data, ctx) => { // Using the base object schema for extend
     if (data.is_advance_reservation) {
       if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
@@ -289,7 +278,6 @@ export const transactionUpdateNotesSchema = z.object({
 });
 export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
 
-// For editing details of a "Reserved" transaction by staff (status '2').
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
   client_payment_method: z.string().min(1, "Payment method is required").max(50),
@@ -298,15 +286,56 @@ export const transactionReservedUpdateSchema = z.object({
 export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
 
 
-// Schema for assigning room to unassigned reservation
 export const assignRoomAndCheckInSchema = z.object({
   selected_room_id: z.coerce.number().int().positive("A valid room must be selected."),
 });
 export type AssignRoomAndCheckInData = z.infer<typeof assignRoomAndCheckInSchema>;
 
-// Notification Schemas
+
 export const notificationCreateSchema = z.object({
   message: z.string().min(1, "Message is required.").max(2000, "Message is too long."),
   target_branch_id: z.coerce.number().int().positive().optional().nullable(),
+  do_reservation: z.boolean().optional().default(false),
+  // Reservation specific fields (optional, but required if do_reservation is true)
+  reservation_client_name: z.string().max(255).optional().nullable(),
+  reservation_selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  reservation_client_payment_method: z.string().max(50).optional().nullable(),
+  reservation_notes: z.string().max(1000).optional().nullable(),
+  reservation_is_advance: z.boolean().optional().default(false),
+  reservation_check_in_datetime: z.string()
+    .optional()
+    .nullable()
+    .transform(val => (val === "" || val === undefined ? null : val))
+    .refine(val => val === null || !isNaN(new Date(val).getTime()), {
+      message: "Invalid reservation check-in datetime string.",
+    }),
+  reservation_check_out_datetime: z.string()
+    .optional()
+    .nullable()
+    .transform(val => (val === "" || val === undefined ? null : val))
+    .refine(val => val === null || !isNaN(new Date(val).getTime()), {
+      message: "Invalid reservation check-out datetime string.",
+    }),
+}).superRefine((data, ctx) => {
+  if (data.do_reservation) {
+    if (!data.reservation_client_name) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
+    }
+    // Rate ID is optional for unassigned reservations in general, but admin might require it here
+    // if (!data.reservation_selected_rate_id) {
+    //   ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Rate for reservation is required.", path: ["reservation_selected_rate_id"] });
+    // }
+    if (data.reservation_is_advance) {
+      if (!data.reservation_check_in_datetime) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-in date/time for advance reservation is required.", path: ["reservation_check_in_datetime"] });
+      }
+      if (!data.reservation_check_out_datetime) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-out date/time for advance reservation is required.", path: ["reservation_check_out_datetime"] });
+      }
+      if (data.reservation_check_in_datetime && data.reservation_check_out_datetime && new Date(data.reservation_check_out_datetime) <= new Date(data.reservation_check_in_datetime)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reservation check-out must be after check-in.", path: ["reservation_check_out_datetime"] });
+      }
+    }
+  }
 });
 export type NotificationCreateData = z.infer<typeof notificationCreateSchema>;

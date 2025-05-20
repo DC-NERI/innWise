@@ -2,23 +2,22 @@
 export type UserRole = "admin" | "sysad" | "staff";
 
 export interface User {
-  id: string | number; 
+  id: string | number;
   tenant_id?: number | null;
-  tenant_name?: string | null; 
+  tenant_name?: string | null;
   tenant_branch_id?: number | null;
-  branch_name?: string | null; 
+  branch_name?: string | null;
   first_name: string;
   last_name: string;
   username: string;
   email?: string | null;
   role: UserRole;
-  status: string; 
-  created_at: string; 
-  updated_at: string; 
-  last_log_in?: string | null; 
+  status: string;
+  created_at: string;
+  updated_at: string;
+  last_log_in?: string | null;
 }
 
-// For simpler user display (e.g., creator of notification)
 export interface SimpleUser {
   id: number;
   username: string;
@@ -35,23 +34,23 @@ export interface Tenant {
   tenant_contact_info?: string | null;
   max_branch_count?: number | null;
   max_user_count?: number | null;
-  created_at: string; 
-  updated_at: string; 
+  created_at: string;
+  updated_at: string;
   status: string;
 }
 
 export interface Branch {
   id: number;
   tenant_id: number;
-  tenant_name?: string; 
+  tenant_name?: string;
   branch_name: string;
   branch_code: string;
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
   status: string;
-  created_at: string; 
-  updated_at: string; 
+  created_at: string;
+  updated_at: string;
 }
 
 
@@ -64,24 +63,24 @@ export interface HotelRate {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; 
+  branch_name?: string;
   name: string;
   price: number;
   hours: number;
   excess_hour_price?: number | null;
   description?: string | null;
-  status: string; 
-  created_at: string; 
-  updated_at: string; 
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface HotelRoom {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; 
-  hotel_rate_id: number[] | null; 
-  rate_names?: string[]; 
+  branch_name?: string;
+  hotel_rate_id: number[] | null; // Changed to array
+  rate_names?: string[];
   room_name: string;
   room_code: string;
   floor?: number | null;
@@ -89,12 +88,14 @@ export interface HotelRoom {
   bed_type?: string | null;
   capacity?: number | null;
   is_available: number; // 0: Available, 1: Occupied, 2: Reserved
-  status: string; 
-  transaction_id?: number | null;
-  created_at: string; 
-  updated_at: string; 
+  status: string;
+  transaction_id?: number | null; // Foreign key to transactions table
+  created_at: string;
+  updated_at: string;
+
+  // These are for UI display and are populated by joins
   active_transaction_client_name?: string | null;
-  active_transaction_check_in_time?: string | null; 
+  active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
 }
 
@@ -110,24 +111,29 @@ export interface Transaction {
     id: number;
     tenant_id: number;
     branch_id: number;
-    hotel_room_id: number | null; 
-    hotel_rate_id: number | null; 
+    hotel_room_id: number | null;
+    hotel_rate_id: number | null;
     client_name: string;
-    client_payment_method: string | null; 
+    client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string; 
-    check_out_time?: string | null; 
+    check_in_time: string; // Stored as 'Asia/Manila' wall clock time
+    check_out_time?: string | null; // Stored as 'Asia/Manila' wall clock time
     hours_used?: number | null;
     total_amount?: number | null;
-    created_by_user_id: number; 
+    created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; 
-    created_at: string; 
-    updated_at: string; 
-    reserved_check_in_datetime?: string | null; 
-    reserved_check_out_datetime?: string | null; 
-    room_name?: string | null; 
-    rate_name?: string | null; 
+    status: string; // '0': Unpaid, '1': Paid, '2': Advance Paid, '3': Cancelled, '4': Advance Reservation
+    created_at: string;
+    updated_at: string;
+    reserved_check_in_datetime?: string | null; // Stored as 'Asia/Manila' wall clock time
+    reserved_check_out_datetime?: string | null; // Stored as 'Asia/Manila' wall clock time
+
+    is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending
+    is_admin_created?: number | null; // 0=default, 1=admin created
+
+    // For display purposes, joined from other tables
+    room_name?: string | null;
+    rate_name?: string | null;
     checked_out_by_username?: string;
 }
 
@@ -142,11 +148,12 @@ export interface Notification {
   message: string;
   status: number; // 0: unread, 1: read
   target_branch_id?: number | null;
-  target_branch_name?: string | null; // For display
+  target_branch_name?: string | null;
   creator_user_id?: number | null;
-  creator_username?: string | null; // For display
+  creator_username?: string | null;
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
   transaction_status: number; // 0: Pending Action, 1: Reservation Created
+  transaction_is_accepted?: number | null; // From joined transaction.is_accepted
 }
