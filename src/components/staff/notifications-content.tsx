@@ -186,7 +186,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); 
+        fetchNotifications();
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -210,8 +210,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); 
-        fetchNotifications(); 
+        setIsAcceptManageModalOpen(false);
+        fetchNotifications();
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -219,7 +219,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       toast({ title: "Error", description: "Could not decline reservation.", variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
-      setTransactionToDecline(null); 
+      setTransactionToDecline(null);
     }
   };
 
@@ -275,7 +275,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           </DialogHeader>
           {selectedNotification && (
             <div className="py-4 space-y-2">
-              <p><strong>Message:</strong> <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md">{selectedNotification.message}</pre></p>
+              <div>
+                <strong>Message:</strong>
+                <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1">{selectedNotification.message}</pre>
+              </div>
               <p><strong>From:</strong> {selectedNotification.creator_username || "System"}</p>
               <p><strong>Date:</strong> {selectedNotification.created_at ? format(parseISO(selectedNotification.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</p>
               <p><strong>Status:</strong> {NOTIFICATION_STATUS_TEXT[selectedNotification.status]}</p>
@@ -290,7 +293,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           <DialogFooter className="sm:justify-between">
             {selectedNotification?.transaction_id &&
              selectedNotification?.linked_transaction_status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE &&
-             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING || selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT) && ( 
+             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING || selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT) && (
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
                 {isSubmittingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4" />}
                 Manage Reservation
@@ -388,3 +391,4 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
   );
 }
 
+    
