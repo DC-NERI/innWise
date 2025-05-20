@@ -1,6 +1,10 @@
 
 "use server";
 
+import pg from 'pg';
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import type { UserRole } from "@/lib/types";

@@ -1,6 +1,10 @@
 
 "use server";
 
+import pg from 'pg';
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import type { Tenant, Branch, User, SimpleBranch, HotelRate, HotelRoom, SimpleRate } from '@/lib/types';
@@ -31,13 +35,8 @@ export async function listTenants(): Promise<Tenant[]> {
   const client = await pool.connect();
   try {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
-    return res.rows.map(row => ({
-        ...row,
-        max_branch_count: row.max_branch_count,
-        max_user_count: row.max_user_count,
-        created_at: new Date(row.created_at).toISOString(),
-        updated_at: new Date(row.updated_at).toISOString(),
-    })) as Tenant[];
+    // Timestamps are now strings
+    return res.rows as Tenant[];
   } catch (error) {
     console.error('Failed to fetch tenants:', error);
     throw new Error(`Database error: Could not fetch tenants. ${error instanceof Error ? error.message : String(error)}`);
@@ -54,7 +53,6 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
   const { tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -62,17 +60,10 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
       [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count]
     );
     if (res.rows.length > 0) {
-       const newRow = res.rows[0];
       return {
         success: true,
         message: "Tenant created successfully.",
-        tenant: {
-            ...newRow,
-            max_branch_count: newRow.max_branch_count,
-            max_user_count: newRow.max_user_count,
-            created_at: new Date(newRow.created_at).toISOString(),
-            updated_at: new Date(newRow.updated_at).toISOString(),
-        } as Tenant
+        tenant: res.rows[0] as Tenant
       };
     }
     return { success: false, message: "Tenant creation failed." };
@@ -106,8 +97,7 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
       [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, status, tenantId]
     );
     if (res.rows.length > 0) {
-      const updatedRow = res.rows[0];
-      return { success: true, message: "Tenant updated successfully.", tenant: { ...updatedRow, max_branch_count: updatedRow.max_branch_count, max_user_count: updatedRow.max_user_count, created_at: new Date(updatedRow.created_at).toISOString(), updated_at: new Date(updatedRow.updated_at).toISOString() } as Tenant };
+      return { success: true, message: "Tenant updated successfully.", tenant: res.rows[0] as Tenant };
     }
     return { success: false, message: "Tenant not found or no changes made." };
   } catch (error) {
@@ -152,14 +142,7 @@ export async function getTenantDetails(tenantId: number): Promise<Tenant | null>
   try {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants WHERE id = $1', [tenantId]);
     if (res.rows.length > 0) {
-      const row = res.rows[0];
-      return {
-        ...row,
-        max_branch_count: row.max_branch_count,
-        max_user_count: row.max_user_count,
-        created_at: new Date(row.created_at).toISOString(),
-        updated_at: new Date(row.updated_at).toISOString(),
-      } as Tenant;
+      return res.rows[0] as Tenant;
     }
     return null;
   } catch (error) {
@@ -182,12 +165,7 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
       'SELECT id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status FROM tenant_branch WHERE tenant_id = $1 ORDER BY branch_name ASC',
       [tenantId]
     );
-    return res.rows.map(row => ({
-        ...row,
-        status: row.status,
-        created_at: new Date(row.created_at).toISOString(),
-        updated_at: new Date(row.updated_at).toISOString(),
-    })) as Branch[];
+    return res.rows as Branch[];
   } catch (error) {
     console.error(`Failed to fetch branches for tenant ${tenantId}:`, error);
     throw new Error(`Database error: Could not fetch branches. ${error instanceof Error ? error.message : String(error)}`);
@@ -243,15 +221,10 @@ export async function updateBranchDetails(
     );
 
     if (res.rows.length > 0) {
-      const updatedRow = res.rows[0];
       return {
         success: true,
         message: "Branch updated successfully.",
-        updatedBranch: {
-            ...updatedRow,
-            created_at: new Date(updatedRow.created_at).toISOString(),
-            updated_at: new Date(updatedRow.updated_at).toISOString(),
-        } as Branch,
+        updatedBranch: res.rows[0] as Branch,
       };
     } else {
       return { success: false, message: "Branch not found or no changes made." };
@@ -323,9 +296,6 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
         branch: {
             ...updatedRow,
             tenant_name,
-            status: updatedRow.status,
-            created_at: new Date(updatedRow.created_at).toISOString(),
-            updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as Branch
       };
     }
@@ -400,7 +370,6 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
         return { success: false, message: `Tenant has reached the maximum active branch limit of ${max_branch_count}. To add a new active branch, please archive an existing one first or increase the tenant's limit.` };
       }
     }
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status)
        VALUES ($1, $2, $3, $4, $5, $6, '1')
@@ -417,9 +386,6 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
         branch: {
             ...newRow,
             tenant_name,
-            status: newRow.status,
-            created_at: new Date(newRow.created_at).toISOString(),
-            updated_at: new Date(newRow.updated_at).toISOString(),
         } as Branch
       };
     }
@@ -453,13 +419,7 @@ export async function listAllBranches(): Promise<Branch[]> {
       JOIN tenants t ON tb.tenant_id = t.id
       ORDER BY t.tenant_name ASC, tb.branch_name ASC
     `);
-    return res.rows.map(row => ({
-        ...row,
-        tenant_name: row.tenant_name,
-        status: row.status,
-        created_at: new Date(row.created_at).toISOString(),
-        updated_at: new Date(row.updated_at).toISOString(),
-    })) as Branch[];
+    return res.rows as Branch[];
   } catch (error) {
     console.error('Failed to fetch all branches:', error);
     throw new Error(`Database error: Could not fetch all branches. ${error instanceof Error ? error.message : String(error)}`);
@@ -482,22 +442,7 @@ export async function listAllUsers(): Promise<User[]> {
       LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id
       ORDER BY u.last_name ASC, u.first_name ASC
     `);
-    return res.rows.map(row => ({
-      id: row.id,
-      tenant_id: row.tenant_id,
-      tenant_name: row.tenant_name,
-      tenant_branch_id: row.tenant_branch_id,
-      branch_name: row.branch_name,
-      first_name: row.first_name,
-      last_name: row.last_name,
-      username: row.username,
-      email: row.email,
-      role: row.role as User['role'],
-      status: row.status,
-      created_at: new Date(row.created_at).toISOString(),
-      updated_at: new Date(row.updated_at).toISOString(),
-      last_log_in: row.last_log_in ? new Date(row.last_log_in).toISOString() : null,
-    })) as User[];
+    return res.rows as User[];
   } catch (error) {
     console.error('Failed to fetch all users:', error);
     throw new Error(`Database error: Could not fetch all users. ${error instanceof Error ? error.message : String(error)}`);
@@ -537,7 +482,6 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
 
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
@@ -555,21 +499,10 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
         success: true,
         message: "User created successfully.",
         user: {
-          id: newUser.id,
-          tenant_id: newUser.tenant_id,
+          ...newUser,
           tenant_name,
-          tenant_branch_id: newUser.tenant_branch_id,
           branch_name,
-          first_name: newUser.first_name,
-          last_name: newUser.last_name,
-          username: newUser.username,
-          email: newUser.email,
-          role: newUser.role as User['role'],
-          status: newUser.status,
-          created_at: new Date(newUser.created_at).toISOString(),
-          updated_at: new Date(newUser.updated_at).toISOString(),
-          last_log_in: newUser.last_log_in ? new Date(newUser.last_log_in).toISOString() : null,
-        }
+        } as User
       };
     }
     return { success: false, message: "User creation failed." };
@@ -659,21 +592,10 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
         success: true,
         message: "User updated successfully.",
         user: {
-          id: updatedUser.id,
-          tenant_id: updatedUser.tenant_id,
-          tenant_name,
-          tenant_branch_id: updatedUser.tenant_branch_id,
-          branch_name,
-          first_name: updatedUser.first_name,
-          last_name: updatedUser.last_name,
-          username: updatedUser.username,
-          email: updatedUser.email,
-          role: updatedUser.role as User['role'],
-          status: updatedUser.status,
-          created_at: new Date(updatedUser.created_at).toISOString(),
-          updated_at: new Date(updatedUser.updated_at).toISOString(),
-          last_log_in: updatedUser.last_log_in ? new Date(updatedUser.last_log_in).toISOString() : null,
-        }
+            ...updatedUser,
+            tenant_name,
+            branch_name,
+        } as User
       };
     }
     return { success: false, message: "User not found or no changes made." };
@@ -729,22 +651,7 @@ export async function getUsersForTenant(tenantId: number): Promise<User[]> {
        ORDER BY CASE u.role WHEN 'admin' THEN 1 WHEN 'staff' THEN 2 ELSE 3 END, u.last_name ASC, u.first_name ASC`,
       [tenantId]
     );
-    return res.rows.map(row => ({
-      id: row.id,
-      tenant_id: row.tenant_id,
-      tenant_name: row.tenant_name,
-      tenant_branch_id: row.tenant_branch_id,
-      branch_name: row.branch_name,
-      first_name: row.first_name,
-      last_name: row.last_name,
-      username: row.username,
-      email: row.email,
-      role: row.role as User['role'],
-      status: row.status,
-      created_at: new Date(row.created_at).toISOString(),
-      updated_at: new Date(row.updated_at).toISOString(),
-      last_log_in: row.last_log_in ? new Date(row.last_log_in).toISOString() : null,
-    })) as User[];
+    return res.rows as User[];
   } catch (error) {
     console.error(`Failed to fetch users for tenant ${tenantId}:`, error);
     throw new Error(`Database error: Could not fetch users. ${error instanceof Error ? error.message : String(error)}`);
@@ -790,7 +697,6 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
 
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
@@ -808,21 +714,10 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
         success: true,
         message: "User created successfully.",
         user: {
-          id: newUser.id,
-          tenant_id: newUser.tenant_id,
+          ...newUser,
           tenant_name,
-          tenant_branch_id: newUser.tenant_branch_id,
           branch_name,
-          first_name: newUser.first_name,
-          last_name: newUser.last_name,
-          username: newUser.username,
-          email: newUser.email,
-          role: newUser.role as User['role'],
-          status: newUser.status,
-          created_at: new Date(newUser.created_at).toISOString(),
-          updated_at: new Date(newUser.updated_at).toISOString(),
-          last_log_in: newUser.last_log_in ? new Date(newUser.last_log_in).toISOString() : null,
-        }
+        } as User
       };
     }
     return { success: false, message: "User creation failed." };
@@ -912,21 +807,10 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
         success: true,
         message: "User updated successfully.",
         user: {
-          id: updatedUser.id,
-          tenant_id: updatedUser.tenant_id,
+          ...updatedUser,
           tenant_name,
-          tenant_branch_id: updatedUser.tenant_branch_id,
           branch_name,
-          first_name: updatedUser.first_name,
-          last_name: updatedUser.last_name,
-          username: updatedUser.username,
-          email: updatedUser.email,
-          role: updatedUser.role as User['role'],
-          status: updatedUser.status,
-          created_at: new Date(updatedUser.created_at).toISOString(),
-          updated_at: new Date(updatedUser.updated_at).toISOString(),
-          last_log_in: updatedUser.last_log_in ? new Date(updatedUser.last_log_in).toISOString() : null,
-        }
+        } as User
       };
     }
     return { success: false, message: "User not found or no changes made." };
@@ -991,8 +875,6 @@ export async function listRatesForBranch(branchId: number, tenantId: number): Pr
       ...row,
       price: parseFloat(row.price),
       excess_hour_price: row.excess_hour_price ? parseFloat(row.excess_hour_price) : null,
-      created_at: new Date(row.created_at).toISOString(),
-      updated_at: new Date(row.updated_at).toISOString(),
     })) as HotelRate[];
   } catch (error) {
     console.error(`Failed to fetch rates for branch ${branchId}:`, error);
@@ -1014,7 +896,6 @@ export async function createRate(
   const { name, price, hours, excess_hour_price, description } = validatedFields.data;
   const client = await pool.connect();
   try {
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO hotel_rates (tenant_id, branch_id, name, price, hours, excess_hour_price, description, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, '1')
@@ -1033,8 +914,6 @@ export async function createRate(
           branch_name,
           price: parseFloat(newRow.price),
           excess_hour_price: newRow.excess_hour_price ? parseFloat(newRow.excess_hour_price) : null,
-          created_at: new Date(newRow.created_at).toISOString(),
-          updated_at: new Date(newRow.updated_at).toISOString(),
         } as HotelRate
       };
     }
@@ -1079,8 +958,6 @@ export async function updateRate(
           branch_name,
           price: parseFloat(updatedRow.price),
           excess_hour_price: updatedRow.excess_hour_price ? parseFloat(updatedRow.excess_hour_price) : null,
-          created_at: new Date(updatedRow.created_at).toISOString(),
-          updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as HotelRate
       };
     }
@@ -1148,17 +1025,17 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         hr.is_available, hr.status, hr.created_at, hr.updated_at,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
-        hr_active.name AS active_transaction_rate_name
+        hrt_active.name AS active_transaction_rate_name 
       FROM hotel_room hr
       JOIN tenant_branch tb ON hr.branch_id = tb.id
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id 
           AND t_active.branch_id = hr.branch_id
           AND (t_active.status = $3 OR t_active.status = $4) -- Unpaid or Advance Paid
-      LEFT JOIN hotel_rates hr_active ON t_active.hotel_rate_id = hr_active.id 
-          AND hr_active.tenant_id = hr.tenant_id 
-          AND hr_active.branch_id = hr.branch_id 
-          AND hr_active.status = '1'
+      LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id 
+          AND hrt_active.tenant_id = hr.tenant_id 
+          AND hrt_active.branch_id = hr.branch_id 
+          AND hrt_active.status = '1'
       WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '1'
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
@@ -1169,12 +1046,10 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let parsedRateIds: number[] | null = null;
       if (row.hotel_rate_id) {
         try {
-          // Ensure we handle both stringified JSON and actual JSONB from DB if type changes
           const rawRateIdData = row.hotel_rate_id;
           if (typeof rawRateIdData === 'string') {
             parsedRateIds = JSON.parse(rawRateIdData);
           } else if (typeof rawRateIdData === 'object' && rawRateIdData !== null) {
-            // If it's already an array or an object from JSONB (less likely if type is just JSON)
             parsedRateIds = Array.isArray(rawRateIdData) ? rawRateIdData : [];
           } else {
             parsedRateIds = [];
@@ -1192,14 +1067,14 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
 
       const activeTransactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
       const activeTransactionClientName = row.active_transaction_client_name || null;
-      const activeTransactionCheckInTime = row.active_transaction_check_in_time ? new Date(row.active_transaction_check_in_time).toISOString() : null;
+      const activeTransactionCheckInTime = row.active_transaction_check_in_time || null; // Already a string
       const activeTransactionRateName = row.active_transaction_rate_name || null;
       
       if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED || Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED) {
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
           room_transaction_id_db: row.transaction_id,
-          active_transaction_id_db: row.active_transaction_id,
+          active_transaction_id_db: row.active_transaction_id, // This column does not exist on t_active, it should be t_active.id
           active_transaction_client_name_db: row.active_transaction_client_name,
           active_transaction_check_in_time_db: row.active_transaction_check_in_time,
           active_transaction_rate_name_db: row.active_transaction_rate_name,
@@ -1214,7 +1089,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
-        transaction_id: activeTransactionIdFromRoom,
+        transaction_id: activeTransactionIdFromRoom, // This is hr.transaction_id
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
@@ -1223,9 +1098,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         capacity: row.capacity,
         is_available: Number(row.is_available),
         status: row.status,
-        created_at: new Date(row.created_at).toISOString(),
-        updated_at: new Date(row.updated_at).toISOString(),
-        active_transaction_id: activeTransactionIdFromRoom,
+        created_at: row.created_at, // String
+        updated_at: row.updated_at, // String
+        active_transaction_id: activeTransactionIdFromRoom, // Correctly derived from hr.transaction_id
         active_transaction_client_name: activeTransactionClientName,
         active_transaction_check_in_time: activeTransactionCheckInTime,
         active_transaction_rate_name: activeTransactionRateName,
@@ -1254,7 +1129,6 @@ export async function createRoom(
   try {
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
-    // created_at and updated_at will use DB defaults (Asia/Manila)
     const res = await client.query(
       `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL)
@@ -1285,8 +1159,6 @@ export async function createRoom(
           hotel_rate_id: parsedRateIds,
           transaction_id: newRow.transaction_id ? Number(newRow.transaction_id) : null,
           is_available: Number(newRow.is_available),
-          created_at: new Date(newRow.created_at).toISOString(),
-          updated_at: new Date(newRow.updated_at).toISOString(),
         } as HotelRoom
       };
     }
@@ -1349,8 +1221,6 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           hotel_rate_id: parsedRateIds,
           transaction_id: updatedRow.transaction_id ? Number(updatedRow.transaction_id) : null,
           is_available: Number(updatedRow.is_available),
-          created_at: new Date(updatedRow.created_at).toISOString(),
-          updated_at: new Date(updatedRow.updated_at).toISOString(),
         } as HotelRoom
       };
     }
@@ -1394,5 +1264,4 @@ export async function archiveRoom(roomId: number, tenantId: number, branchId: nu
     client.release();
   }
 }
-
     

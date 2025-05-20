@@ -28,28 +28,13 @@ import {
   cancelReservation
 } from '@/actions/staff';
 import { TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT, ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
-import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
+import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO } from 'date-fns';
 
 interface ReservationsContentProps {
   tenantId: number;
   branchId: number;
   staffUserId: number;
 }
-
-const defaultUnassignedReservationFormValues: TransactionCreateData = {
-  client_name: '',
-  selected_rate_id: undefined,
-  client_payment_method: undefined,
-  notes: '',
-  is_advance_reservation: false,
-  reserved_check_in_datetime: null,
-  reserved_check_out_datetime: null,
-};
-
-const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, 
-};
-
 
 const getDefaultCheckInDateTimeString = () => {
   const now = new Date();
@@ -60,9 +45,14 @@ const getDefaultCheckInDateTimeString = () => {
 const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null) => {
   let baseDate = new Date();
   if (checkInDateString) {
-    const parsedCheckIn = new Date(checkInDateString);
-    if (!isNaN(parsedCheckIn.getTime())) {
-      baseDate = parsedCheckIn;
+    try {
+        const parsedCheckIn = parseISO(checkInDateString); // Use parseISO for "yyyy-MM-ddTHH:mm"
+        if (!isNaN(parsedCheckIn.getTime())) {
+            baseDate = parsedCheckIn;
+        }
+    } catch (e) {
+        // If parsing fails, fallback to current time for base
+        console.warn("Failed to parse checkInDateString for default checkout, using current time as base.");
     }
   } else { 
     baseDate = setHours(baseDate, 14); 
@@ -72,6 +62,21 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null) => 
   }
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0); 
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
+};
+
+const defaultUnassignedReservationFormValues: TransactionCreateData = {
+  client_name: '',
+  selected_rate_id: undefined,
+  client_payment_method: undefined,
+  notes: '',
+  is_advance_reservation: false,
+  reserved_check_in_datetime: null, 
+  reserved_check_out_datetime: null,
+};
+
+
+const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
+  selected_room_id: undefined as unknown as number, 
 };
 
 
@@ -194,18 +199,32 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     setSelectedReservationForEdit(reservation);
     const isAdvance = reservation.status === TRANSACTION_STATUS.ADVANCE_RESERVATION;
     
+    let checkInDateTime = null;
+    if (reservation.reserved_check_in_datetime) {
+        try {
+            checkInDateTime = format(parseISO(reservation.reserved_check_in_datetime), "yyyy-MM-dd'T'HH:mm");
+        } catch (e) { console.warn("Error parsing reserved_check_in_datetime for edit form:", reservation.reserved_check_in_datetime); }
+    } else if (isAdvance) {
+        checkInDateTime = getDefaultCheckInDateTimeString();
+    }
+
+    let checkOutDateTime = null;
+    if (reservation.reserved_check_out_datetime) {
+        try {
+            checkOutDateTime = format(parseISO(reservation.reserved_check_out_datetime), "yyyy-MM-dd'T'HH:mm");
+        } catch (e) { console.warn("Error parsing reserved_check_out_datetime for edit form:", reservation.reserved_check_out_datetime); }
+    } else if (isAdvance) {
+        checkOutDateTime = getDefaultCheckOutDateTimeString(checkInDateTime);
+    }
+    
     editReservationForm.reset({
         client_name: reservation.client_name,
         selected_rate_id: reservation.hotel_rate_id ?? undefined,
         client_payment_method: reservation.client_payment_method ?? undefined,
         notes: reservation.notes ?? '',
         is_advance_reservation: isAdvance,
-        reserved_check_in_datetime: reservation.reserved_check_in_datetime 
-            ? format(new Date(reservation.reserved_check_in_datetime), "yyyy-MM-dd'T'HH:mm") 
-            : (isAdvance ? getDefaultCheckInDateTimeString() : null),
-        reserved_check_out_datetime: reservation.reserved_check_out_datetime
-            ? format(new Date(reservation.reserved_check_out_datetime), "yyyy-MM-dd'T'HH:mm")
-            : (isAdvance ? getDefaultCheckOutDateTimeString(reservation.reserved_check_in_datetime) : null),
+        reserved_check_in_datetime: checkInDateTime,
+        reserved_check_out_datetime: checkOutDateTime,
     });
     setIsEditReservationDialogOpen(true);
   };
@@ -247,8 +266,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     }
     setIsSubmitting(true);
     try {
-      // For unassigned reservations, roomId is null.
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null);
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // roomId is null for unassigned
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
@@ -304,8 +322,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        // Optionally, trigger a refresh of the room status view if it's a separate context/state
-        // or use a global state management solution.
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -464,8 +480,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                   <TableCell>{TRANSACTION_STATUS_TEXT[res.status as keyof typeof TRANSACTION_STATUS_TEXT] || 'Unknown'}</TableCell>
                   <TableCell>
                     {res.status === TRANSACTION_STATUS.ADVANCE_RESERVATION && res.reserved_check_in_datetime 
-                      ? `For: ${format(new Date(res.reserved_check_in_datetime), 'MMM dd, yyyy HH:mm')}`
-                      : (res.created_at ? `Created: ${format(new Date(res.created_at), 'MMM dd, yyyy HH:mm')}`: 'N/A')}
+                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'MMM dd, yyyy HH:mm')}`
+                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm')}`: 'N/A')}
                   </TableCell>
                   <TableCell className="text-right space-x-1">
                      <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
@@ -477,6 +493,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
                             if (!open) {
                                 setIsCancelReservationConfirmOpen(false);
                                 setTransactionToCancel(null);
+                            } else { // only set to true if triggered by button, not just any change
+                                if (transactionToCancel?.id === res.id) setIsCancelReservationConfirmOpen(true);
                             }
                         }}
                      >
@@ -596,3 +614,4 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId }:
     
 
     
+
