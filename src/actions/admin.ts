@@ -54,8 +54,8 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status`,
       [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count]
     );
@@ -371,8 +371,8 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
       }
     }
     const res = await client.query(
-      `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status)
-       VALUES ($1, $2, $3, $4, $5, $6, '1')
+      `INSERT INTO tenant_branch (tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, '1', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_id, branch_name, branch_code, branch_address, contact_number, email_address, created_at, updated_at, status`,
       [tenant_id, branch_name, branch_code, branch_address, contact_number, email_address]
     );
@@ -483,8 +483,8 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
     const res = await client.query(
-      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       [first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id]
     );
@@ -698,8 +698,8 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
     const salt = bcrypt.genSaltSync(10);
     const password_hash = bcrypt.hashSync(password, salt);
     const res = await client.query(
-      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1')
+      `INSERT INTO users (first_name, last_name, username, password_hash, email, role, tenant_id, tenant_branch_id, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '1', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_id, tenant_branch_id, first_name, last_name, username, email, role, status, created_at, updated_at, last_log_in`,
       [first_name, last_name, username, password_hash, email, role, callingTenantId, tenant_branch_id]
     );
@@ -897,8 +897,8 @@ export async function createRate(
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `INSERT INTO hotel_rates (tenant_id, branch_id, name, price, hours, excess_hour_price, description, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, '1')
+      `INSERT INTO hotel_rates (tenant_id, branch_id, name, price, hours, excess_hour_price, description, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, '1', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_id, branch_id, name, price, hours, excess_hour_price, description, status, created_at, updated_at`,
       [tenantId, branchId, name, price, hours, excess_hour_price, description]
     );
@@ -997,12 +997,14 @@ export async function getRatesForBranchSimple(branchId: number, tenantId: number
   const client = await pool.connect();
   try {
     const result = await client.query(
-      "SELECT id, name, price FROM hotel_rates WHERE branch_id = $1 AND tenant_id = $2 AND status = '1' ORDER BY name ASC",
+      "SELECT id, name, price, hours FROM hotel_rates WHERE branch_id = $1 AND tenant_id = $2 AND status = '1' ORDER BY name ASC",
       [branchId, tenantId]
     );
     return result.rows.map(row => ({
-        ...row,
-        price: parseFloat(row.price)
+        id: row.id,
+        name: row.name,
+        price: parseFloat(row.price),
+        hours: parseInt(row.hours, 10),
     })) as SimpleRate[];
   } catch (error: any) {
      console.error(`Failed to fetch simple rates for branch ${branchId}:`, error.message);
@@ -1074,7 +1076,6 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
           is_available_db: row.is_available,
           room_transaction_id_db: row.transaction_id,
-          active_transaction_id_db: row.active_transaction_id, // This column does not exist on t_active, it should be t_active.id
           active_transaction_client_name_db: row.active_transaction_client_name,
           active_transaction_check_in_time_db: row.active_transaction_check_in_time,
           active_transaction_rate_name_db: row.active_transaction_rate_name,
@@ -1089,7 +1090,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
-        transaction_id: activeTransactionIdFromRoom, // This is hr.transaction_id
+        transaction_id: activeTransactionIdFromRoom, 
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
@@ -1098,9 +1099,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         capacity: row.capacity,
         is_available: Number(row.is_available),
         status: row.status,
-        created_at: row.created_at, // String
-        updated_at: row.updated_at, // String
-        active_transaction_id: activeTransactionIdFromRoom, // Correctly derived from hr.transaction_id
+        created_at: row.created_at, 
+        updated_at: row.updated_at, 
+        active_transaction_id: activeTransactionIdFromRoom,
         active_transaction_client_name: activeTransactionClientName,
         active_transaction_check_in_time: activeTransactionCheckInTime,
         active_transaction_rate_name: activeTransactionRateName,
@@ -1130,8 +1131,8 @@ export async function createRoom(
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
     const res = await client.query(
-      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL)
+      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
       [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available]
     );

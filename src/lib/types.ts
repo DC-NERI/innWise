@@ -80,14 +80,14 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved (as per last update)
   status: string; // '0' or '1' (for the room record itself, not booking status)
   transaction_id?: number | null; // Foreign key to transactions table
   created_at: string; // ISO date string
   updated_at: string; // ISO date string
 
   // These fields are populated by joins if a transaction is linked via transaction_id
-  active_transaction_id?: number | null; // This should be the same as transaction_id if populated
+  active_transaction_id?: number | null; 
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null; 
   active_transaction_rate_name?: string | null;
@@ -98,6 +98,7 @@ export interface SimpleRate {
   id: number;
   name: string;
   price: number;
+  hours: number; // Added hours
 }
 
 export interface Transaction {
@@ -123,4 +124,9 @@ export interface Transaction {
     room_name?: string | null; 
     rate_name?: string | null; 
     checked_out_by_username?: string;
+}
+
+// For grouping rooms by floor in RoomStatusContent
+export interface GroupedRooms {
+  [floor: string]: HotelRoom[];
 }
