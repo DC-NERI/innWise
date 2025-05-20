@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -45,7 +45,6 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
-    // Ensure the string is in a format parseISO can handle, like "YYYY-MM-DDTHH:mm:ss"
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
@@ -64,7 +63,7 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T')); 
+        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
@@ -136,13 +135,13 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       try {
         setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-        
+
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) { 
+        if (!result.success && result.notification === undefined) {
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
-          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n) 
+          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
            .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-        } 
+        }
       } catch (error) {
         console.error("Failed to mark notification as read:", error);
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
@@ -153,11 +152,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !branchId) return;
-    setIsSubmittingAction(true); 
+    setIsSubmittingAction(true);
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId) 
+        getRatesForBranchSimple(branchId, tenantId) // Corrected to use branchId from props
       ]);
 
       if (!transaction) {
@@ -178,7 +177,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
       });
 
-      setIsDetailsModalOpen(false); 
+      setIsDetailsModalOpen(false);
       setIsAcceptManageModalOpen(true);
     } catch (error) {
       toast({ title: "Error", description: "Failed to load reservation details or rates.", variant: "destructive" });
@@ -195,7 +194,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); 
+        fetchNotifications();
       } else {
         toast({ title: "Acceptance Failed", description: result.message, variant: "destructive" });
       }
@@ -219,9 +218,9 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); 
-        setIsDetailsModalOpen(false); 
-        fetchNotifications(); 
+        setIsAcceptManageModalOpen(false);
+        setIsDetailsModalOpen(false);
+        fetchNotifications();
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -241,7 +240,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
             <MessageSquare className="h-6 w-6 text-primary" />
             <CardTitle>Branch Notifications</CardTitle>
           </div>
-          <CardDescription>View messages and notifications for your branch.</CardDescription>
+          <ShadCardDescription>View messages and notifications for your branch.</ShadCardDescription>
         </div>
         <Button variant="outline" onClick={fetchNotifications} disabled={isLoadingNotifications}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingNotifications ? 'animate-spin' : ''}`} /> Refresh List
@@ -254,46 +253,70 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
           <p className="text-muted-foreground text-center py-8">No notifications for this branch.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {notifications.map(notif => (
-              <Card
-                key={notif.id}
-                className={cn(
-                  "hover:shadow-lg transition-shadow cursor-pointer border-2",
-                  notif.status === NOTIFICATION_STATUS.UNREAD && "border-primary",
-                  notif.transaction_id && {
-                    [cn("bg-red-500 text-white border-red-700 animate-pulse-opacity-gentle")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING,
-                    [cn("bg-green-500 text-white border-green-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
-                    [cn("bg-red-600 text-white border-red-700")]: notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED,
-                  },
-                  !notif.transaction_id && "bg-card border-border" // Default card style if no transaction
-                )}
-                onClick={() => handleCardClick(notif)}
-              >
-                <CardHeader className="pb-2">
-                  <CardTitle className={cn(
-                    "text-md truncate",
-                    notif.transaction_id ? "text-white" : "text-card-foreground"
-                    )}>
-                      {notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}
-                  </CardTitle>
-                  <CardDescription className={cn(
-                     "text-xs",
-                     notif.transaction_id ? "text-white/80" : "text-muted-foreground"
-                    )}>
-                    From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm aa') : 'N/A'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className={cn(
-                  "text-xs",
-                   notif.transaction_id ? "text-white/90" : "text-card-foreground"
-                  )}>
-                  <p>Status: <span className={cn(notif.status === NOTIFICATION_STATUS.UNREAD ? (notif.transaction_id ? "font-semibold text-white" : "font-semibold text-primary") : (notif.transaction_id ? "text-white/80" : "text-muted-foreground"))}>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
-                  {notif.transaction_id && (
-                    <p>Linked Reservation: Status <span className="font-semibold">{TRANSACTION_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className="font-semibold">{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+            {notifications.map(notif => {
+              let cardBgClass = "bg-card border-border";
+              let cardTitleClass = "text-card-foreground";
+              let cardDescriptionClass = "text-muted-foreground";
+              let cardContentTextClass = "text-card-foreground";
+              let cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-primary" : "text-muted-foreground";
+              let cardLinkedStatusTextClass = "font-semibold"; // Default for linked status
+              let cardAcceptanceTextClass = "font-semibold"; // Default for acceptance status
+
+              if (notif.transaction_id) {
+                if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
+                  cardBgClass = "bg-red-500 border-red-700 animate-pulse-opacity-gentle";
+                  cardTitleClass = "text-white";
+                  cardDescriptionClass = "text-red-100";
+                  cardContentTextClass = "text-red-50";
+                  cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-white" : "text-red-100";
+                  cardLinkedStatusTextClass = "font-semibold text-white";
+                  cardAcceptanceTextClass = "font-semibold text-white";
+                } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED) {
+                  cardBgClass = "bg-green-100 dark:bg-green-800/30 border-green-300 dark:border-green-700";
+                  cardTitleClass = "text-green-700 dark:text-green-200";
+                  cardDescriptionClass = "text-green-600 dark:text-green-300";
+                  cardContentTextClass = "text-green-700 dark:text-green-200";
+                  cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-green-700 dark:text-green-200" : "text-green-600 dark:text-green-300";
+                  cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
+                  cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
+                } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
+                  cardBgClass = "bg-red-500 border-red-700";
+                  cardTitleClass = "text-white";
+                  cardDescriptionClass = "text-red-100";
+                  cardContentTextClass = "text-red-50";
+                  cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-white" : "text-red-100";
+                  cardLinkedStatusTextClass = "font-semibold text-white";
+                  cardAcceptanceTextClass = "font-semibold text-white";
+                }
+              }
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !notif.transaction_id) {
+                cardBgClass = cn(cardBgClass, "border-primary");
+              }
+
+
+              return (
+                <Card
+                  key={notif.id}
+                  className={cn("hover:shadow-lg transition-shadow cursor-pointer border-2", cardBgClass)}
+                  onClick={() => handleCardClick(notif)}
+                >
+                  <CardHeader className="pb-2">
+                    <CardTitle className={cn("text-md truncate", cardTitleClass)}>
+                        {notif.message.substring(0, 50)}{notif.message.length > 50 ? "..." : ""}
+                    </CardTitle>
+                    <ShadCardDescription className={cn("text-xs", cardDescriptionClass)}>
+                      From: {notif.creator_username || "System"} | {notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MMM dd, yyyy HH:mm aa') : 'N/A'}
+                    </ShadCardDescription>
+                  </CardHeader>
+                  <CardContent className={cn("text-xs", cardContentTextClass)}>
+                    <p>Status: <span className={cardStatusTextClass}>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
+                    {notif.transaction_id && (
+                      <p>Linked Reservation: Status <span className={cardLinkedStatusTextClass}>{TRANSACTION_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className={cardAcceptanceTextClass}>{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -310,10 +333,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
                 <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1 text-foreground">{selectedNotification.message}</pre>
               </div>
               <p><strong>From:</strong> {selectedNotification.creator_username || "System"}</p>
+              <p><strong>Target Branch:</strong> {selectedNotification.target_branch_name || "Tenant-wide"}</p>
               <p><strong>Date:</strong> {selectedNotification.created_at ? format(parseISO(selectedNotification.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</p>
               <p><strong>Status:</strong> {NOTIFICATION_STATUS_TEXT[selectedNotification.status]}</p>
               {selectedNotification.transaction_id && (
                 <>
+                  <p><strong>Linked Transaction ID:</strong> {selectedNotification.transaction_id}</p>
                   <p><strong>Linked Reservation Status:</strong> {TRANSACTION_STATUS_TEXT[selectedNotification.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A'}</p>
                   <p><strong>Acceptance by Branch:</strong> {TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotification.transaction_is_accepted ?? 0]}</p>
                 </>
@@ -421,3 +446,4 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId }
     </Card>
   );
 }
+
