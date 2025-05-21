@@ -2,10 +2,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react';
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction } from '@/lib/types';
 import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
@@ -182,9 +182,12 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     return false;
   });
 
-  const availableRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.status === '1');
+  const availableCleanRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status === ROOM_CLEANING_STATUS.CLEAN && room.status === '1');
+  const availableNotCleanRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER && room.status === '1');
   const occupiedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && room.status === '1');
   const reservedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.status === '1');
+  const outOfOrderRooms = rooms.filter(room => room.cleaning_status === ROOM_CLEANING_STATUS.OUT_OF_ORDER && room.status === '1');
+
 
   const isLoading = isLoadingNotifications || isLoadingRooms || isLoadingReservations;
 
@@ -205,7 +208,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
             <Bell className="h-5 w-5 text-primary" />
             <CardTitle>Notifications Overview</CardTitle>
           </div>
-          <CardDescription>Summary of recent notifications for your branch.</CardDescription>
+          <ShadCardDescription>Summary of recent notifications for your branch.</ShadCardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingNotifications ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
@@ -235,7 +238,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
             <UserIcon className="h-5 w-5 text-primary" />
             <CardTitle>Unassigned Reservations</CardTitle>
           </div>
-          <CardDescription>Reservations awaiting room assignment.</CardDescription>
+          <ShadCardDescription>Reservations awaiting room assignment.</ShadCardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingReservations ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
@@ -259,30 +262,45 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
             <Bed className="h-5 w-5 text-primary" />
             <CardTitle>Room Status Overview</CardTitle>
           </div>
-          <CardDescription>Current status of rooms in your branch.</CardDescription>
+          <ShadCardDescription>Current status of rooms in your branch.</ShadCardDescription>
         </CardHeader>
         <CardContent>
             {isLoadingRooms ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
             <Tabs value={activeRoomTab} onValueChange={setActiveRoomTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-4">
-                <TabsTrigger value="available">Available ({availableRooms.length})</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-4 mb-4"> {/* Changed grid-cols-3 to grid-cols-4 */}
+                <TabsTrigger value="available">Available ({availableCleanRooms.length + availableNotCleanRooms.length})</TabsTrigger>
                 <TabsTrigger value="occupied">Occupied ({occupiedRooms.length})</TabsTrigger>
                 <TabsTrigger value="reserved">Reserved ({reservedRooms.length})</TabsTrigger>
+                <TabsTrigger value="out-of-order">Out of Order ({outOfOrderRooms.length})</TabsTrigger> {/* New Tab Trigger */}
               </TabsList>
               <TabsContent value="available">
-                {availableRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
+                {[...availableCleanRooms, ...availableNotCleanRooms].length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-3 max-h-72 overflow-y-auto">
-                    {availableRooms.map(room => (
-                      <Card key={`avail-dash-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
+                    {availableCleanRooms.map(room => (
+                      <Card key={`avail-dash-clean-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
                         <CardHeader className="p-2">
                           <CardTitle className="text-sm font-medium text-green-700 dark:text-green-200 truncate">{room.room_name}</CardTitle>
-                          <CardDescription className="text-xs text-green-600 dark:text-green-300">
+                          <ShadCardDescription className="text-xs text-green-600 dark:text-green-300">
+                            Room #: {room.room_code} <br/>
+                            <div className="flex items-center">
+                                <Wrench size={12} className="inline mr-1" />
+                                {ROOM_CLEANING_STATUS_TEXT[ROOM_CLEANING_STATUS.CLEAN]}
+                            </div>
+                          </ShadCardDescription>
+                        </CardHeader>
+                      </Card>
+                    ))}
+                    {availableNotCleanRooms.map(room => (
+                      <Card key={`avail-dash-notclean-${room.id}`} className="shadow-sm bg-slate-100 dark:bg-slate-800/30 border-slate-300 dark:border-slate-700">
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{room.room_name}</CardTitle>
+                          <ShadCardDescription className="text-xs text-slate-600 dark:text-slate-300">
                             Room #: {room.room_code} <br/>
                             <div className="flex items-center">
                                 <Wrench size={12} className="inline mr-1" />
                                 {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                             </div>
-                          </CardDescription>
+                          </ShadCardDescription>
                         </CardHeader>
                       </Card>
                     ))}
@@ -307,7 +325,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                         <Card key={`occ-dash-${room.id}`} className="shadow-sm bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700">
                           <CardHeader className="p-2">
                             <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
-                            <CardDescription className="text-xs text-orange-600 dark:text-orange-300 space-y-0.5">
+                            <ShadCardDescription className="text-xs text-orange-600 dark:text-orange-300 space-y-0.5">
                               <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
                               <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
                               <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
@@ -316,7 +334,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                                 <Wrench size={12} className="inline mr-1" />
                                 {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                                </div>
-                            </CardDescription>
+                            </ShadCardDescription>
                           </CardHeader>
                         </Card>
                       );
@@ -331,7 +349,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       <Card key={`res-dash-${room.id}`} className="shadow-sm bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
                         <CardHeader className="p-2">
                            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
-                           <CardDescription className="text-xs text-blue-600 dark:text-blue-300 space-y-0.5">
+                           <ShadCardDescription className="text-xs text-blue-600 dark:text-blue-300 space-y-0.5">
                              {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
@@ -339,7 +357,32 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                                 <Wrench size={12} className="inline mr-1" />
                                 {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                               </div>
-                           </CardDescription>
+                           </ShadCardDescription>
+                        </CardHeader>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="out-of-order"> {/* New Tab Content */}
+                {outOfOrderRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently out of order.</p> : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                    {outOfOrderRooms.map(room => (
+                      <Card key={`ooo-dash-${room.id}`} className="shadow-sm bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700">
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
+                          <ShadCardDescription className="text-xs text-amber-600 dark:text-amber-300 space-y-0.5">
+                            <div>Floor: {room.floor ?? 'N/A'}</div>
+                            <div className="flex items-center">
+                              <AlertTriangle size={12} className="inline mr-1 text-amber-500" />
+                              {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.OUT_OF_ORDER]}
+                            </div>
+                            {room.cleaning_notes && (
+                              <p className="mt-1 text-xs italic truncate" title={room.cleaning_notes}>
+                                Note: {room.cleaning_notes.substring(0, 30)}{room.cleaning_notes.length > 30 ? '...' : ''}
+                              </p>
+                            )}
+                          </ShadCardDescription>
                         </CardHeader>
                       </Card>
                     ))}
@@ -353,3 +396,4 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     </div>
   );
 }
+

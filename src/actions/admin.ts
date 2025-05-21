@@ -1025,7 +1025,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
         hr.hotel_rate_id, -- This is JSON
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
-        hr.is_available, hr.cleaning_status, hr.status, hr.created_at, hr.updated_at,
+        hr.is_available, hr.cleaning_status, hr.cleaning_notes, hr.status, hr.created_at, hr.updated_at,
         hr.transaction_id,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
@@ -1037,7 +1037,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          AND (t_active.status = $3 OR t_active.status = $4 OR t_active.status = $5) -- Unpaid, Advance Paid, Pending Acceptance
+          AND (t_active.status = $3 OR t_active.status = $4 OR t_active.status = $5) -- Unpaid, Advance Paid/Reserved, Pending Branch Acceptance
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
           AND hrt_active.branch_id = hr.branch_id
@@ -1060,6 +1060,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
                     active_transaction_rate_name_db: row.active_transaction_rate_name,
                     active_transaction_rate_hours_db: row.active_transaction_rate_hours,
                     active_transaction_status_db: row.active_transaction_status,
+                    cleaning_status_db: row.cleaning_status,
+                    cleaning_notes_db: row.cleaning_notes,
                  });
             }
         });
@@ -1098,6 +1100,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         capacity: row.capacity,
         is_available: Number(row.is_available),
         cleaning_status: row.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+        cleaning_notes: row.cleaning_notes,
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
@@ -1135,7 +1138,7 @@ export async function createRoom(
     const res = await client.query(
       `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, transaction_id, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '1', NULL, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, created_at, updated_at`,
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, cleaning_notes, status, created_at, updated_at`,
       [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status || ROOM_CLEANING_STATUS.CLEAN]
     );
     if (res.rows.length > 0) {
@@ -1163,6 +1166,7 @@ export async function createRoom(
           transaction_id: newRow.transaction_id ? Number(newRow.transaction_id) : null,
           is_available: Number(newRow.is_available),
           cleaning_status: newRow.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+          cleaning_notes: newRow.cleaning_notes,
         } as HotelRoom
       };
     }
@@ -1201,7 +1205,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
       `UPDATE hotel_room
        SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, cleaning_status = $9, status = $10, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${transactionIdUpdate}
        WHERE id = $11 AND tenant_id = $12 AND branch_id = $13
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, created_at, updated_at`,
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, cleaning_notes, status, created_at, updated_at`,
       [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status || ROOM_CLEANING_STATUS.CLEAN, status, roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
@@ -1229,6 +1233,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           transaction_id: updatedRow.transaction_id ? Number(updatedRow.transaction_id) : null,
           is_available: Number(updatedRow.is_available),
           cleaning_status: updatedRow.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+          cleaning_notes: updatedRow.cleaning_notes,
         } as HotelRoom
       };
     }
@@ -1423,14 +1428,14 @@ export async function createNotification(
     if (do_reservation && target_branch_id) {
         const reservationData: TransactionCreateData = {
             client_name: reservationFields.reservation_client_name || `Reservation: ${message.substring(0,30)}...`,
-            selected_rate_id: reservationFields.reservation_selected_rate_id, // Now optional
+            selected_rate_id: reservationFields.reservation_selected_rate_id, 
             client_payment_method: reservationFields.reservation_client_payment_method,
             notes: reservationFields.reservation_notes,
             is_advance_reservation: reservationFields.reservation_is_advance,
             reserved_check_in_datetime: reservationFields.reservation_check_in_datetime,
             reserved_check_out_datetime: reservationFields.reservation_check_out_datetime,
         };
-        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true);
+        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true); // is_admin_created_flag = true
         if (reservationResult.success && reservationResult.transaction) {
             createdReservationId = reservationResult.transaction.id;
             finalTransactionStatus = NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED;
@@ -1518,3 +1523,4 @@ export async function deleteNotification(notificationId: number, tenantId: numbe
     client.release();
   }
 }
+
