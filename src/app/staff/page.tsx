@@ -6,8 +6,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"; // Added CardContent
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye } from 'lucide-react'; // Added Eye
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -323,7 +323,7 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId ) && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || (activeView !== 'dashboard' && activeView !== 'walk-in' && !userId) ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
@@ -348,7 +348,7 @@ const StaffDashboardPage: NextPage = () => {
               <CardContent>
                 <p className="text-muted-foreground">
                   Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
-                  {(!userId && (activeView !== 'dashboard' && activeView !== 'walk-in')) && " (Specifically, User ID is missing for this view.)"}
+                  {(!userId && (activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in')) && " (Specifically, User ID is missing for this view.)"}
                 </p>
               </CardContent>
             </Card>
@@ -361,3 +361,4 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
