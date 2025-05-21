@@ -4,10 +4,10 @@
 import type { NextPage } from 'next';
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon, LayoutDashboard, Eye, PanelLeft } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -17,7 +17,6 @@ import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
 import DashboardContent from '@/components/staff/dashboard-content';
 import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
-
 
 const StaffSettingsContent = () => (
   <div>
@@ -264,16 +263,12 @@ const StaffDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="flex items-center gap-2">
-            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
-                <button type="button" aria-label="Toggle Sidebar">
+            <SidebarTrigger className="md:hidden" aria-label="Toggle Sidebar">
                 <PanelLeft />
-                </button>
-            </SidebarMenuButton>
-             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
-                <button type="button" aria-label="Toggle Sidebar">
+            </SidebarTrigger>
+             <SidebarTrigger className="hidden md:flex" aria-label="Toggle Sidebar">
                 <PanelLeft />
-                </button>
-            </SidebarMenuButton>
+            </SidebarTrigger>
             <div className="text-sm font-bold text-foreground">
               {branchName && <span className="mr-2">{branchName} -</span>}
               {dateTimeDisplay}
@@ -284,7 +279,7 @@ const StaffDashboardPage: NextPage = () => {
                 size="sm"
                 onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
               >
-                <Eye className="mr-2 h-4 w-4" /> View Available
+                <Bed className="mr-2 h-4 w-4" /> View Available
               </Button>
             )}
           </div>
@@ -328,7 +323,7 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || (!userId && activeView !== 'dashboard') ) && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
@@ -353,6 +348,7 @@ const StaffDashboardPage: NextPage = () => {
               <CardContent>
                 <p className="text-muted-foreground">
                   Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
+                  {(!userId && (activeView !== 'dashboard' && activeView !== 'walk-in')) && " (Specifically, User ID is missing for this view.)"}
                 </p>
               </CardContent>
             </Card>
@@ -365,3 +361,5 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
+    

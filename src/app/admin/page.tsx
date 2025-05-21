@@ -4,7 +4,7 @@
 import type { NextPage } from 'next';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell, PanelLeft } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
@@ -14,13 +14,12 @@ import RoomsContent from '@/components/admin/rooms-content';
 import NotificationsContent from '@/components/admin/notifications-content';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'settings'>('branches');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
-  
+
   const [userRole, setUserRole] = useState<UserRole | null>(null);
   const [tenantId, setTenantId] = useState<number | null>(null);
   const [tenantName, setTenantName] = useState<string>("Loading Tenant...");
@@ -44,7 +43,7 @@ const AdminDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'admin') { 
+        if (storedRole !== 'admin') {
             router.push('/');
             return;
         }
@@ -59,7 +58,7 @@ const AdminDashboardPage: NextPage = () => {
       if (storedLastName) setLastName(storedLastName);
       if (storedUserId) setUserId(parseInt(storedUserId, 10));
 
-      if (storedRole === 'sysad') { 
+      if (storedRole === 'sysad') {
          setTenantName("System Administrator");
       } else if (storedTenantName) {
         setTenantName(storedTenantName);
@@ -67,8 +66,8 @@ const AdminDashboardPage: NextPage = () => {
         getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
           if (tenant) {
             setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') { 
-                localStorage.setItem('userTenantName', tenant.tenant_name); 
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('userTenantName', tenant.tenant_name);
             }
           } else {
             setTenantName("Tenant Not Found");
@@ -78,7 +77,7 @@ const AdminDashboardPage: NextPage = () => {
           setTenantName("Error Fetching Tenant Info");
         });
       } else {
-        setTenantName("Tenant Information Unavailable"); 
+        setTenantName("Tenant Information Unavailable");
       }
     }
 
@@ -87,7 +86,7 @@ const AdminDashboardPage: NextPage = () => {
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aa'));
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [router]); 
+  }, [router]);
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -200,16 +199,12 @@ const AdminDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="flex items-center gap-2">
-            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
-                <button type="button" aria-label="Toggle Sidebar">
-                <PanelLeft />
-                </button>
-            </SidebarMenuButton>
-             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
-                <button type="button" aria-label="Toggle Sidebar">
-                <PanelLeft />
-                </button>
-            </SidebarMenuButton>
+            <SidebarTrigger className="md:hidden" aria-label="Toggle Sidebar">
+              <PanelLeft />
+            </SidebarTrigger>
+            <SidebarTrigger className="hidden md:flex" aria-label="Toggle Sidebar">
+              <PanelLeft />
+            </SidebarTrigger>
             <div className="text-sm font-bold text-foreground">
               {dateTimeDisplay}
             </div>
@@ -224,13 +219,13 @@ const AdminDashboardPage: NextPage = () => {
 
           {activeView === 'branches' && userRole === 'admin' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
           {activeView === 'branches' && tenantId === null && <p>Loading tenant information for branch management...</p>}
-          
+
           {activeView === 'rates' && userRole === 'admin' && tenantId !== null && <RatesContent tenantId={tenantId} />}
           {activeView === 'rates' && tenantId === null && <p>Loading tenant information for rate management...</p>}
 
           {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && <RoomsContent tenantId={tenantId} />}
           {activeView === 'rooms' && tenantId === null && <p>Loading tenant information for room management...</p>}
-          
+
           {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId !== null && (
             <NotificationsContent tenantId={tenantId} adminUserId={userId} />
           )}
@@ -251,3 +246,5 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
+
+    

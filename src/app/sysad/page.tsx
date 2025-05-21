@@ -4,22 +4,21 @@
 import type { NextPage } from 'next';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Building2, Settings, LogOut, Users, Network, PanelLeft } from 'lucide-react';
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import type { UserRole } from '@/lib/types';
-import { format as formatDateTime } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 const SysAdDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<'tenants' | 'branches' | 'users' | 'settings'>('tenants');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
-  
+
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [tenantName, setTenantName] = useState<string>("System Administrator"); 
+  const [tenantName, setTenantName] = useState<string>("System Administrator");
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
@@ -36,7 +35,7 @@ const SysAdDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'sysad') { 
+        if (storedRole !== 'sysad') {
             router.push('/');
             return;
         }
@@ -105,7 +104,7 @@ const SysAdDashboardPage: NextPage = () => {
                 <span>Tenants</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-             <SidebarMenuItem>
+            <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
@@ -147,16 +146,12 @@ const SysAdDashboardPage: NextPage = () => {
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
           <div className="flex items-center gap-2">
-            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
-                <button type="button" aria-label="Toggle Sidebar">
+            <SidebarTrigger className="md:hidden" aria-label="Toggle Sidebar">
                 <PanelLeft />
-                </button>
-            </SidebarMenuButton>
-             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
-                <button type="button" aria-label="Toggle Sidebar">
+            </SidebarTrigger>
+             <SidebarTrigger className="hidden md:flex" aria-label="Toggle Sidebar">
                 <PanelLeft />
-                </button>
-            </SidebarMenuButton>
+            </SidebarTrigger>
             <div className="text-sm font-bold text-foreground">
               {dateTimeDisplay}
             </div>
@@ -182,3 +177,5 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
+
+    
