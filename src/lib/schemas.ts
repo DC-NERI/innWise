@@ -1,6 +1,6 @@
 
 import { z } from "zod";
-import { ROOM_AVAILABILITY_STATUS, ROOM_CLEANING_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS } from '@/lib/constants';
 
 export const loginSchema = z.object({
   username: z.string().min(1, "Username is required"),
@@ -68,7 +68,7 @@ export const userCreateSchemaAdmin = z.object({
   username: z.string().min(1, "Username is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff"]).default("staff"),
+  role: z.enum(["admin", "staff"]).default("staff"), // Admin cannot create sysad
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
   if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
@@ -168,7 +168,7 @@ export const hotelRateUpdateSchema = hotelRateCreateSchema.extend({
 });
 export type HotelRateUpdateData = z.infer<typeof hotelRateUpdateSchema>;
 
-const roomCleaningStatusValues = Object.values(ROOM_CLEANING_STATUS) as [string, ...string[]];
+const roomCleaningStatusValues = ROOM_CLEANING_STATUS_OPTIONS.map(o => o.value) as [string, ...string[]];
 
 export const hotelRoomCreateSchema = z.object({
   hotel_rate_ids: z.array(z.coerce.number().int().positive())
@@ -214,7 +214,6 @@ const transactionObjectFields = {
     }),
   selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(), // Temporary field for walk-in form, not for DB
 };
-
 const transactionObjectSchema = z.object(transactionObjectFields);
 
 export const transactionCreateSchema = transactionObjectSchema.superRefine((data, ctx) => {
@@ -246,23 +245,36 @@ export const transactionCreateSchema = transactionObjectSchema.superRefine((data
 });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
+
 export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
-    client_name: z.string().max(255).optional().nullable(), // Client name usually pre-filled for staff manage
-    selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
-  }).superRefine((data, ctx) => {
-    if (data.is_advance_reservation) {
-      if (!data.reserved_check_in_datetime) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reserved check-in date and time are required for advance reservations.", path: ["reserved_check_in_datetime"]});
-      }
-      if (!data.reserved_check_out_datetime) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reserved check-out date and time are required for advance reservations.", path: ["reserved_check_out_datetime"]});
-      }
-      if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
-        if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
-          ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reserved check-out date/time must be after check-in date/time.", path: ["reserved_check_out_datetime"]});
-        }
+  client_name: z.string().max(255).optional().nullable(), // Client name can be optional here as it's usually pre-filled
+  selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
+}).superRefine((data, ctx) => {
+  if (data.is_advance_reservation) {
+    if (!data.reserved_check_in_datetime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reserved check-in date and time are required for advance reservations.",
+        path: ["reserved_check_in_datetime"],
+      });
+    }
+    if (!data.reserved_check_out_datetime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Reserved check-out date and time are required for advance reservations.",
+        path: ["reserved_check_out_datetime"],
+      });
+    }
+    if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
+      if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Reserved check-out date/time must be after check-in date/time.",
+          path: ["reserved_check_out_datetime"],
+        });
       }
     }
+  }
 });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
@@ -333,8 +345,7 @@ export const notificationCreateSchema = z.object({
 });
 export type NotificationCreateData = z.infer<typeof notificationCreateSchema>;
 
-// Schema for staff to update cleaning status
 export const roomCleaningStatusUpdateSchema = z.object({
-  cleaning_status: z.enum(roomCleaningStatusValues),
+  cleaning_status: z.enum(ROOM_CLEANING_STATUS_OPTIONS.map(o => o.value) as [string, ...string[]]).refine(val => val !== undefined, {message: "Cleaning status is required"}),
 });
 export type RoomCleaningStatusUpdateData = z.infer<typeof roomCleaningStatusUpdateSchema>;
