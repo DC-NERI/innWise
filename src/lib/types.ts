@@ -79,7 +79,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null;
+  hotel_rate_id: number[] | null; // Array of rate IDs
   rate_names?: string[];
   room_name: string;
   room_code: string;
@@ -89,6 +89,7 @@ export interface HotelRoom {
   capacity?: number | null;
   is_available: number; // 0: Available, 1: Occupied, 2: Reserved
   cleaning_status?: string | null; // e.g., 'clean', 'dirty', 'inspection', 'out_of_order'
+  cleaning_notes?: string | null; 
   status: string;
   transaction_id?: number | null;
   created_at: string;
@@ -119,19 +120,19 @@ export interface Transaction {
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string;
-    check_out_time?: string | null;
+    check_in_time: string; 
+    check_out_time?: string | null; 
     hours_used?: number | null;
     total_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     status: string;
-    created_at: string;
-    updated_at: string;
-    reserved_check_in_datetime?: string | null;
-    reserved_check_out_datetime?: string | null;
+    created_at: string; 
+    updated_at: string; 
+    reserved_check_in_datetime?: string | null; 
+    reserved_check_out_datetime?: string | null; 
     is_admin_created?: number | null;
-    is_accepted?: number | null;
+    is_accepted?: number | null; 
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
 
@@ -149,42 +150,60 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; // 0: unread, 1: read (from NOTIFICATION_STATUS)
+  status: number; 
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
   creator_username?: string | null;
   transaction_id?: number | null;
-  created_at: string;
-  read_at?: string | null;
-  transaction_status: number; // From NOTIFICATION_TRANSACTION_STATUS
-  transaction_is_accepted?: number | null; // From TRANSACTION_IS_ACCEPTED_STATUS
-  linked_transaction_status?: string | null; // From TRANSACTION_STATUS
+  created_at: string; 
+  read_at?: string | null; 
+  transaction_status: number; 
+  transaction_is_accepted?: number | null; 
+  linked_transaction_status?: string | null; 
 
-  // New fields for notification enhancements
-  notification_type?: string | null; // e.g., 'General', 'ReservationRequest', 'Maintenance'
-  priority?: number | null; // e.g., 0 for Normal, 1 for High
-  acknowledged_at?: string | null;
+  notification_type?: string | null; 
+  priority?: number | null; 
+  acknowledged_at?: string | null; 
   acknowledged_by_user_id?: number | null;
 }
 
-// For guest charges - simplified
+export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusUpdateSchema>;
+
 export interface GuestCharge {
   id: number;
   transaction_id: number;
+  tenant_id: number;
+  branch_id: number;
   item_description: string;
   amount: number;
   quantity: number;
-  charge_datetime: string;
+  charge_datetime: string; 
   charged_by_user_id?: number | null;
+  created_at: string;
+  updated_at: string;
 }
 
-// For shift logs - simplified
 export interface ShiftLog {
   id: number;
+  tenant_id: number;
+  branch_id: number;
   user_id: number;
-  username?: string; // For display
-  log_datetime: string;
+  username?: string; 
+  log_datetime: string; 
   message: string;
   category?: string | null;
+  created_at: string;
 }
+
+// DDL for room_cleaning_logs implies user_id is on the table, let's add it.
+export interface RoomCleaningLog {
+    id: number;
+    room_id: number;
+    room_cleaning_status: string;
+    notes?: string | null;
+    user_id?: number | null; // User who made the change/note
+    created_at: string;
+}
+
+    
