@@ -9,14 +9,14 @@ import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Use
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction, SimpleRate } from '@/lib/types';
 import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
-import { listRoomsForBranch } from '@/actions/admin';
+import { listRoomsForBranch } from '@/actions/admin'; // Reusing admin action
 import {
     NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT,
     TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
     TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT,
     ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT
 } from '@/lib/constants';
-import { format, parseISO, isToday, isFuture, startOfDay } from 'date-fns';
+import { format, parseISO, isToday, isFuture, addHours } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 interface DashboardContentProps {
@@ -50,7 +50,7 @@ const NotificationTable = ({ notifications }: { notifications: Notification[] })
               <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status] || 'Unknown'}</TableCell>
               <TableCell>{notif.transaction_id ? (TRANSACTION_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
               <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
-              <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MM-dd hh:mm aa') : 'N/A'}</TableCell>
+              <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -80,8 +80,8 @@ const ReservationListTable = ({ reservations, title }: { reservations: Transacti
                             <TableCell>{res.rate_name || 'N/A'}</TableCell>
                             <TableCell>
                                 {res.reserved_check_in_datetime 
-                                    ? format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'MM-dd hh:mm aa')
-                                    : (res.created_at ? format(parseISO(res.created_at.replace(' ', 'T')), 'MM-dd hh:mm aa') + " (Created)" : 'N/A')
+                                    ? format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')
+                                    : (res.created_at ? format(parseISO(res.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') + " (Created)" : 'N/A')
                                 }
                             </TableCell>
                         </TableRow>
@@ -139,7 +139,6 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
   useEffect(() => {
     const today: Transaction[] = [];
     const upcoming: Transaction[] = [];
-    const now = new Date();
 
     unassignedReservations.forEach(res => {
         if (res.reserved_check_in_datetime) {
@@ -152,15 +151,11 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                 }
             } catch (e) {
                 console.warn("Invalid date for reservation:", res.id, res.reserved_check_in_datetime);
-                 // If parsing fails, or if it's an immediate reservation (no future date),
-                 // consider it for "today" if created today.
                 if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
                     today.push(res);
                 }
             }
         } else {
-             // Reservations made without a specific future date are for immediate assignment,
-             // so list them under "today" if created today.
              if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
                 today.push(res);
             }
@@ -280,7 +275,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       <Card key={`avail-dash-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
                         <CardHeader className="p-2">
                           <CardTitle className="text-sm font-medium text-green-700 dark:text-green-200 truncate">{room.room_name}</CardTitle>
-                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Code: {room.room_code}</CardDescription>
+                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Room #: {room.room_code}</CardDescription>
                         </CardHeader>
                       </Card>
                     ))}
@@ -290,19 +285,31 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
               <TabsContent value="occupied">
                 {occupiedRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently occupied.</p> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
-                    {occupiedRooms.map(room => (
-                      <Card key={`occ-dash-${room.id}`} className="shadow-sm bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700">
-                        <CardHeader className="p-2">
-                          <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
-                          <CardDescription className="text-xs text-orange-600 dark:text-orange-300">
-                            <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
-                            <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'MM-dd hh:mm aa') : 'N/A'}</div>
-                            <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
-                            {/* Placeholder for Est. Checkout - requires rate.hours */}
-                          </CardDescription>
-                        </CardHeader>
-                      </Card>
-                    ))}
+                    {occupiedRooms.map(room => {
+                      let estCheckoutDisplay = 'N/A';
+                      if (room.active_transaction_check_in_time && room.active_transaction_rate_hours) {
+                          try {
+                              const checkInDate = parseISO(room.active_transaction_check_in_time.replace(' ', 'T'));
+                              const estCheckoutDate = addHours(checkInDate, room.active_transaction_rate_hours);
+                              estCheckoutDisplay = format(estCheckoutDate, 'yyyy-MM-dd hh:mm aa');
+                          } catch (e) {
+                              console.error("Error formatting est. checkout time for dashboard:", e);
+                          }
+                      }
+                      return (
+                        <Card key={`occ-dash-${room.id}`} className="shadow-sm bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700">
+                          <CardHeader className="p-2">
+                            <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
+                            <CardDescription className="text-xs text-orange-600 dark:text-orange-300 space-y-0.5">
+                              <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
+                              <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
+                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
+                              <div>Est. Out: {estCheckoutDisplay}</div>
+                            </CardDescription>
+                          </CardHeader>
+                        </Card>
+                      );
+                    })}
                   </div>
                 )}
               </TabsContent>
@@ -313,7 +320,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       <Card key={`res-dash-${room.id}`} className="shadow-sm bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
                         <CardHeader className="p-2">
                            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
-                           <CardDescription className="text-xs text-blue-600 dark:text-blue-300">
+                           <CardDescription className="text-xs text-blue-600 dark:text-blue-300 space-y-0.5">
                              {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
@@ -331,5 +338,3 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     </div>
   );
 }
-
-    

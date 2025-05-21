@@ -4,8 +4,8 @@
 import pg from 'pg';
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
-pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10)); // BIGINT to number
-pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue)); // NUMERIC to float
+pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10)); 
+pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue)); 
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
@@ -554,8 +554,6 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
                     );
                     const currentUserCount = parseInt(currentUserCountRes.rows[0].count, 10);
                     if (currentUserCount >= max_user_count) {
-                        // If the user is being moved to this tenant AND the limit is reached, it's an issue.
-                        // Or if the user is already in this tenant and being restored.
                         if (userCurrentTenantId !== targetTenantId || (userCurrentTenantId === targetTenantId && currentUserRes.rows[0].status === '0')) {
                              return { success: false, message: `Target tenant (ID: ${targetTenantId}) has reached the maximum active user limit of ${max_user_count}. To restore or move this user, please archive an existing active user in that tenant first or increase the tenant's limit.` };
                         }
@@ -1031,8 +1029,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         hr.transaction_id,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
-        t_active.status as active_transaction_status, -- fetch transaction status
-        hrt_active.name AS active_transaction_rate_name
+        t_active.status as active_transaction_status,
+        hrt_active.name AS active_transaction_rate_name,
+        hrt_active.hours AS active_transaction_rate_hours
       FROM hotel_room hr
       JOIN tenant_branch tb ON hr.branch_id = tb.id
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
@@ -1060,7 +1059,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         try {
           parsedRateIds = typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : Array.isArray(row.hotel_rate_id) ? row.hotel_rate_id : [];
           if (!Array.isArray(parsedRateIds) || !parsedRateIds.every(id => typeof id === 'number')) {
-            console.warn(`[listRoomsForBranch] Parsed hotel_rate_id for room ${row.id} is not a valid number array:`, parsedRateIds);
+            if (process.env.NODE_ENV === 'development'){
+              console.warn(`[listRoomsForBranch] Parsed hotel_rate_id for room ${row.id} is not a valid number array:`, parsedRateIds);
+            }
             parsedRateIds = [];
           }
         } catch (parseError) {
@@ -1082,6 +1083,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
           active_transaction_client_name_db: row.active_transaction_client_name,
           active_transaction_check_in_time_db: row.active_transaction_check_in_time,
           active_transaction_rate_name_db: row.active_transaction_rate_name,
+          active_transaction_rate_hours_db: row.active_transaction_rate_hours,
           active_transaction_status_db: activeTransactionStatus,
           mapped_client_name: row.active_transaction_client_name || null,
           mapped_check_in_time: row.active_transaction_check_in_time || null
@@ -1108,7 +1110,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         active_transaction_client_name: row.active_transaction_client_name || null,
         active_transaction_check_in_time: row.active_transaction_check_in_time || null,
         active_transaction_rate_name: row.active_transaction_rate_name || null,
-        active_transaction_status: activeTransactionStatus || null, // Add this
+        active_transaction_rate_hours: row.active_transaction_rate_hours ? parseInt(row.active_transaction_rate_hours, 10) : null,
+        active_transaction_status: activeTransactionStatus || null,
       } as HotelRoom;
     });
   } catch (error) {
@@ -1195,7 +1198,6 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
 
-    // If room is being made available, ensure transaction_id is cleared
     const transactionIdUpdate = (is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE) ? ', transaction_id = NULL' : '';
 
 
@@ -1422,18 +1424,16 @@ export async function createNotification(
     await client.query('BEGIN');
 
     if (do_reservation && target_branch_id) {
-        // Ensure selected_rate_id is correctly extracted for TransactionCreateData
         const reservationData: TransactionCreateData = {
             client_name: reservationFields.reservation_client_name || `Reservation: ${message.substring(0,30)}...`,
-            selected_rate_id: reservationFields.reservation_selected_rate_id, // This comes from the form
+            selected_rate_id: reservationFields.reservation_selected_rate_id,
             client_payment_method: reservationFields.reservation_client_payment_method,
             notes: reservationFields.reservation_notes,
             is_advance_reservation: reservationFields.reservation_is_advance,
             reserved_check_in_datetime: reservationFields.reservation_check_in_datetime,
             reserved_check_out_datetime: reservationFields.reservation_check_out_datetime,
         };
-        // Pass true for is_admin_created_flag
-        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true);
+        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true); // is_admin_created_flag = true
         if (reservationResult.success && reservationResult.transaction) {
             createdReservationId = reservationResult.transaction.id;
             finalTransactionStatus = NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED;
@@ -1513,7 +1513,6 @@ export async function deleteNotification(notificationId: number, tenantId: numbe
     return { success: false, message: "Notification not found or not authorized to delete." };
   } catch (error) {
     console.error(`Failed to delete notification ${notificationId}:`, error);
-    // Check for foreign key constraint violation if a transaction is linked
     if (error instanceof Error && (error as any).code === '23503') {
         return { success: false, message: "Cannot delete notification. It might be linked to an existing transaction. Please resolve the transaction first or contact support." };
     }
