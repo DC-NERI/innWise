@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react'; // Changed Broom to Wrench, removed redundant Users
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction } from '@/lib/types';
 import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
@@ -15,7 +15,7 @@ import {
     TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
     TRANSACTION_STATUS_TEXT,
     ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT,
-    ROOM_CLEANING_STATUS_TEXT
+    ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS
 } from '@/lib/constants';
 import { format, parseISO, isToday, isFuture, addHours } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -279,8 +279,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                           <CardDescription className="text-xs text-green-600 dark:text-green-300">
                             Room #: {room.room_code} <br/>
                             <div className="flex items-center">
-                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                                <Wrench size={12} className="inline mr-1" />
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                             </div>
                           </CardDescription>
                         </CardHeader>
@@ -313,8 +313,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                               <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                               <div>Est. Out: {estCheckoutDisplay}</div>
                               <div className="flex items-center">
-                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                                <Wrench size={12} className="inline mr-1" />
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                                </div>
                             </CardDescription>
                           </CardHeader>
@@ -336,8 +336,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                              <div className="flex items-center">
-                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                                <Wrench size={12} className="inline mr-1" />
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
                               </div>
                            </CardDescription>
                         </CardHeader>
@@ -353,4 +353,3 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     </div>
   );
 }
-
