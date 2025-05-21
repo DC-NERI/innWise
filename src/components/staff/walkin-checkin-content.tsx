@@ -16,7 +16,6 @@ import type { HotelRoom, SimpleRate } from '@/lib/types';
 import { listAvailableRoomsForBranch, createTransactionAndOccupyRoom } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { useToast } from '@/hooks/use-toast';
-import { ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
 
 interface WalkInCheckInContentProps {
   tenantId: number;
@@ -29,9 +28,9 @@ const defaultFormValues: TransactionCreateData = {
   selected_rate_id: undefined,
   client_payment_method: 'Cash',
   notes: '',
-  is_advance_reservation: false,
-  reserved_check_in_datetime: null,
-  reserved_check_out_datetime: null,
+  is_advance_reservation: false, // Not typically used for direct walk-in, but schema requires it
+  reserved_check_in_datetime: null, // Not used for direct walk-in
+  reserved_check_out_datetime: null, // Not used for direct walk-in
 };
 
 // Type for rooms listed in the dropdown
@@ -51,10 +50,11 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
 
   const form = useForm<TransactionCreateData>({
     resolver: zodResolver(transactionCreateSchema),
-    defaultValues,
+    defaultValues: defaultFormValues, // Use the defined constant
   });
 
-  const watchedRoomId = useWatch({ control: form.control, name: "selected_room_id_placeholder_for_walkin" }); // Using a placeholder name for watching
+  // Watch the selected_room_id_placeholder_for_walkin field, but manage actual room selection via selectedRoomId state
+  const watchedRoomIdForForm = useWatch({ control: form.control, name: "selected_room_id_placeholder_for_walkin" }); 
 
   const fetchInitialData = useCallback(async () => {
     if (!tenantId || !branchId) return;
@@ -86,7 +86,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
       if (room && room.hotel_rate_id) {
         const filteredRates = allBranchRates.filter(rate => room.hotel_rate_id!.includes(rate.id));
         setApplicableRates(filteredRates);
-        // Reset rate selection if previously selected room's rates are different
+        // Automatically select the first applicable rate if available
         if (filteredRates.length > 0) {
             form.setValue('selected_rate_id', filteredRates[0].id);
         } else {
@@ -121,10 +121,10 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
       if (result.success) {
         toast({ title: "Success", description: `${data.client_name} checked in to room ${availableRooms.find(r => r.id === selectedRoomId)?.room_name}.` });
         form.reset(defaultFormValues);
-        setSelectedRoomId(null);
-        setApplicableRates([]);
-        fetchInitialData(); // Re-fetch available rooms
-        // Optionally, trigger a global refresh for RoomStatusContent if implemented
+        setSelectedRoomId(null); // Reset selected room
+        setApplicableRates([]); // Clear applicable rates
+        fetchInitialData(); // Re-fetch available rooms as one is now occupied
+        // TODO: Consider a more targeted update or global state for RoomStatusContent
       } else {
         toast({ title: "Check-in Failed", description: result.message, variant: "destructive" });
       }
@@ -151,13 +151,16 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
           <form onSubmit={form.handleSubmit(handleWalkInSubmit)} className="space-y-6">
             <FormField
               control={form.control}
-              // Use a placeholder name as FormField needs a name from schema, but this drives state
-              name="selected_room_id_placeholder_for_walkin" 
-              render={({ field }) => ( // field here is not directly used for value, selectedRoomId state is
+              name="selected_room_id_placeholder_for_walkin" // This is a placeholder name, not directly used for value
+              render={({ field }) => ( 
                 <FormItem>
                   <FormLabel>Select Available Room *</FormLabel>
                   <Select
-                    onValueChange={(value) => setSelectedRoomId(value ? parseInt(value) : null)}
+                    onValueChange={(value) => {
+                        const roomId = value ? parseInt(value) : null;
+                        setSelectedRoomId(roomId);
+                        field.onChange(roomId); // Update form state if needed, though primary logic uses selectedRoomId
+                    }}
                     value={selectedRoomId?.toString()}
                     disabled={isDataLoading || availableRooms.length === 0}
                   >
@@ -177,7 +180,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                       ))}
                     </SelectContent>
                   </Select>
-                  <FormMessage />
+                  {/* No FormMessage here as it's not a direct schema field, validation is implicit by other fields */}
                 </FormItem>
               )}
             />
