@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"; // Added CardContent
 import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
@@ -143,7 +143,7 @@ const StaffDashboardPage: NextPage = () => {
 
   useEffect(() => {
     fetchReservationCount();
-    const countInterval = setInterval(fetchReservationCount, 60000);
+    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
@@ -279,7 +279,7 @@ const StaffDashboardPage: NextPage = () => {
                 size="sm"
                 onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
               >
-                <Bed className="mr-2 h-4 w-4" /> View Available
+                <Eye className="mr-2 h-4 w-4" /> View Available
               </Button>
             )}
           </div>
@@ -361,5 +361,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
-    
