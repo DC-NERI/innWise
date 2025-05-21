@@ -5,15 +5,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Users } from 'lucide-react'; // Added Users
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react'; // Changed Broom to Wrench, removed redundant Users
 import { useToast } from '@/hooks/use-toast';
-import type { Notification, HotelRoom, Transaction, SimpleRate } from '@/lib/types';
+import type { Notification, HotelRoom, Transaction } from '@/lib/types';
 import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
 import { listRoomsForBranch } from '@/actions/admin';
 import {
     NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT,
     TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
-    TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT,
+    TRANSACTION_STATUS_TEXT,
     ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT,
     ROOM_CLEANING_STATUS_TEXT
 } from '@/lib/constants';
@@ -80,7 +80,7 @@ const ReservationListTable = ({ reservations, title }: { reservations: Transacti
                             <TableCell className="font-medium">{res.client_name}</TableCell>
                             <TableCell>{res.rate_name || 'N/A'}</TableCell>
                             <TableCell>
-                                {res.reserved_check_in_datetime 
+                                {res.reserved_check_in_datetime
                                     ? format(parseISO(res.reserved_check_in_datetime.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')
                                     : (res.created_at ? format(parseISO(res.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') + " (Created)" : 'N/A')
                                 }
@@ -232,7 +232,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
       <Card>
         <CardHeader>
           <div className="flex items-center space-x-2">
-            <Users className="h-5 w-5 text-primary" />
+            <UserIcon className="h-5 w-5 text-primary" />
             <CardTitle>Unassigned Reservations</CardTitle>
           </div>
           <CardDescription>Reservations awaiting room assignment.</CardDescription>
@@ -276,7 +276,13 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       <Card key={`avail-dash-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
                         <CardHeader className="p-2">
                           <CardTitle className="text-sm font-medium text-green-700 dark:text-green-200 truncate">{room.room_name}</CardTitle>
-                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Room #: {room.room_code} <br/> Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</CardDescription>
+                          <CardDescription className="text-xs text-green-600 dark:text-green-300">
+                            Room #: {room.room_code} <br/>
+                            <div className="flex items-center">
+                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                            </div>
+                          </CardDescription>
                         </CardHeader>
                       </Card>
                     ))}
@@ -306,7 +312,10 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                               <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
                               <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                               <div>Est. Out: {estCheckoutDisplay}</div>
-                              <div>Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</div>
+                              <div className="flex items-center">
+                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                               </div>
                             </CardDescription>
                           </CardHeader>
                         </Card>
@@ -326,7 +335,10 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                              {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
-                             <div>Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</div>
+                             <div className="flex items-center">
+                                <Wrench size={12} className="inline mr-1" /> {/* Changed Broom to Wrench */}
+                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}
+                              </div>
                            </CardDescription>
                         </CardHeader>
                       </Card>
@@ -341,3 +353,4 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     </div>
   );
 }
+
