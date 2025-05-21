@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon, LayoutDashboard, Eye } from 'lucide-react';
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon, LayoutDashboard, Eye, PanelLeft } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -169,7 +169,7 @@ const StaffDashboardPage: NextPage = () => {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar>
+      <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
             <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
@@ -193,36 +193,40 @@ const StaffDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('dashboard')}
                 isActive={activeView === 'dashboard'}
+                tooltip="Dashboard"
               >
                 <LayoutDashboard />
-                Dashboard
+                <span>Dashboard</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
              <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('room-status')}
                 isActive={activeView === 'room-status'}
+                tooltip="Room Status"
               >
                 <BedDouble />
-                Room Status
+                <span>Room Status</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('walk-in')}
                 isActive={activeView === 'walk-in'}
+                tooltip="Walk-in Check-in"
               >
                 <UsersIcon />
-                Walk-in Check-in
+                <span>Walk-in Check-in</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('reservations')}
                 isActive={activeView === 'reservations'}
+                tooltip="Reservations"
               >
                 <CalendarPlus />
-                Reservations
+                <span>Reservations</span>
                 {unassignedReservationsCount > 0 && (
                   <SidebarMenuBadge>{unassignedReservationsCount}</SidebarMenuBadge>
                 )}
@@ -232,9 +236,10 @@ const StaffDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('notifications')}
                 isActive={activeView === 'notifications'}
+                tooltip="Messages & Notifications"
               >
                 <MessageSquare />
-                Message/Notif
+                <span>Message/Notif</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -246,9 +251,10 @@ const StaffDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
+                  tooltip="Settings"
                 >
                   <Settings />
-                   Settings
+                   <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -257,12 +263,22 @@ const StaffDashboardPage: NextPage = () => {
       </Sidebar>
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-2">
+            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
+             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
             <div className="text-sm font-bold text-foreground">
               {branchName && <span className="mr-2">{branchName} -</span>}
               {dateTimeDisplay}
             </div>
-            {activeView === 'room-status' && (
+             {activeView === 'room-status' && (
               <Button
                 variant="outline"
                 size="sm"
@@ -312,7 +328,7 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId && activeView !== 'dashboard') && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || (!userId && activeView !== 'dashboard') ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
@@ -349,5 +365,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
-    

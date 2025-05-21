@@ -6,12 +6,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell } from 'lucide-react'; // Added Bell
+import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell, PanelLeft } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
-import NotificationsContent from '@/components/admin/notifications-content'; // Added import
+import NotificationsContent from '@/components/admin/notifications-content';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime } from 'date-fns';
@@ -27,7 +27,7 @@ const AdminDashboardPage: NextPage = () => {
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<number | null>(null); // Added adminUserId state
+  const [userId, setUserId] = useState<number | null>(null);
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -40,7 +40,7 @@ const AdminDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
-      const storedUserId = localStorage.getItem('userId'); // Retrieve admin's user ID
+      const storedUserId = localStorage.getItem('userId');
 
       if (storedRole) {
         setUserRole(storedRole);
@@ -57,7 +57,7 @@ const AdminDashboardPage: NextPage = () => {
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
-      if (storedUserId) setUserId(parseInt(storedUserId, 10)); // Set adminUserId
+      if (storedUserId) setUserId(parseInt(storedUserId, 10));
 
       if (storedRole === 'sysad') { 
          setTenantName("System Administrator");
@@ -108,7 +108,7 @@ const AdminDashboardPage: NextPage = () => {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar>
+      <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
             <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
@@ -132,45 +132,50 @@ const AdminDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('users')}
                 isActive={activeView === 'users'}
+                tooltip="Users"
               >
                 <Users />
-                Users
+                <span>Users</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
+                tooltip="Branches"
               >
                 <Building />
-                Branches
+                <span>Branches</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
              <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('rates')}
                 isActive={activeView === 'rates'}
+                tooltip="Rates"
               >
                 <Tags />
-                Rates
+                <span>Rates</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
              <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('rooms')}
                 isActive={activeView === 'rooms'}
+                tooltip="Rooms"
               >
                 <BedDouble />
-                Rooms
+                <span>Rooms</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('notifications')}
                 isActive={activeView === 'notifications'}
+                tooltip="Notifications"
               >
                 <Bell />
-                Notifications
+                <span>Notifications</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -182,9 +187,10 @@ const AdminDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
+                  tooltip="Settings"
                 >
                   <Settings />
-                   Settings
+                   <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -193,8 +199,20 @@ const AdminDashboardPage: NextPage = () => {
       </Sidebar>
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="text-sm font-bold text-foreground">
-            {dateTimeDisplay}
+          <div className="flex items-center gap-2">
+            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
+             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
+            <div className="text-sm font-bold text-foreground">
+              {dateTimeDisplay}
+            </div>
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout

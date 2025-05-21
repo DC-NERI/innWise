@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building2, Settings, LogOut, Users, Network } from 'lucide-react';
+import { Building2, Settings, LogOut, Users, Network, PanelLeft } from 'lucide-react';
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
@@ -75,7 +75,7 @@ const SysAdDashboardPage: NextPage = () => {
 
   return (
     <SidebarProvider defaultOpen>
-      <Sidebar>
+      <Sidebar collapsible="icon">
         <SidebarHeader>
           <div className="p-[3px] border-b border-sidebar-border flex flex-col space-y-1 text-center sm:text-left">
             <h2 className="text-lg font-semibold text-sidebar-foreground truncate" title={tenantName}>
@@ -99,27 +99,30 @@ const SysAdDashboardPage: NextPage = () => {
               <SidebarMenuButton
                 onClick={() => setActiveView('tenants')}
                 isActive={activeView === 'tenants'}
+                tooltip="Tenants"
               >
                 <Building2 />
-                Tenants
+                <span>Tenants</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
              <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('branches')}
                 isActive={activeView === 'branches'}
+                tooltip="Branches"
               >
                 <Network />
-                Branches
+                <span>Branches</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('users')}
                 isActive={activeView === 'users'}
+                tooltip="Users"
               >
                 <Users />
-                Users
+                <span>Users</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -131,9 +134,10 @@ const SysAdDashboardPage: NextPage = () => {
                 <SidebarMenuButton
                   onClick={() => setActiveView('settings')}
                   isActive={activeView === 'settings'}
+                  tooltip="Settings"
                 >
                   <Settings />
-                   Settings
+                   <span>Settings</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -142,8 +146,20 @@ const SysAdDashboardPage: NextPage = () => {
       </Sidebar>
       <SidebarInset>
         <header className="flex justify-between items-center p-4 border-b bg-card text-card-foreground shadow-sm">
-          <div className="text-sm font-bold text-foreground">
-            {dateTimeDisplay}
+          <div className="flex items-center gap-2">
+            <SidebarMenuButton asChild variant="ghost" size="icon" className="md:hidden">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
+             <SidebarMenuButton asChild variant="ghost" size="icon" className="hidden md:flex">
+                <button type="button" aria-label="Toggle Sidebar">
+                <PanelLeft />
+                </button>
+            </SidebarMenuButton>
+            <div className="text-sm font-bold text-foreground">
+              {dateTimeDisplay}
+            </div>
           </div>
            <Button variant="outline" size="sm" onClick={handleLogout}>
              <LogOut className="mr-2 h-4 w-4" /> Logout

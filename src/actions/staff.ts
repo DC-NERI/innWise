@@ -122,6 +122,40 @@ export async function createTransactionAndOccupyRoom(
   }
 }
 
+export async function updateRoomCleaningNotes(
+    roomId: number,
+    notes: string | null | undefined,
+    tenantId: number,
+    branchId: number,
+    staffUserId: number
+): Promise<{ success: boolean; message?: string; updatedRoom?: Pick<HotelRoom, 'id' | 'cleaning_notes'> }> {
+    console.log(`[staff.ts:updateRoomCleaningNotes] Called with: roomId=${roomId}, notes=${notes === undefined ? 'undefined' : notes === null ? 'null' : `"${notes}"`}`);
+    const client = await pool.connect();
+    try {
+        const res = await client.query(
+            `UPDATE hotel_room
+             SET cleaning_notes = $1, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+             WHERE id = $2 AND tenant_id = $3 AND branch_id = $4
+             RETURNING id, cleaning_notes`,
+            [notes, roomId, tenantId, branchId]
+        );
+        if (res.rows.length > 0) {
+            const updatedRow = res.rows[0];
+            return {
+                success: true,
+                message: "Room cleaning notes updated successfully.",
+                updatedRoom: updatedRow as Pick<HotelRoom, 'id' | 'cleaning_notes'>,
+            };
+        }
+        return { success: false, message: "Room not found or notes update failed." };
+    } catch (error) {
+        console.error(`Failed to update cleaning notes for room ${roomId}:`, error);
+        return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+        client.release();
+    }
+}
+
 export async function createReservation(
   data: TransactionCreateData,
   tenantId: number,
@@ -1232,7 +1266,8 @@ export async function updateRoomCleaningStatus(
     tenantId: number,
     branchId: number,
     newCleaningStatus: string,
-    staffUserId: number 
+    staffUserId: number,
+    notes: string | null | undefined // Add notes parameter
 ): Promise<{ success: boolean; message?: string; updatedRoom?: Pick<HotelRoom, 'id' | 'cleaning_status'> }> {
     const validatedSchema = roomCleaningStatusUpdateSchema.safeParse({ cleaning_status: newCleaningStatus });
     if (!validatedSchema.success) {
@@ -1256,16 +1291,17 @@ export async function updateRoomCleaningStatus(
             return { success: false, message: "Room not found or no change made to cleaning status." };
         }
         
-        // Log the cleaning status change
-        // Assuming room_cleaning_logs table has room_id, room_cleaning_status, (optional) notes, (optional) user_id
-        // The user's DDL did not include user_id or notes, so we'll log what we can.
+        // Log the cleaning status change including notes and staff user ID
         await client.query(
-            `INSERT INTO room_cleaning_logs (room_id, room_cleaning_status)
-             VALUES ($1, $2)`,
+            `INSERT INTO room_cleaning_logs (room_id, room_cleaning_status, notes, user_id) VALUES ($1, $2, $3, $4)`,
             [roomId, newCleaningStatus]
         );
         // If you add user_id to room_cleaning_logs, include staffUserId in the insert.
-        // If you add notes, the function signature and UI would need to accommodate it.
+        // If you add notes, the function signature and UI would need to accommodate it. #this will be handled in a separate diff
+        await client.query(
+            `INSERT INTO room_cleaning_logs (room_id, room_cleaning_status, notes, user_id) VALUES ($1, $2, $3, $4)`,
+            [roomId, newCleaningStatus, notes, staffUserId]
+        );
 
         await client.query('COMMIT');
         return {

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
-import { Label } from "@/components/ui/label";
+import { Label, VisuallyHiddenLabel } from "@/components/ui/label";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -22,9 +22,8 @@ import {
   updateTransactionNotes,
   createReservation,
   updateReservedTransactionDetails,
-  cancelReservation,
   checkInReservedGuest,
-  updateRoomCleaningStatus
+  updateRoomCleaningNotes
 } from '@/actions/staff';
 import { transactionCreateSchema, TransactionCreateData, transactionUpdateNotesSchema, TransactionUpdateNotesData, transactionReservedUpdateSchema, roomCleaningStatusUpdateSchema } from '@/lib/schemas';
 import { useForm } from 'react-hook-form';
@@ -99,9 +98,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const [isRoomRatesDetailModalOpen, setIsRoomRatesDetailModalOpen] = useState(false);
   const [selectedRoomForRatesDisplay, setSelectedRoomForRatesDisplay] = useState<HotelRoom | null>(null);
 
+  // State for Cleaning Notes Modal
+  const [isCleaningNotesModalOpen, setIsCleaningNotesModalOpen] = useState(false);
+  const [selectedRoomForCleaningNotes, setSelectedRoomForCleaningNotes] = useState<HotelRoom | null>(null);
+  const [currentCleaningNote, setCurrentCleaningNote] = useState<string>('');
+  const [isEditingCleaningNote, setIsEditingCleaningNote] = useState(false);
+
   const [isSubmittingCleaningStatusForRoomId, setIsSubmittingCleaningStatusForRoomId] = useState<number | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingCleaningNote, setIsSavingCleaningNote] = useState(false);
   const { toast } = useToast();
 
   const bookingForm = useForm<TransactionCreateData>({
@@ -117,6 +123,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const reservationEditForm = useForm<z.infer<typeof transactionReservedUpdateSchema>>({
     resolver: zodResolver(transactionReservedUpdateSchema),
     defaultValues: defaultReservationEditFormValues,
+  });
+
+   const cleaningNotesForm = useForm<{ notes: string }>({
+    defaultValues: { notes: '' },
   });
 
 
@@ -201,6 +211,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
       return;
     }
+    if (room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN) {
+      toast({ title: "Cannot Book/Reserve", description: `Room status must be "${ROOM_CLEANING_STATUS_TEXT[ROOM_CLEANING_STATUS.CLEAN]}" to book or reserve. Current status: ${ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}`, variant: "default" });
+      return;
+    }
+
     setSelectedRoomForBooking(room);
     setBookingMode(mode);
 
@@ -363,50 +378,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     }
   };
 
-  const handleOpenCancelReservationConfirmation = useCallback((room: HotelRoom) => {
-    if (!tenantId || !branchId) {
-        toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
-        return;
-    }
-     if (!room.transaction_id) {
-        toast({ title: "Action Not Allowed", description: "No transaction linked to cancel.", variant: "default" });
-        return;
-    }
-    setRoomForActionConfirmation(room);
-    setActiveTransactionIdForAction(room.transaction_id);
-    setIsCancelReservationConfirmOpen(true);
-  }, [tenantId, branchId, toast]);
-
-  const handleConfirmCancelReservation = async () => {
-    if (!activeTransactionIdForAction || !tenantId || !branchId) {
-      toast({ title: "Cancellation Error", description: "Required information for cancellation is missing.", variant: "destructive" });
-      setIsCancelReservationConfirmOpen(false);
-      return;
-    }
-    setIsSubmitting(true);
-    try {
-      const result = await cancelReservation(
-        activeTransactionIdForAction, tenantId, branchId, roomForActionConfirmation?.id || null 
-      );
-      if (result.success && result.updatedRoomData) {
-        toast({ title: "Success", description: result.message || "Reservation cancelled." });
-        updateRoomInLocalState(result.updatedRoomData);
-         if (isTransactionDetailsDialogOpen && transactionDetails?.id === activeTransactionIdForAction) {
-            setIsTransactionDetailsDialogOpen(false);
-            setTransactionDetails(null);
-        }
-      } else {
-        toast({ title: "Cancellation Failed", description: result.message, variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred during cancellation.", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-      setIsCancelReservationConfirmOpen(false);
-      setRoomForActionConfirmation(null);
-      setActiveTransactionIdForAction(null);
-    }
-  };
 
   const handleOpenCheckInReservedConfirmation = useCallback((room: HotelRoom) => {
     if (!tenantId || !branchId || !staffUserId) {
@@ -499,26 +470,64 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     }
   };
 
-  const handleQuickSetCleaningStatus = async (roomId: number, newStatus: string) => {
-    if (!tenantId || !branchId || !staffUserId) {
-      toast({ title: "Error", description: "Required identifiers missing.", variant: "destructive" });
-      return;
-    }
-    setIsSubmittingCleaningStatusForRoomId(roomId);
-    try {
-      const result = await updateRoomCleaningStatus(roomId, tenantId, branchId, newStatus, staffUserId);
-      if (result.success && result.updatedRoom) {
-        toast({ title: "Success", description: `Room cleaning status updated to ${ROOM_CLEANING_STATUS_TEXT[result.updatedRoom.cleaning_status as keyof typeof ROOM_CLEANING_STATUS_TEXT]}.` });
-        updateRoomInLocalState(result.updatedRoom);
-      } else {
-        toast({ title: "Update Failed", description: result.message || "Could not update cleaning status.", variant: "destructive" });
+  const handleOpenCleaningNotesModal = useCallback(async (room: HotelRoom) => {
+      if (!tenantId || !branchId) {
+        toast({ title: "Error", description: "Required identifiers missing.", variant: "destructive" });
+        return;
       }
-    } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
-    } finally {
-      setIsSubmittingCleaningStatusForRoomId(null);
-    }
-  };
+       // Directly use the notes from the room object which should be up-to-date
+      setCurrentCleaningNote(room.cleaning_notes || "No note recorded for this cleaning status.");
+      cleaningNotesForm.reset({ notes: room.cleaning_notes || '' });
+      setSelectedRoomForCleaningNotes(room);
+      setIsCleaningNotesModalOpen(true);
+      setIsEditingCleaningNote(false); // Start in view mode
+  }, [tenantId, branchId, toast, cleaningNotesForm]);
+  
+  const [isSavingCleaningStatus, setIsSavingCleaningStatus] = useState(false);
+
+  const handleUpdateRoomCleaningStatus = async (data: { newStatus?: string; notes?: string }) => {
+      if (!selectedRoomForCleaningNotes || !tenantId || !branchId || !staffUserId) {
+          toast({ title: "Error", description: "Missing details to update cleaning status or note.", variant: "destructive" });
+          return;
+      }
+
+      const statusToUpdate = data.newStatus ?? selectedRoomForCleaningNotes.cleaning_status;
+      const notesToUpdate = data.notes ?? selectedRoomForCleaningNotes.cleaning_notes;
+
+      if (statusToUpdate === undefined) {
+           toast({ title: "Error", description: "No cleaning status provided for update.", variant: "destructive" });
+           return;
+      }
+
+      setIsSavingCleaningStatus(true);
+      try {
+          const result = await updateRoomCleaningStatus(
+              selectedRoomForCleaningNotes.id,
+              tenantId,
+              branchId,
+              statusToUpdate,
+              staffUserId,
+              notesToUpdate
+          );
+
+          if (result.success && result.updatedRoomData) {
+               toast({ title: "Success", description: `Room cleaning status updated to ${ROOM_CLEANING_STATUS_TEXT[result.updatedRoomData.cleaning_status as keyof typeof ROOM_CLEANING_STATUS_TEXT]}.` });
+               updateRoomInLocalState(result.updatedRoomData);
+              // Close the notes modal if it was open and we updated the status
+               if (isCleaningNotesModalOpen) {
+                   setIsCleaningNotesModalOpen(false);
+                   setSelectedRoomForCleaningNotes(null);
+                   setCurrentCleaningNote('');
+                   setIsEditingCleaningNote(false);
+                   cleaningNotesForm.reset({ notes: '' });
+               }
+          } else {
+              toast({ title: "Update Failed", description: result.message || "Could not update cleaning status or note.", variant: "destructive" });
+          }
+      } catch (error) {
+          toast({ title: "Error", description: "An unexpected error occurred while saving the note.", variant: "destructive" });
+      } finally { setIsSavingCleaningNote(false); }
+  }
 
 
   const getRoomRateNameForCard = (room: HotelRoom) => {
@@ -562,7 +571,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         <CardHeader>
           <div className="flex items-center space-x-2">
             <Wrench className="h-5 w-5 text-primary" />
-            <CardTitle>Update Room Cleaning Status</CardTitle>
+            <CardTitle>Room Cleaning Status</CardTitle>
           </div>
           <ShadCardDescription>Quickly update the cleaning status for rooms. Click an icon to set the new status.</ShadCardDescription>
         </CardHeader>
@@ -585,7 +594,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                       <div key={`cleaning-room-${room.id}`} className="flex items-center justify-between p-2 border-b last:border-b-0 hover:bg-muted/50 rounded">
                         <div>
                           <p className="font-medium">{room.room_name} <span className="text-sm text-muted-foreground">({room.room_code})</span></p>
-                          <p className="text-xs flex items-center">
+                           <p className="text-xs flex items-center mb-1">
                             Current: 
                             <span className="ml-1 mr-2 flex items-center">
                                {cleaningStatusIcons[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN] || <Wrench size={14} />}
@@ -593,7 +602,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             </span>
                           </p>
                         </div>
-                        <div className="flex space-x-1">
+                        <div className="flex space-x-1 items-center">
+                           <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                onClick={() => handleOpenCleaningNotesModal(room)}
+                                title="Add/Edit Cleaning Notes"
+                            >
+                                <Edit3 className="h-4 w-4" />
+                            </Button>
                           {cleaningStatusActionButtons.map(actionBtn => (
                             <Button
                               key={actionBtn.status}
@@ -601,7 +619,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                               size="icon"
                               className={cn("h-8 w-8", actionBtn.className)}
                               onClick={() => handleQuickSetCleaningStatus(room.id, actionBtn.status)}
-                              disabled={isSubmittingCleaningStatusForRoomId === room.id || room.cleaning_status === actionBtn.status}
+                              disabled={isSubmittingCleaningStatusForRoomId === room.id || room.cleaning_status === actionBtn.status || isSavingCleaningStatus}
                               title={actionBtn.label}
                             >
                               {isSubmittingCleaningStatusForRoomId === room.id ? <Loader2 className="h-4 w-4 animate-spin" /> : actionBtn.icon}
@@ -745,13 +763,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             <div className="flex flex-col space-y-2 w-full">
                                 {room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && (
                                     <>
+                                        {/* BOOK BUTTON */}
                                         <Button
                                             variant="default"
                                             size="sm"
                                             className="w-full"
                                             onClick={(e) => { e.stopPropagation(); handleOpenBookingDialog(room, 'book'); }}
+                                            disabled={room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN}
                                             title="Book this room for immediate check-in"
                                         >
+                                           {room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && <Ban className="mr-2 h-4 w-4" />}
                                             <LogIn className="mr-2 h-4 w-4" /> Book Room
                                         </Button>
                                         <Button
@@ -760,6 +781,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                             className="w-full"
                                             onClick={(e) => { e.stopPropagation(); handleOpenBookingDialog(room, 'reserve'); }}
                                             title="Reserve this room"
+                                            disabled={room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN}
                                         >
                                             <CalendarPlus className="mr-2 h-4 w-4" /> Reserve Room
                                         </Button>
@@ -1142,6 +1164,43 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+       {/* Cleaning Notes Modal */}
+        <Dialog open={isCleaningNotesModalOpen} onOpenChange={(isOpen) => {
+            if (!isOpen) {
+                setSelectedRoomForCleaningNotes(null);
+                setCurrentCleaningNote('');
+                setIsEditingCleaningNote(false);
+                 cleaningNotesForm.reset({ notes: '' });
+            }
+             setIsCleaningNotesModalOpen(isOpen);
+        }}>
+            <DialogContent className="sm:max-w-md p-3">
+                <DialogHeader className="border-b pb-2 mb-2">
+                    <DialogTitle>
+                        Cleaning Notes for Room: {selectedRoomForCleaningNotes?.room_name}
+                    </DialogTitle>
+                    <ShadDialogDescriptionAliased className="text-sm text-muted-foreground">
+                       Status: {ROOM_CLEANING_STATUS_TEXT[selectedRoomForCleaningNotes?.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
+                    </ShadDialogDescriptionAliased>
+                </DialogHeader>
+
+                <Form {...cleaningNotesForm}>
+                    <form onSubmit={cleaningNotesForm.handleSubmit(data => handleUpdateRoomCleaningStatus({ notes: data.notes }))} className="space-y-4 py-2">
+                        <FormField control={cleaningNotesForm.control} name="notes" render={({ field }) => (
+                            <FormItem>
+                                <RHFFormLabel>Note</RHFFormLabel>
+                                <FormControl><Textarea placeholder="Add cleaning notes..." {...field} value={field.value ?? ''} rows={5} /></FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )} />
+                        <DialogFooter className="sm:justify-start">
+                             <Button type="submit" disabled={isSavingCleaningNote}>{isSavingCleaningNote ? <Loader2 className="animate-spin mr-2" size={16} /> : null} Save Note</Button>
+                        </DialogFooter>
+                    </form>
+                </Form>
+            </DialogContent>
+        </Dialog>
 
       {/* Available Rooms Overview Modal */}
       <Dialog open={showAvailableRoomsOverview} onOpenChange={onCloseAvailableRoomsOverview}>
