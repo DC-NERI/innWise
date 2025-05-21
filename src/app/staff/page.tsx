@@ -7,14 +7,14 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon, LayoutDashboard } from 'lucide-react'; // Added LayoutDashboard
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon, LayoutDashboard, Eye } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
 import NotificationsContent from '@/components/staff/notifications-content';
 import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
-import DashboardContent from '@/components/staff/dashboard-content'; // New import
+import DashboardContent from '@/components/staff/dashboard-content';
 import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
@@ -28,7 +28,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'dashboard' | 'room-status' | 'reservations' | 'notifications' | 'walk-in' | 'settings'>('dashboard'); // Default to dashboard
+  const [activeView, setActiveView] = useState<'dashboard' | 'room-status' | 'reservations' | 'notifications' | 'walk-in' | 'settings'>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -125,7 +125,7 @@ const StaffDashboardPage: NextPage = () => {
       setDateTimeDisplay(formatDateTime(nowInManila, 'yyyy-MM-dd hh:mm:ss aa'));
     }, 1000);
     return () => clearInterval(intervalId);
-  }, [router, manilaTimeZone]);
+  }, [router]);
 
   const fetchReservationCount = useCallback(async () => {
     if (tenantId && branchId) {
@@ -143,8 +143,8 @@ const StaffDashboardPage: NextPage = () => {
 
 
   useEffect(() => {
-    fetchReservationCount(); // Initial fetch
-    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every 60 seconds
+    fetchReservationCount();
+    const countInterval = setInterval(fetchReservationCount, 60000);
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
@@ -268,7 +268,7 @@ const StaffDashboardPage: NextPage = () => {
                 size="sm"
                 onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
               >
-                <BedDouble className="mr-2 h-4 w-4" /> View Available
+                <Eye className="mr-2 h-4 w-4" /> View Available
               </Button>
             )}
           </div>
@@ -312,7 +312,7 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId) && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId && activeView !== 'dashboard') && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
