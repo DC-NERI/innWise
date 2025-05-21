@@ -1,0 +1,250 @@
+
+"use client";
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2 } from 'lucide-react'; // Renamed Users to UserIcon
+import { useToast } from '@/hooks/use-toast';
+import type { Notification, HotelRoom } from '@/lib/types';
+import { listNotificationsForBranch } from '@/actions/staff';
+import { listRoomsForBranch } from '@/actions/admin'; 
+import { 
+    NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT, 
+    TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT, 
+    TRANSACTION_STATUS_TEXT,
+    ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT
+} from '@/lib/constants';
+import { format, parseISO, addHours } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+interface DashboardContentProps {
+  tenantId: number;
+  branchId: number;
+  staffUserId: number; 
+}
+
+const NotificationTable = ({ notifications }: { notifications: Notification[] }) => {
+  if (!notifications || notifications.length === 0) {
+    return <p className="text-muted-foreground text-center py-4">No notifications in this category.</p>;
+  }
+  return (
+    <div className="max-h-72 overflow-y-auto">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-[35%]">Message</TableHead>
+            <TableHead>Creator</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Linked Tx Status</TableHead>
+            <TableHead>Acceptance</TableHead>
+            <TableHead>Created</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {notifications.map(notif => (
+            <TableRow key={notif.id} className={cn(notif.status === NOTIFICATION_STATUS.UNREAD ? "bg-primary/5 dark:bg-primary/10" : "")}>
+              <TableCell className="truncate max-w-xs" title={notif.message}>{notif.message.substring(0, 50)}{notif.message.length > 50 ? '...' : ''}</TableCell>
+              <TableCell>{notif.creator_username || 'System'}</TableCell>
+              <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status] || 'Unknown'}</TableCell>
+              <TableCell>{notif.transaction_id ? (TRANSACTION_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
+              <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
+              <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'MM-dd hh:mm aa') : 'N/A'}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+};
+
+export default function DashboardContent({ tenantId, branchId, staffUserId }: DashboardContentProps) {
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [rooms, setRooms] = useState<HotelRoom[]>([]);
+  const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
+  const [isLoadingRooms, setIsLoadingRooms] = useState(true);
+  const [activeNotificationTab, setActiveNotificationTab] = useState("pending");
+  const [activeRoomTab, setActiveRoomTab] = useState("available");
+
+  const { toast } = useToast();
+
+  const fetchNotifications = useCallback(async () => {
+    if (!tenantId || !branchId) return;
+    setIsLoadingNotifications(true);
+    try {
+      const fetchedNotifications = await listNotificationsForBranch(tenantId, branchId);
+      setNotifications(fetchedNotifications.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    } catch (error) {
+      toast({ title: "Error", description: "Could not fetch notifications for dashboard.", variant: "destructive" });
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+  }, [tenantId, branchId, toast]);
+
+  const fetchRooms = useCallback(async () => {
+    if (!tenantId || !branchId) return;
+    setIsLoadingRooms(true);
+    try {
+      const fetchedRooms = await listRoomsForBranch(branchId, tenantId);
+      setRooms(fetchedRooms);
+    } catch (error) {
+      toast({ title: "Error", description: "Could not fetch rooms for dashboard.", variant: "destructive" });
+    } finally {
+      setIsLoadingRooms(false);
+    }
+  }, [tenantId, branchId, toast]);
+
+  useEffect(() => {
+    fetchNotifications();
+    fetchRooms();
+  }, [fetchNotifications, fetchRooms]);
+
+  const filteredNotifications = notifications.filter(notif => {
+    if (activeNotificationTab === "pending") {
+      return notif.transaction_id && notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING;
+    }
+    if (activeNotificationTab === "accepted") {
+      return notif.transaction_id && notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED;
+    }
+    if (activeNotificationTab === "general") {
+      return !notif.transaction_id || 
+             (notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING &&
+              notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED);
+    }
+    return false; 
+  });
+
+  const availableRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.status === '1');
+  const occupiedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && room.status === '1');
+  const reservedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.status === '1');
+
+  const isLoading = isLoadingNotifications || isLoadingRooms;
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="ml-3 text-muted-foreground">Loading dashboard data...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Card 1: Notifications */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Bell className="h-5 w-5 text-primary" />
+            <CardTitle>Notifications Overview</CardTitle>
+          </div>
+          <CardDescription>Summary of recent notifications for your branch.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeNotificationTab} onValueChange={setActiveNotificationTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-3 mb-4">
+              <TabsTrigger value="pending">Pending ({notifications.filter(n => n.transaction_id && n.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING).length})</TabsTrigger>
+              <TabsTrigger value="accepted">Accepted Tx ({notifications.filter(n => n.transaction_id && n.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED).length})</TabsTrigger>
+              <TabsTrigger value="general">General ({notifications.filter(n => !n.transaction_id || (n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING && n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED)).length})</TabsTrigger>
+            </TabsList>
+            <TabsContent value="pending">
+              <NotificationTable notifications={filteredNotifications} />
+            </TabsContent>
+            <TabsContent value="accepted">
+              <NotificationTable notifications={filteredNotifications} />
+            </TabsContent>
+            <TabsContent value="general">
+              <NotificationTable notifications={filteredNotifications} />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* Card 2: Reservations Summary (Placeholder) */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <CalendarClock className="h-5 w-5 text-primary" />
+            <CardTitle>Reservations Summary</CardTitle>
+          </div>
+          <CardDescription>Quick look at today's and upcoming reservations.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground">Reservations for Today and Upcoming - Feature Coming Soon.</p>
+        </CardContent>
+      </Card>
+
+      {/* Card 3: Room Status Overview */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Bed className="h-5 w-5 text-primary" />
+            <CardTitle>Room Status Overview</CardTitle>
+          </div>
+          <CardDescription>Current status of rooms in your branch.</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <Tabs value={activeRoomTab} onValueChange={setActiveRoomTab} className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-4">
+                <TabsTrigger value="available">Available ({availableRooms.length})</TabsTrigger>
+                <TabsTrigger value="occupied">Occupied ({occupiedRooms.length})</TabsTrigger>
+                <TabsTrigger value="reserved">Reserved ({reservedRooms.length})</TabsTrigger>
+              </TabsList>
+              <TabsContent value="available">
+                {availableRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 max-h-72 overflow-y-auto">
+                    {availableRooms.map(room => (
+                      <Card key={`avail-dash-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-sm font-medium text-green-700 dark:text-green-200 truncate">{room.room_name}</CardTitle>
+                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Code: {room.room_code}</CardDescription>
+                        </CardHeader>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="occupied">
+                {occupiedRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently occupied.</p> : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                    {occupiedRooms.map(room => (
+                      <Card key={`occ-dash-${room.id}`} className="shadow-sm bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700">
+                        <CardHeader className="p-2">
+                          <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
+                          <CardDescription className="text-xs text-orange-600 dark:text-orange-300">
+                            <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
+                            <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'MM-dd hh:mm aa') : 'N/A'}</div>
+                            <div>Est. Out: Placeholder</div> {/* Placeholder for Est. Checkout */}
+                          </CardDescription>
+                        </CardHeader>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+              <TabsContent value="reserved">
+                {reservedRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently reserved.</p> : (
+                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                    {reservedRooms.map(room => (
+                      <Card key={`res-dash-${room.id}`} className="shadow-sm bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
+                        <CardHeader className="p-2">
+                           <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
+                           <CardDescription className="text-xs text-blue-600 dark:text-blue-300">
+                             {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
+                             <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
+                           </CardDescription>
+                        </CardHeader>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+    
