@@ -5,14 +5,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Label } from "@/components/ui/label";
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { BedDouble, Loader2, Info, User, LogOutIcon, LogIn, CalendarClock, Edit3, Ban, CheckCircle2, CalendarPlus, Tags, Eye, X, Broom, Users as UsersIcon, RefreshCw } from "lucide-react";
+import { BedDouble, Loader2, Info, User, LogOutIcon, LogIn, CalendarClock, Edit3, Ban, CheckCircle2, CalendarPlus, Tags, Eye, X, Wrench, Users as UsersIcon, RefreshCw } from "lucide-react";
 import type { HotelRoom, Transaction, SimpleRate, GroupedRooms, RoomCleaningStatusUpdateData } from '@/lib/types';
 import { listRoomsForBranch, getRatesForBranchSimple } from '@/actions/admin';
 import {
@@ -26,12 +26,7 @@ import {
   checkInReservedGuest,
   updateRoomCleaningStatus
 } from '@/actions/staff';
-import {
-  transactionCreateSchema, TransactionCreateData,
-  transactionUpdateNotesSchema, TransactionUpdateNotesData,
-  transactionReservedUpdateSchema,
-  roomCleaningStatusUpdateSchema
-} from '@/lib/schemas';
+import { transactionCreateSchema, TransactionCreateData, transactionUpdateNotesSchema, TransactionUpdateNotesData, transactionReservedUpdateSchema, roomCleaningStatusUpdateSchema } from '@/lib/schemas';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
@@ -56,7 +51,6 @@ interface RoomStatusContentProps {
   showAvailableRoomsOverview: boolean;
   onCloseAvailableRoomsOverview: () => void;
 }
-
 
 const defaultBookingFormValues: TransactionCreateData = {
   client_name: '',
@@ -84,7 +78,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
   const [groupedRooms, setGroupedRooms] = useState<GroupedRooms>({});
   const [isLoading, setIsLoading] = useState(true);
-
   const [bookingMode, setBookingMode] = useState<'book' | 'reserve' | null>(null);
   const [isBookingDialogOpen, setIsBookingDialogOpen] = useState(false);
   const [selectedRoomForBooking, setSelectedRoomForBooking] = useState<HotelRoom | null>(null);
@@ -95,26 +88,25 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
 
   const [roomForActionConfirmation, setRoomForActionConfirmation] = useState<HotelRoom | null>(null);
   const [activeTransactionIdForAction, setActiveTransactionIdForAction] = useState<number | null>(null);
+
   const [isCheckoutConfirmOpen, setIsCheckoutConfirmOpen] = useState(false);
   const [isCancelReservationConfirmOpen, setIsCancelReservationConfirmOpen] = useState(false);
   const [isCheckInReservedConfirmOpen, setIsCheckInReservedConfirmOpen] = useState(false);
 
   const [allBranchActiveRates, setAllBranchActiveRates] = useState<SimpleRate[]>([]);
   const [applicableRatesForBookingDialog, setApplicableRatesForBookingDialog] = useState<SimpleRate[]>([]);
-
+  
   const [isNotesOnlyModalOpen, setIsNotesOnlyModalOpen] = useState(false);
   const [currentNotesForDisplay, setCurrentNotesForDisplay] = useState<string | null>(null);
-  
+
   const [isRoomRatesDetailModalOpen, setIsRoomRatesDetailModalOpen] = useState(false);
   const [selectedRoomForRatesDisplay, setSelectedRoomForRatesDisplay] = useState<HotelRoom | null>(null);
 
   const [selectedRoomIdForCleaning, setSelectedRoomIdForCleaning] = useState<string>('');
   const [isSubmittingCleaningStatus, setIsSubmittingCleaningStatus] = useState(false);
 
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-
 
   const bookingForm = useForm<TransactionCreateData>({
     resolver: zodResolver(transactionCreateSchema),
@@ -135,7 +127,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     resolver: zodResolver(roomCleaningStatusUpdateSchema),
     defaultValues: defaultCleaningStatusFormValues,
   });
-
 
   const updateRoomInLocalState = useCallback((updatedRoomPartial: Partial<HotelRoom> & { id: number }) => {
     setRooms(prevRooms => {
@@ -175,10 +166,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     }
     setIsLoading(true);
     try {
+      console.log(`[RoomStatusContent] Fetching rooms for tenant ${tenantId}, branch ${branchId}`);
       const [fetchedRooms, fetchedBranchRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
         getRatesForBranchSimple(branchId, tenantId)
       ]);
+      console.log(`[RoomStatusContent] Fetched ${fetchedRooms.length} rooms, ${fetchedBranchRates.length} rates.`);
 
       setRooms(fetchedRooms);
       setAllBranchActiveRates(fetchedBranchRates);
@@ -218,6 +211,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
       return;
     }
+    console.log(`[RoomStatusContent] Opening booking dialog for room ${room.id}, mode: ${mode}`);
     setSelectedRoomForBooking(room);
     setBookingMode(mode);
 
@@ -237,9 +231,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const handleBookingSubmit = async (data: TransactionCreateData) => {
      if (!selectedRoomForBooking || !staffUserId || !tenantId || !branchId || !data.selected_rate_id || !bookingMode) {
         toast({ title: "Submission Error",
-        description: `Booking details incomplete. Ensure room, staff, tenant, branch, rate, and mode are set.`,
+        description: `Booking details incomplete. Ensure room, staff, tenant, branch, rate, and mode are set. Missing: ${!selectedRoomForBooking ? 'Room,' : ''} ${!staffUserId ? 'Staff,' : ''} ${!data.selected_rate_id ? 'Rate,' : ''} ${!bookingMode ? 'Mode,' : ''}`.slice(0, -1),
         variant: "destructive" });
-        console.error("Booking Submit Error - Missing Data:", { selectedRoomForBooking, staffUserId, tenantId, branchId, selected_rate_id: data.selected_rate_id, bookingMode });
+        console.error("[RoomStatusContent] Booking Submit Error - Missing Data:", { selectedRoomForBooking, staffUserId, tenantId, branchId, selected_rate_id: data.selected_rate_id, bookingMode });
         return;
     }
     setIsSubmitting(true);
@@ -286,7 +280,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             if (room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && transaction.status === TRANSACTION_STATUS.UNPAID) {
                 setEditingModeForDialog('notesOnly');
                 notesForm.reset({ notes: transaction.notes || '' });
-            } else if (room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && transaction.status === TRANSACTION_STATUS.ADVANCE_PAID) {
+            } else if (room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && (transaction.status === TRANSACTION_STATUS.ADVANCE_PAID || transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION)) {
                  setEditingModeForDialog('fullReservation');
                  reservationEditForm.reset({
                     client_name: transaction.client_name,
@@ -295,6 +289,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                  });
             } else {
                 setEditingModeForDialog(null); 
+                notesForm.reset(defaultNotesEditFormValues);
+                reservationEditForm.reset(defaultReservationEditFormValues);
             }
             setIsTransactionDetailsDialogOpen(true);
         } else {
@@ -305,7 +301,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     } finally {
         setIsSubmitting(false);
     }
-  }, [tenantId, branchId, toast, notesForm, reservationEditForm, rooms]);
+  }, [tenantId, branchId, toast, notesForm, reservationEditForm]);
 
   const handleOpenNotesOnlyModal = useCallback(async (room: HotelRoom) => {
     if (!room.transaction_id || !tenantId || !branchId) {
@@ -492,18 +488,15 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
 
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Transaction details updated." });
-            setTransactionDetails(result.updatedTransaction);
+            setTransactionDetails(result.updatedTransaction); 
 
-            const roomToUpdate = rooms.find(r => r.id === result.updatedTransaction!.hotel_room_id); // Use hotel_room_id from transaction
+            const roomToUpdate = rooms.find(r => r.id === result.updatedTransaction!.hotel_room_id);
             if (roomToUpdate) {
                  updateRoomInLocalState({
                     id: roomToUpdate.id,
                     active_transaction_client_name: result.updatedTransaction.client_name,
-                    // No direct room card fields changed by notes only or full res details update
                 });
             }
-            if (editingModeForDialog === 'fullReservation') setIsTransactionDetailsDialogOpen(false); // Close if full edit
-            setEditingModeForDialog(null); // Reset editing mode
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update details.", variant: "destructive" });
         }
@@ -533,10 +526,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         if (result.success && result.updatedRoom) {
             toast({ title: "Success", description: "Room cleaning status updated." });
             updateRoomInLocalState(result.updatedRoom);
-            const updatedRoom = rooms.find(r => r.id.toString() === selectedRoomIdForCleaning);
-             if (updatedRoom) {
-                cleaningStatusForm.setValue('cleaning_status', updatedRoom.cleaning_status || ROOM_CLEANING_STATUS.CLEAN);
-            }
+            cleaningStatusForm.setValue('cleaning_status', result.updatedRoom.cleaning_status || ROOM_CLEANING_STATUS.CLEAN);
         } else {
             toast({ title: "Update Failed", description: result.message || "Could not update cleaning status.", variant: "destructive" });
         }
@@ -577,7 +567,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
        <Card className="mb-6">
         <CardHeader>
           <div className="flex items-center space-x-2">
-            <Broom className="h-5 w-5 text-primary" />
+            <Wrench className="h-5 w-5 text-primary" />
             <CardTitle>Update Room Cleaning Status</CardTitle>
           </div>
           <ShadCardDescription>Select a room to view and update its cleaning status.</ShadCardDescription>
@@ -586,8 +576,8 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
           <Form {...cleaningStatusForm}>
             <form onSubmit={cleaningStatusForm.handleSubmit(handleUpdateSelectedRoomCleaningStatus)} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <FormField
-                control={cleaningStatusForm.control} // This is a dummy control for the room selection, not part of the schema
-                name="room_selection_dummy" // Dummy name
+                control={cleaningStatusForm.control} 
+                name="room_selection_dummy" 
                 render={({ field }) => (
                   <FormItem>
                     <RHFFormLabel>Select Room</RHFFormLabel>
@@ -671,7 +661,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                   <span>Floor: {floor.replace('Ground Floor / Other', 'Ground Floor / Unspecified')}</span>
                     <span className="text-xs font-normal ml-4 flex items-center space-x-3">
                         <span className="flex items-center text-green-600"><CheckCircle2 className="h-4 w-4 mr-1" />{availableCount}</span>
-                        <span className="flex items-center text-orange-600"><User className="h-4 w-4 mr-1" />{occupiedCount}</span>
+                        <span className="flex items-center text-orange-600"><UserIcon className="h-4 w-4 mr-1" />{occupiedCount}</span>
                         <span className="flex items-center text-yellow-600"><CalendarClock className="h-4 w-4 mr-1" />{reservedCount}</span>
                     </span>
                 </div>
@@ -679,6 +669,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
               <AccordionContent className="px-4 pb-4 pt-0">
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {floorRooms.map(room => {
+                    // console.log(`Rendering Room Card: Name: ${room.room_name}, Available: ${room.is_available}, Active Tx ID: ${room.active_transaction_id}, Client Name: ${room.active_transaction_client_name}`);
                     let headerBgClass = "bg-card";
                     let statusDotClass = "bg-gray-400";
                     let statusTextClass = "text-gray-600 dark:text-gray-400";
@@ -740,7 +731,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             {room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && room.active_transaction_client_name && (
                               <>
                                 <div className="flex items-center text-xs mt-1">
-                                    <UserIcon className="h-3 w-3 mr-1 flex-shrink-0 text-primary" />
+                                    <User className="h-3 w-3 mr-1 flex-shrink-0 text-primary" />
                                     <span className="font-medium text-foreground mr-1">Guest:</span>
                                     <span className="text-muted-foreground truncate" title={room.active_transaction_client_name}>
                                       {room.active_transaction_client_name}
@@ -756,13 +747,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             {room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.active_transaction_client_name && (
                               <>
                                 <div className="flex items-center text-xs mt-1">
-                                    <UserIcon className="h-3 w-3 mr-1 flex-shrink-0 text-primary" />
+                                    <User className="h-3 w-3 mr-1 flex-shrink-0 text-primary" />
                                     <span className="font-medium text-foreground mr-1">Client:</span>
                                      <span className="text-muted-foreground truncate" title={room.active_transaction_client_name}>
                                       {room.active_transaction_client_name}
                                     </span>
                                 </div>
-                                 {room.active_transaction_check_in_time && ( // This might be reservation creation time for status 2
+                                 {room.active_transaction_check_in_time && ( 
                                   <p className="text-xs text-muted-foreground">
                                     Reserved: {format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}
                                   </p>
@@ -770,14 +761,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                               </>
                             )}
                              <div className="flex items-center text-xs mt-1">
-                                <Broom size={12} className="inline mr-1 text-muted-foreground" />
+                                <Wrench size={12} className="inline mr-1 text-muted-foreground" />
                                 <span className="text-muted-foreground">{ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}</span>
                             </div>
                           </div>
 
                           <div className="mt-auto pt-3 border-t flex flex-col space-y-2">
-                            {room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && (
-                                <>
+                             {room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && (
+                                <div className="flex flex-col space-y-2 w-full">
                                     <Button
                                         variant="default"
                                         size="sm"
@@ -796,16 +787,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                     >
                                         <CalendarPlus className="mr-2 h-4 w-4" /> Reserve Room
                                     </Button>
-                                </>
+                                </div>
                             )}
                             {room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && (
-                                <>
+                                <div className="flex flex-col space-y-2 w-full">
                                     <Button
                                         variant="outline"
                                         size="sm"
                                         className="w-full"
                                         title="View Transaction Details"
-                                        onClick={(e) => { e.stopPropagation(); if (room.transaction_id) handleViewDetails(room); }}
+                                        onClick={(e) => { e.stopPropagation(); if (room.transaction_id) handleViewDetails(room); else toast({title: "Info", description: "No transaction ID linked to this occupied room.", variant: "default"}); }}
                                     >
                                         <Info className="mr-2 h-4 w-4" /> View Details
                                     </Button>
@@ -816,7 +807,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                                 size="sm"
                                                 className="w-full"
                                                 title="Check-out Guest"
-                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCheckoutConfirmation(room);}}
+                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCheckoutConfirmation(room); else toast({title: "Info", description: "No transaction ID linked to this occupied room for checkout.", variant: "default"});}}
                                             >
                                                 <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
                                             </Button>
@@ -837,16 +828,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                             </AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
-                                </>
+                                </div>
                             )}
                             {room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && (
-                                <>
+                                 <div className="flex flex-col space-y-2 w-full">
                                     <Button
                                         variant="outline"
                                         size="sm"
                                         className="w-full"
                                         title="View Reservation Details"
-                                        onClick={(e) => { e.stopPropagation(); if (room.transaction_id) handleViewDetails(room);}}
+                                        onClick={(e) => { e.stopPropagation(); if (room.transaction_id) handleViewDetails(room); else toast({title: "Info", description: "No transaction ID linked to this reserved room.", variant: "default"});}}
                                     >
                                         <Info className="mr-2 h-4 w-4" /> View Details
                                     </Button>
@@ -857,7 +848,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                                 size="sm"
                                                 className="w-full"
                                                 title="Check-in Reserved Guest"
-                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCheckInReservedConfirmation(room); }}
+                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCheckInReservedConfirmation(room); else toast({title: "Info", description: "No transaction ID linked to this reserved room for check-in.", variant: "default"}); }}
                                             >
                                                 <LogIn className="mr-2 h-4 w-4" /> Check-in Reserved
                                             </Button>
@@ -884,7 +875,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                                 size="sm"
                                                 className="w-full"
                                                 title="Cancel this Reservation"
-                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCancelReservationConfirmation(room); }}
+                                                onClick={(e) => { e.stopPropagation(); if(room.transaction_id) handleOpenCancelReservationConfirmation(room); else toast({title: "Info", description: "No transaction ID linked to this reserved room to cancel.", variant: "default"}); }}
                                             >
                                                 <Ban className="mr-2 h-4 w-4" /> Cancel Reservation
                                             </Button>
@@ -904,7 +895,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                             </AlertDialogFooter>
                                         </AlertDialogContent>
                                     </AlertDialog>
-                                </>
+                                </div>
                             )}
                           </div>
                         </CardContent>
@@ -918,7 +909,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         })}
       </Accordion>
 
-      {/* Booking Dialog */}
       <Dialog open={isBookingDialogOpen} onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedRoomForBooking(null);
@@ -994,7 +984,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         </DialogContent>
       </Dialog>
 
-      {/* Transaction Details / Edit Dialog */}
       <Dialog open={isTransactionDetailsDialogOpen} onOpenChange={(open) => {
           if (!open) {
               setIsTransactionDetailsDialogOpen(false);
@@ -1070,12 +1059,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                     <p><strong>Payment Method:</strong> {transactionDetails.client_payment_method || 'N/A'}</p>
                     <div className="flex justify-between items-center">
                         <Label>Notes:</Label>
-                        {!editingModeForDialog && (transactionDetails.status === TRANSACTION_STATUS.UNPAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID) && (
+                        {!editingModeForDialog && (transactionDetails.status === TRANSACTION_STATUS.UNPAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && (
                             <Button variant="ghost" size="sm" onClick={() => {
                                 if (transactionDetails.status === TRANSACTION_STATUS.UNPAID) {
                                     setEditingModeForDialog('notesOnly');
                                     notesForm.reset({ notes: transactionDetails.notes || '' });
-                                } else if (transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID) {
+                                } else if (transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_RESERVATION) {
                                     setEditingModeForDialog('fullReservation');
                                     reservationEditForm.reset({
                                         client_name: transactionDetails.client_name,
@@ -1121,7 +1110,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                 if (originalRoom && transactionDetails.id) {
                                     handleOpenCancelReservationConfirmation(originalRoom);
                                 } else {
-                                    toast({title: "Error", description: "Could not find linked room details or transaction ID for cancellation.", variant: "destructive"});
+                                    if(transactionDetails.id) {
+                                      setActiveTransactionIdForAction(transactionDetails.id);
+                                      setRoomForActionConfirmation(null); 
+                                      setIsCancelReservationConfirmOpen(true);
+                                    } else {
+                                      toast({title: "Error", description: "Could not find linked room details or transaction ID for cancellation.", variant: "destructive"});
+                                    }
                                 }
                             }}
                             disabled={isSubmitting}
@@ -1133,7 +1128,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                         <AlertDialogHeader>
                             <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
                             <ShadAlertDialogDescription>
-                                Are you sure you want to cancel this reservation for room {roomForActionConfirmation?.room_name}?
+                                Are you sure you want to cancel this reservation for room {roomForActionConfirmation?.room_name || ' (unassigned)'}?
                             </ShadAlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -1156,7 +1151,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         </DialogContent>
       </Dialog>
 
-      {/* Notes Only Modal (triggered by info icon in card header) */}
       <Dialog open={isNotesOnlyModalOpen} onOpenChange={setIsNotesOnlyModalOpen}>
         <DialogContent className="sm:max-w-md p-3">
           <DialogHeader className="border-b pb-2 mb-2">
@@ -1172,7 +1166,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         </DialogContent>
       </Dialog>
 
-      {/* Available Rooms Overview Modal */}
       <Dialog open={showAvailableRoomsOverview} onOpenChange={onCloseAvailableRoomsOverview}>
         <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 flex flex-col max-h-[90vh] overflow-hidden">
           <DialogHeader className="p-3 border-b">
@@ -1205,7 +1198,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                         <p>Type: {room.room_type || 'N/A'}</p>
                         <p>Bed: {room.bed_type || 'N/A'}</p>
                         <div className="flex items-center text-xs mt-1">
-                            <Broom size={12} className="inline mr-1 text-muted-foreground" />
+                            <Wrench size={12} className="inline mr-1 text-muted-foreground" />
                             <span className="text-muted-foreground">{ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}</span>
                         </div>
                         <Button
@@ -1235,7 +1228,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         </DialogContent>
       </Dialog>
 
-      {/* Room-Specific Rates Detail Modal */}
       <Dialog open={isRoomRatesDetailModalOpen} onOpenChange={(open) => {
         if (!open) {
             setSelectedRoomForRatesDisplay(null);
@@ -1287,5 +1279,4 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     </div>
   );
 }
-
 
