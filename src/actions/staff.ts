@@ -1,5 +1,4 @@
 
-      
 "use server";
 
 import pg from 'pg';
@@ -149,7 +148,7 @@ export async function createReservation(
   try {
     await client.query('BEGIN');
     
-    const transactionStatus = TRANSACTION_STATUS.ADVANCE_PAID; 
+    const transactionStatus = TRANSACTION_STATUS.ADVANCE_PAID; // '2'
 
     const transactionRes = await client.query(
       `INSERT INTO transactions (tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_by_user_id, updated_at, is_admin_created, is_accepted, created_at)
@@ -454,13 +453,6 @@ export async function checkOutGuestAndFreeRoom(
         ...updatedTransaction,
         room_name: (await client.query('SELECT room_name FROM hotel_room WHERE id = $1', [roomId])).rows[0]?.room_name,
         rate_name,
-        check_in_time: updatedTransaction.check_in_time,
-        check_out_time: updatedTransaction.check_out_time,
-        reserved_check_in_datetime: updatedTransaction.reserved_check_in_datetime,
-        reserved_check_out_datetime: updatedTransaction.reserved_check_out_datetime,
-        created_at: updatedTransaction.created_at,
-        updated_at: updatedTransaction.updated_at,
-
       } as Transaction,
       updatedRoomData: {
         id: roomId,
@@ -595,24 +587,28 @@ export async function checkInReservedGuest(
     const { client_name, hotel_rate_id, reserved_check_in_datetime, current_status } = transactionCheckRes.rows[0];
 
     let actualCheckInTimeValue: string | null = null;
-    let checkInTimeQueryPart: string;
+    let queryCheckInTimePart: string;
     let queryParamsForTxUpdate: any[];
-
-    if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && reserved_check_in_datetime) {
+    
+    // If it's an advance reservation with a specific future check-in time, use that time.
+    // Otherwise, use the current time.
+    if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION || current_status === TRANSACTION_STATUS.ADVANCE_PAID) && reserved_check_in_datetime) {
       actualCheckInTimeValue = reserved_check_in_datetime; 
-      checkInTimeQueryPart = `$2::TIMESTAMP WITHOUT TIME ZONE`;
+      queryCheckInTimePart = `$2::TIMESTAMP WITHOUT TIME ZONE`; 
       queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, actualCheckInTimeValue, transactionId];
     } else {
+      // For immediate reservations (ADVANCE_PAID without a future time) or if reserved_check_in_datetime is somehow null,
+      // use current server time in Asia/Manila.
       const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
       actualCheckInTimeValue = nowRes.rows[0].now_val;
-      checkInTimeQueryPart = `$2::TIMESTAMP WITHOUT TIME ZONE`;
+      queryCheckInTimePart = `$2::TIMESTAMP WITHOUT TIME ZONE`;
       queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, actualCheckInTimeValue, transactionId];
     }
     
     const updateTransactionRes = await client.query(
       `UPDATE transactions
        SET status = $1,
-           check_in_time = ${checkInTimeQueryPart}, 
+           check_in_time = ${queryCheckInTimePart}, 
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $3
        RETURNING *`,
@@ -855,7 +851,7 @@ export async function assignRoomAndCheckIn(
     
     if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION || current_status === TRANSACTION_STATUS.UNPAID ) && reserved_check_in_datetime) {
       actualCheckInTimeValue = reserved_check_in_datetime; 
-      checkInTimeQueryPart = `$3::TIMESTAMP WITHOUT TIME ZONE`;
+      checkInTimeQueryPart = `$3::TIMESTAMP WITHOUT TIME ZONE`; 
       queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, roomId, actualCheckInTimeValue, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, transactionId];
     } else {
       const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
@@ -965,7 +961,6 @@ export async function updateUnassignedReservation(
     const isAdminCreated = currentTransactionRes.rows[0].is_admin_created === 1;
 
     let newStatus = currentStatus;
-    // Only staff can change status during edit if it's not admin created pending acceptance
     if (!isAdminCreated || currentStatus !== TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE) {
         newStatus = is_advance_reservation ? TRANSACTION_STATUS.ADVANCE_RESERVATION : TRANSACTION_STATUS.ADVANCE_PAID;
     }
