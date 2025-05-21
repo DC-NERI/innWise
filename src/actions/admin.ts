@@ -21,9 +21,9 @@ import {
   notificationCreateSchema, NotificationCreateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
-import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
-import { createUnassignedReservation } from '@/actions/staff'; // Can be used by admin too
-import type { TransactionCreateData } from '@/lib/schemas'; // For typing
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS, ROOM_CLEANING_STATUS } from '@/lib/constants';
+import { createUnassignedReservation } from '@/actions/staff';
+import type { TransactionCreateData } from '@/lib/schemas';
 
 
 const pool = new Pool({
@@ -542,7 +542,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
         const currentUserRes = await client.query('SELECT status, tenant_id as current_tenant_id FROM users WHERE id = $1', [userId]);
         if (currentUserRes.rows.length > 0 && currentUserRes.rows[0].status === '0') {
             const userCurrentTenantId = currentUserRes.rows[0].current_tenant_id;
-            const targetTenantId = tenant_id; // This is the tenant_id from the form data
+            const targetTenantId = tenant_id; 
 
             const tenantDetails = await client.query('SELECT max_user_count FROM tenants WHERE id = $1', [targetTenantId]);
             if (tenantDetails.rows.length > 0) {
@@ -1023,9 +1023,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     const query = `
       SELECT
         hr.id, hr.tenant_id, hr.branch_id, tb.branch_name,
-        hr.hotel_rate_id, -- This is now JSON
+        hr.hotel_rate_id, -- This is JSON
         hr.room_name, hr.room_code, hr.floor, hr.room_type, hr.bed_type, hr.capacity,
-        hr.is_available, hr.status, hr.created_at, hr.updated_at,
+        hr.is_available, hr.cleaning_status, hr.status, hr.created_at, hr.updated_at,
         hr.transaction_id,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
@@ -1037,8 +1037,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          -- Active transactions are those that meet our "active" criteria
-          AND (t_active.status = '${TRANSACTION_STATUS.UNPAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_PAID}' OR t_active.status = '${TRANSACTION_STATUS.ADVANCE_RESERVATION}' OR t_active.status = '${TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE}')
+          AND (t_active.status = $3 OR t_active.status = $4 OR t_active.status = $5) -- Unpaid, Advance Paid, Pending Acceptance
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
           AND hrt_active.branch_id = hr.branch_id
@@ -1047,10 +1046,23 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
-    const res = await client.query(query, [branchId, tenantId]);
+    const res = await client.query(query, [branchId, tenantId, TRANSACTION_STATUS.UNPAID, TRANSACTION_STATUS.ADVANCE_PAID, TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE]);
 
     if (process.env.NODE_ENV === 'development') {
         console.log(`[listRoomsForBranch Server Log] Fetched ${res.rows.length} rooms for branch ${branchId}`);
+        res.rows.forEach(row => {
+            if (row.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || row.is_available === ROOM_AVAILABILITY_STATUS.RESERVED) {
+                 console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
+                    is_available_db: row.is_available,
+                    room_transaction_id_db: row.transaction_id,
+                    active_transaction_client_name_db: row.active_transaction_client_name,
+                    active_transaction_check_in_time_db: row.active_transaction_check_in_time,
+                    active_transaction_rate_name_db: row.active_transaction_rate_name,
+                    active_transaction_rate_hours_db: row.active_transaction_rate_hours,
+                    active_transaction_status_db: row.active_transaction_status,
+                 });
+            }
+        });
     }
 
     return res.rows.map(row => {
@@ -1071,47 +1083,30 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       } else {
         parsedRateIds = [];
       }
-
-      const roomIsAvailableStatus = Number(row.is_available);
-      const transactionIdFromRoom = row.transaction_id ? Number(row.transaction_id) : null;
-      const activeTransactionStatus = row.active_transaction_status;
-
-      if (process.env.NODE_ENV === 'development' && (roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.OCCUPIED || roomIsAvailableStatus === ROOM_AVAILABILITY_STATUS.RESERVED)) {
-        console.log(`[listRoomsForBranch Server Log] Room ${row.room_name} (ID: ${row.id}):`, {
-          is_available_db: row.is_available,
-          room_transaction_id_db: row.transaction_id,
-          active_transaction_client_name_db: row.active_transaction_client_name,
-          active_transaction_check_in_time_db: row.active_transaction_check_in_time,
-          active_transaction_rate_name_db: row.active_transaction_rate_name,
-          active_transaction_rate_hours_db: row.active_transaction_rate_hours,
-          active_transaction_status_db: activeTransactionStatus,
-          mapped_client_name: row.active_transaction_client_name || null,
-          mapped_check_in_time: row.active_transaction_check_in_time || null
-        });
-      }
-
       return {
         id: row.id,
         tenant_id: row.tenant_id,
         branch_id: row.branch_id,
         branch_name: row.branch_name,
         hotel_rate_id: parsedRateIds,
-        transaction_id: transactionIdFromRoom,
+        transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
         room_name: row.room_name,
         room_code: row.room_code,
         floor: row.floor,
         room_type: row.room_type,
         bed_type: row.bed_type,
         capacity: row.capacity,
-        is_available: roomIsAvailableStatus,
+        is_available: Number(row.is_available),
+        cleaning_status: row.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        active_transaction_id: row.transaction_id ? Number(row.transaction_id) : null, // Added this for consistency
         active_transaction_client_name: row.active_transaction_client_name || null,
         active_transaction_check_in_time: row.active_transaction_check_in_time || null,
         active_transaction_rate_name: row.active_transaction_rate_name || null,
         active_transaction_rate_hours: row.active_transaction_rate_hours ? parseInt(row.active_transaction_rate_hours, 10) : null,
-        active_transaction_status: activeTransactionStatus || null,
+        active_transaction_status: row.active_transaction_status || null,
       } as HotelRoom;
     });
   } catch (error) {
@@ -1132,16 +1127,16 @@ export async function createRoom(
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
 
-  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available } = validatedFields.data;
+  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status } = validatedFields.data;
   const client = await pool.connect();
   try {
     const rateIdsToStore = Array.isArray(hotel_rate_ids) ? hotel_rate_ids : [];
     const hotelRateIdJson = JSON.stringify(rateIdsToStore);
     const res = await client.query(
-      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, transaction_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, '1', NULL, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
-      [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available]
+      `INSERT INTO hotel_room (tenant_id, branch_id, hotel_rate_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, transaction_id, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, '1', NULL, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, created_at, updated_at`,
+      [tenantId, branchId, hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status || ROOM_CLEANING_STATUS.CLEAN]
     );
     if (res.rows.length > 0) {
       const newRow = res.rows[0];
@@ -1167,6 +1162,7 @@ export async function createRoom(
           hotel_rate_id: parsedRateIds,
           transaction_id: newRow.transaction_id ? Number(newRow.transaction_id) : null,
           is_available: Number(newRow.is_available),
+          cleaning_status: newRow.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
         } as HotelRoom
       };
     }
@@ -1191,7 +1187,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
 
-  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status } = validatedFields.data;
+  const { hotel_rate_ids, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status } = validatedFields.data;
 
   const client = await pool.connect();
   try {
@@ -1203,10 +1199,10 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
 
     const res = await client.query(
       `UPDATE hotel_room
-       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, status = $9, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${transactionIdUpdate}
-       WHERE id = $10 AND tenant_id = $11 AND branch_id = $12
-       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, created_at, updated_at`,
-      [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, status, roomId, tenantId, branchId]
+       SET hotel_rate_id = $1, room_name = $2, room_code = $3, floor = $4, room_type = $5, bed_type = $6, capacity = $7, is_available = $8, cleaning_status = $9, status = $10, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') ${transactionIdUpdate}
+       WHERE id = $11 AND tenant_id = $12 AND branch_id = $13
+       RETURNING id, tenant_id, branch_id, hotel_rate_id, transaction_id, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status, status, created_at, updated_at`,
+      [hotelRateIdJson, room_name, room_code, floor, room_type, bed_type, capacity, is_available, cleaning_status || ROOM_CLEANING_STATUS.CLEAN, status, roomId, tenantId, branchId]
     );
     if (res.rows.length > 0) {
       const updatedRow = res.rows[0];
@@ -1232,6 +1228,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           hotel_rate_id: parsedRateIds,
           transaction_id: updatedRow.transaction_id ? Number(updatedRow.transaction_id) : null,
           is_available: Number(updatedRow.is_available),
+          cleaning_status: updatedRow.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
         } as HotelRoom
       };
     }
@@ -1426,14 +1423,14 @@ export async function createNotification(
     if (do_reservation && target_branch_id) {
         const reservationData: TransactionCreateData = {
             client_name: reservationFields.reservation_client_name || `Reservation: ${message.substring(0,30)}...`,
-            selected_rate_id: reservationFields.reservation_selected_rate_id,
+            selected_rate_id: reservationFields.reservation_selected_rate_id, // Now optional
             client_payment_method: reservationFields.reservation_client_payment_method,
             notes: reservationFields.reservation_notes,
             is_advance_reservation: reservationFields.reservation_is_advance,
             reserved_check_in_datetime: reservationFields.reservation_check_in_datetime,
             reserved_check_out_datetime: reservationFields.reservation_check_out_datetime,
         };
-        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true); // is_admin_created_flag = true
+        const reservationResult = await createUnassignedReservation(reservationData, tenantId, target_branch_id, creatorUserId, true);
         if (reservationResult.success && reservationResult.transaction) {
             createdReservationId = reservationResult.transaction.id;
             finalTransactionStatus = NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED;
@@ -1521,5 +1518,3 @@ export async function deleteNotification(notificationId: number, tenantId: numbe
     client.release();
   }
 }
-
-    

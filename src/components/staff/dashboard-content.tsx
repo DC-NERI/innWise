@@ -5,16 +5,17 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Users } from 'lucide-react';
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Users } from 'lucide-react'; // Added Users
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction, SimpleRate } from '@/lib/types';
 import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
-import { listRoomsForBranch } from '@/actions/admin'; // Reusing admin action
+import { listRoomsForBranch } from '@/actions/admin';
 import {
     NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT,
     TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
     TRANSACTION_STATUS, TRANSACTION_STATUS_TEXT,
-    ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT
+    ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT,
+    ROOM_CLEANING_STATUS_TEXT
 } from '@/lib/constants';
 import { format, parseISO, isToday, isFuture, addHours } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -240,11 +241,11 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
           {isLoadingReservations ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
           <>
             <div className="mb-4">
-                <h3 className="text-md font-semibold mb-1">For Today</h3>
+                <h3 className="text-md font-semibold mb-1">For Today ({reservationsToday.length})</h3>
                 <ReservationListTable reservations={reservationsToday} title="Reservations for Today" />
             </div>
             <div>
-                <h3 className="text-md font-semibold mb-1">Upcoming</h3>
+                <h3 className="text-md font-semibold mb-1">Upcoming ({reservationsUpcoming.length})</h3>
                 <ReservationListTable reservations={reservationsUpcoming} title="Upcoming Reservations" />
             </div>
           </>
@@ -275,7 +276,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       <Card key={`avail-dash-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
                         <CardHeader className="p-2">
                           <CardTitle className="text-sm font-medium text-green-700 dark:text-green-200 truncate">{room.room_name}</CardTitle>
-                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Room #: {room.room_code}</CardDescription>
+                          <CardDescription className="text-xs text-green-600 dark:text-green-300">Room #: {room.room_code} <br/> Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</CardDescription>
                         </CardHeader>
                       </Card>
                     ))}
@@ -305,6 +306,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                               <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
                               <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                               <div>Est. Out: {estCheckoutDisplay}</div>
+                              <div>Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</div>
                             </CardDescription>
                           </CardHeader>
                         </Card>
@@ -324,6 +326,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                              {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
+                             <div>Cleaning: {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'clean']}</div>
                            </CardDescription>
                         </CardHeader>
                       </Card>

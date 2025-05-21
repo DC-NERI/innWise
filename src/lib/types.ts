@@ -79,8 +79,8 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null; // JSON array of rate IDs
-  rate_names?: string[]; // For display purposes, populated client-side or server-side
+  hotel_rate_id: number[] | null;
+  rate_names?: string[];
   room_name: string;
   room_code: string;
   floor?: number | null;
@@ -88,17 +88,18 @@ export interface HotelRoom {
   bed_type?: string | null;
   capacity?: number | null;
   is_available: number; // 0: Available, 1: Occupied, 2: Reserved
-  status: string; // Record status of the room definition itself ('0' or '1')
-  transaction_id?: number | null; // Foreign key to transactions table
+  cleaning_status?: string | null; // e.g., 'clean', 'dirty', 'inspection', 'out_of_order'
+  status: string;
+  transaction_id?: number | null;
   created_at: string;
   updated_at: string;
 
-  // Fields populated by joining with the active transaction (if any)
+  active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
   active_transaction_status?: string | null;
-  active_transaction_rate_hours?: number | null; // Added for estimated checkout
+  active_transaction_rate_hours?: number | null;
 }
 
 
@@ -124,20 +125,19 @@ export interface Transaction {
     total_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string; // '0' Unpaid, '1' Paid, '2' Advance Paid, '3' Cancelled, '4' Advance Reservation, '5' Pending Branch Acceptance
+    status: string;
     created_at: string;
     updated_at: string;
     reserved_check_in_datetime?: string | null;
     reserved_check_out_datetime?: string | null;
-    is_admin_created?: number | null; // 0 for staff created, 1 for admin created
-    is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending (for admin_created)
+    is_admin_created?: number | null;
+    is_accepted?: number | null;
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
 
-
-    room_name?: string | null; // Populated by join
-    rate_name?: string | null; // Populated by join
-    checked_out_by_username?: string; // Populated by join
+    room_name?: string | null;
+    rate_name?: string | null;
+    checked_out_by_username?: string;
 }
 
 
@@ -149,7 +149,7 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; // 0: unread, 1: read
+  status: number; // 0: unread, 1: read (from NOTIFICATION_STATUS)
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
@@ -157,7 +157,34 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number; // NOTIFICATION_TRANSACTION_STATUS (0: Pending Action, 1: Reservation Created)
-  transaction_is_accepted?: number | null; // TRANSACTION_IS_ACCEPTED_STATUS
-  linked_transaction_status?: string | null; // TRANSACTION_STATUS
+  transaction_status: number; // From NOTIFICATION_TRANSACTION_STATUS
+  transaction_is_accepted?: number | null; // From TRANSACTION_IS_ACCEPTED_STATUS
+  linked_transaction_status?: string | null; // From TRANSACTION_STATUS
+
+  // New fields for notification enhancements
+  notification_type?: string | null; // e.g., 'General', 'ReservationRequest', 'Maintenance'
+  priority?: number | null; // e.g., 0 for Normal, 1 for High
+  acknowledged_at?: string | null;
+  acknowledged_by_user_id?: number | null;
+}
+
+// For guest charges - simplified
+export interface GuestCharge {
+  id: number;
+  transaction_id: number;
+  item_description: string;
+  amount: number;
+  quantity: number;
+  charge_datetime: string;
+  charged_by_user_id?: number | null;
+}
+
+// For shift logs - simplified
+export interface ShiftLog {
+  id: number;
+  user_id: number;
+  username?: string; // For display
+  log_datetime: string;
+  message: string;
+  category?: string | null;
 }

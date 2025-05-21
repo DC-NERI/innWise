@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
 import type { SimpleBranch, HotelRoom, SimpleRate } from '@/lib/types';
 import { getBranchesForTenantSimple, listRoomsForBranch, getRatesForBranchSimple, createRoom, updateRoom, archiveRoom } from '@/actions/admin';
-import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT } from '@/lib/constants';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -33,6 +33,7 @@ const defaultFormValuesCreate: HotelRoomCreateData = {
   bed_type: '',
   capacity: 2,
   is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
+  cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
 };
 
 interface RoomsContentProps {
@@ -119,7 +120,8 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: selectedRoom.is_available, // This will be a number
+        is_available: selectedRoom.is_available,
+        cleaning_status: selectedRoom.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
         status: selectedRoom.status || '1',
       };
     } else {
@@ -127,6 +129,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
         ...defaultFormValuesCreate, 
         hotel_rate_ids: [], 
         is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
+        cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
         status: '1' 
       };
     }
@@ -196,6 +199,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       bed_type: room.bed_type,
       capacity: room.capacity,
       is_available: room.is_available,
+      cleaning_status: room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
       status: '1',
     };
     try {
@@ -278,6 +282,22 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
           </FormItem>
         )}
       />
+      <FormField control={form.control} name="cleaning_status"
+        render={({ field }) => (
+          <FormItem>
+            <RHFFormLabel>Cleaning Status *</RHFFormLabel>
+            <Select onValueChange={field.onChange} value={field.value?.toString() ?? ROOM_CLEANING_STATUS.CLEAN}>
+              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select cleaning status" /></SelectTrigger></FormControl>
+              <SelectContent>
+                {ROOM_CLEANING_STATUS_OPTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
 
       {isEditing && (
         <FormField control={form.control} name="status"
@@ -314,10 +334,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 key={isEditing ? `edit-room-${selectedRoom?.id}` : 'add-room'}
                 open={isAddDialogOpen || isEditDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE }); }
+                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN }); }
                 }}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
+                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: '1', is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                 </Button>
               </DialogTrigger>
@@ -325,8 +345,8 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 <DialogHeader><DialogTitle>{isEditing ? `Edit Room: ${selectedRoom?.room_name}` : 'Add New Room'}</DialogTitle></DialogHeader>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRoomUpdateData)) : (d => handleAddSubmit(d as HotelRoomCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                    <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">{renderFormFields()}</div>
-                    <DialogFooter className="bg-card py-4 border-t px-3 sticky bottom-0 z-10">
+                    <div className="flex-grow space-y-3 p-1 overflow-y-auto">{renderFormFields()}</div>
+                    <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                       <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                       <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Room")}</Button>
                     </DialogFooter>
@@ -344,11 +364,12 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
             <TabsContent value="active">
               {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
               {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
+                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
                       <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[r.is_available] || 'Unknown'}</TableCell>
+                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[r.cleaning_status || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
@@ -365,10 +386,11 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
              <TabsContent value="archive">
               {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
               {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell>{getRateNames(r.hotel_rate_id)}</TableCell>
+                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell>
+                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[r.cleaning_status || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                       </TableCell>
@@ -394,4 +416,3 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     </Card>
   );
 }
-
