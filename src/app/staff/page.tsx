@@ -7,12 +7,13 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Settings, LogOut, BedDouble, Building, CalendarPlus, Eye, MessageSquare } from 'lucide-react';
+import { Settings, LogOut, BedDouble, Building, CalendarPlus, MessageSquare, Users as UsersIcon } from 'lucide-react'; // Added UsersIcon
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
 import NotificationsContent from '@/components/staff/notifications-content';
+import WalkInCheckInContent from '@/components/staff/walkin-checkin-content'; // New import
 import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
@@ -26,7 +27,7 @@ const StaffSettingsContent = () => (
 
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'notifications' | 'settings'>('room-status');
+  const [activeView, setActiveView] = useState<'room-status' | 'reservations' | 'notifications' | 'walk-in' | 'settings'>('room-status'); // Updated activeView
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -187,13 +188,22 @@ const StaffDashboardPage: NextPage = () => {
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
-            <SidebarMenuItem>
+             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('room-status')}
                 isActive={activeView === 'room-status'}
               >
                 <BedDouble />
                 Room Status
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('walk-in')}
+                isActive={activeView === 'walk-in'}
+              >
+                <UsersIcon /> {/* Or ConciergeBell */}
+                Walk-in Check-in
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -248,7 +258,7 @@ const StaffDashboardPage: NextPage = () => {
                 size="sm"
                 onClick={() => setIsAvailableRoomsOverviewModalOpen(true)}
               >
-                <Eye className="mr-2 h-4 w-4" /> View Available
+                <BedDouble className="mr-2 h-4 w-4" /> View Available
               </Button>
             )}
           </div>
@@ -264,6 +274,13 @@ const StaffDashboardPage: NextPage = () => {
               staffUserId={userId}
               showAvailableRoomsOverview={isAvailableRoomsOverviewModalOpen}
               onCloseAvailableRoomsOverview={() => setIsAvailableRoomsOverviewModalOpen(false)}
+            />
+          )}
+          {activeView === 'walk-in' && tenantId && branchId && userId && (
+            <WalkInCheckInContent
+              tenantId={tenantId}
+              branchId={branchId}
+              staffUserId={userId}
             />
           )}
           {activeView === 'reservations' && tenantId && branchId && userId && (
@@ -282,16 +299,19 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {(activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications') && (!tenantId || !branchId || !userId) && (
+          {(activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in') && (!tenantId || !branchId || !userId) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
                   <Building className="h-6 w-6 text-primary" />
                   <CardTitle>
-                    {activeView === 'room-status' ? 'Room Status' : activeView === 'reservations' ? 'Reservations' : 'Notifications'}
+                    {activeView === 'room-status' ? 'Room Status' :
+                     activeView === 'reservations' ? 'Reservations' :
+                     activeView === 'notifications' ? 'Notifications' :
+                     activeView === 'walk-in' ? 'Walk-in Check-in' : 'Content'}
                   </CardTitle>
                 </div>
-                 <CardDescription>Manage room availability, reservations, or notifications.</CardDescription>
+                 <CardDescription>Manage room availability, reservations, notifications, or walk-ins.</CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">
@@ -308,4 +328,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-

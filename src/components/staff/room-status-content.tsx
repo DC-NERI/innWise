@@ -1045,50 +1045,62 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       </Dialog>
 
       {/* Available Rooms Overview Modal */}
-       <Dialog open={showAvailableRoomsOverview} onOpenChange={onCloseAvailableRoomsOverview}>
-        <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-3 flex flex-col max-h-[90vh]">
-          <DialogHeader className="p-2 border-b">
+      <Dialog open={showAvailableRoomsOverview} onOpenChange={onCloseAvailableRoomsOverview}>
+        <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 flex flex-col max-h-[90vh] overflow-hidden">
+          <DialogHeader className="p-3 border-b">
             <DialogTitle className="flex items-center">
-                <Eye className="mr-2 h-5 w-5 text-primary" /> Available Rooms Overview
+              <Eye className="mr-2 h-5 w-5 text-primary" /> Available Rooms Overview
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-grow overflow-y-auto p-1">
+
+          <div className="flex-grow overflow-y-auto p-4">
             {isLoading ? (
-                <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading rooms...</p></div>
+              <div className="flex justify-center items-center h-32">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="ml-2">Loading rooms...</p>
+              </div>
             ) : rooms.filter(r => r.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE).length === 0 ? (
-                <p className="text-center text-muted-foreground py-10">No rooms are currently available.</p>
+              <p className="text-center text-muted-foreground py-10">No rooms are currently available.</p>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                    {rooms.filter(r => r.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE).sort((a,b) => (a.room_code || "").localeCompare(b.room_code || "")).map(room => (
-                        <Card key={`avail-${room.id}`} className="shadow-sm bg-card">
-                            <CardHeader className="p-3 bg-green-500 text-white rounded-t-lg">
-                                <CardTitle className="text-md truncate">{room.room_name}</CardTitle>
-                                <ShadDialogDescription className="text-xs text-white/80">Room # : {room.room_code}</ShadDialogDescription>
-                            </CardHeader>
-                            <CardContent className="p-3 text-sm">
-                                <p>Floor: {room.floor ?? 'N/A'}</p>
-                                <p>Type: {room.room_type || 'N/A'}</p>
-                                <p>Bed: {room.bed_type || 'N/A'}</p>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="w-full mt-2"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedRoomForRatesDisplay(room);
-                                        setIsRoomRatesDetailModalOpen(true);
-                                    }}
-                                >
-                                    <Tags className="mr-2 h-4 w-4" /> View Associated Rates
-                                </Button>
-                            </CardContent>
-                        </Card>
-                    ))}
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {rooms
+                  .filter(r => r.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE)
+                  .sort((a, b) => (a.room_code || "").localeCompare(b.room_code || ""))
+                  .map(room => (
+                    <Card key={`avail-${room.id}`} className="shadow-sm bg-card">
+                      <CardHeader className="p-3 bg-green-500 text-white rounded-t-lg">
+                        <CardTitle className="text-md truncate">{room.room_name}</CardTitle>
+                        <ShadDialogDescription className="text-xs text-white/80">
+                          Room # : {room.room_code}
+                        </ShadDialogDescription>
+                      </CardHeader>
+                      <CardContent className="p-3 text-sm">
+                        <p>Floor: {room.floor ?? 'N/A'}</p>
+                        <p>Type: {room.room_type || 'N/A'}</p>
+                        <p>Bed: {room.bed_type || 'N/A'}</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full mt-2"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedRoomForRatesDisplay(room);
+                            setIsRoomRatesDetailModalOpen(true);
+                          }}
+                        >
+                          <Tags className="mr-2 h-4 w-4" /> View Associated Rates
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
             )}
           </div>
-          <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
-            <Button variant="outline" onClick={onCloseAvailableRoomsOverview}>Close</Button>
+
+          <DialogFooter className="bg-card py-3 border-t px-4">
+            <Button variant="outline" onClick={onCloseAvailableRoomsOverview}>
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

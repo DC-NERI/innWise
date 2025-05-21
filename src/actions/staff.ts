@@ -3,8 +3,10 @@
 "use server";
 
 import pg from 'pg';
-pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (stringValue) => stringValue);
-pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (stringValue) => stringValue);
+// pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (stringValue) => stringValue);
+// pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (stringValue) => stringValue);
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10)); 
 pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue)); 
 
@@ -34,7 +36,7 @@ export async function createTransactionAndOccupyRoom(
   tenantId: number,
   branchId: number,
   roomId: number,
-  rateId: number, // This will come from data.selected_rate_id
+  rateId: number,
   staffUserId: number
 ): Promise<{
   success: boolean;
@@ -46,7 +48,7 @@ export async function createTransactionAndOccupyRoom(
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  if (!rateId) { // Ensure rateId is present, even if schema allows optional at base.
+  if (!rateId) { 
     return { success: false, message: "Rate ID is required for booking." };
   }
 
@@ -120,7 +122,7 @@ export async function createReservation(
   tenantId: number,
   branchId: number,
   roomId: number,
-  rateId: number, // This will come from data.selected_rate_id
+  rateId: number,
   staffUserId: number
 ): Promise<{
   success: boolean;
@@ -132,7 +134,7 @@ export async function createReservation(
   if (!validatedFields.success) {
     return { success: false, message: `Invalid data for reservation: ${JSON.stringify(validatedFields.error.flatten().fieldErrors)}` };
   }
-  if (!rateId) { // Ensure rateId is present
+  if (!rateId) { 
     return { success: false, message: "Rate ID is required for reservation." };
   }
 
@@ -142,7 +144,7 @@ export async function createReservation(
   try {
     await client.query('BEGIN');
     
-    const transactionStatus = TRANSACTION_STATUS.ADVANCE_PAID; // For staff-created room reservations directly
+    const transactionStatus = TRANSACTION_STATUS.ADVANCE_PAID; 
 
     const transactionRes = await client.query(
       `INSERT INTO transactions (tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, status, created_by_user_id, updated_at, is_admin_created, is_accepted)
@@ -440,6 +442,14 @@ export async function checkOutGuestAndFreeRoom(
         ...updatedTransaction,
         room_name: (await client.query('SELECT room_name FROM hotel_room WHERE id = $1', [roomId])).rows[0]?.room_name,
         rate_name,
+        // Ensure all fields are correctly stringified for return if they are dates
+        check_in_time: updatedTransaction.check_in_time,
+        check_out_time: updatedTransaction.check_out_time,
+        reserved_check_in_datetime: updatedTransaction.reserved_check_in_datetime,
+        reserved_check_out_datetime: updatedTransaction.reserved_check_out_datetime,
+        created_at: updatedTransaction.created_at,
+        updated_at: updatedTransaction.updated_at,
+
       } as Transaction,
       updatedRoomData: {
         id: roomId,
@@ -569,27 +579,28 @@ export async function checkInReservedGuest(
     const { client_name, hotel_rate_id, reserved_check_in_datetime, current_status } = transactionCheckRes.rows[0];
 
     let actualCheckInTime: string;
-    let queryParamsForTxUpdate: any[] = [TRANSACTION_STATUS.UNPAID];
+    let queryParamsForTxUpdate: any[];
     let checkInTimeQueryPart: string;
 
+    // Use reserved_check_in_datetime if it exists and the transaction is specifically an advance reservation
     if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && reserved_check_in_datetime) {
-      actualCheckInTime = reserved_check_in_datetime;
-      checkInTimeQueryPart = `$${queryParamsForTxUpdate.length + 1}::TEXT::TIMESTAMP WITHOUT TIME ZONE`;
-      queryParamsForTxUpdate.push(actualCheckInTime);
+      actualCheckInTime = reserved_check_in_datetime; 
+      checkInTimeQueryPart = `$2`; // Parameter index for check_in_time
+      queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, actualCheckInTime, transactionId];
     } else {
+      // For ADVANCE_PAID or if ADVANCE_RESERVATION is missing its reserved time, use current time
       const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
       actualCheckInTime = nowRes.rows[0].now_val; 
-      checkInTimeQueryPart = `$${queryParamsForTxUpdate.length + 1}::TEXT::TIMESTAMP WITHOUT TIME ZONE`;
-      queryParamsForTxUpdate.push(actualCheckInTime);
+      checkInTimeQueryPart = `$2`; // Parameter index for check_in_time
+      queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, actualCheckInTime, transactionId];
     }
-    queryParamsForTxUpdate.push(transactionId);
-
+    
     const updateTransactionRes = await client.query(
       `UPDATE transactions
        SET status = $1,
-           check_in_time = ${checkInTimeQueryPart},
+           check_in_time = $2::TIMESTAMP WITHOUT TIME ZONE, 
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $${queryParamsForTxUpdate.length}
+       WHERE id = $3
        RETURNING *`,
        queryParamsForTxUpdate
     );
@@ -703,9 +714,9 @@ export async function createUnassignedReservation(
       `INSERT INTO transactions (
          tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method,
          notes, check_in_time, status, created_by_user_id, reserved_check_in_datetime,
-         reserved_check_out_datetime, updated_at, is_admin_created, is_accepted
+         reserved_check_out_datetime, updated_at, is_admin_created, is_accepted, created_at
        )
-       VALUES ($1, $2, NULL, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $7, $8, $9, $10, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $11, $12)
+       VALUES ($1, $2, NULL, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $7, $8, $9, $10, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $11, $12, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
        RETURNING *`,
       [
         tenantId, branchId, selected_rate_id, client_name, client_payment_method, notes,
@@ -739,19 +750,23 @@ export async function createUnassignedReservation(
   }
 }
 
-export async function listAvailableRoomsForBranch(tenantId: number, branchId: number): Promise<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code'>>> {
+export async function listAvailableRoomsForBranch(tenantId: number, branchId: number): Promise<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code' | 'hotel_rate_id'>>> {
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `SELECT id, room_name, room_code FROM hotel_room
+      `SELECT id, room_name, room_code, hotel_rate_id FROM hotel_room
        WHERE tenant_id = $1 AND branch_id = $2 AND is_available = $3 AND status = '1'
        ORDER BY floor ASC, room_code ASC`,
       [tenantId, branchId, ROOM_AVAILABILITY_STATUS.AVAILABLE]
     );
-    return res.rows;
+    return res.rows.map(row => ({
+        ...row,
+        // Ensure hotel_rate_id is parsed if it's JSON from DB
+        hotel_rate_id: typeof row.hotel_rate_id === 'string' ? JSON.parse(row.hotel_rate_id) : (Array.isArray(row.hotel_rate_id) ? row.hotel_rate_id : [])
+    }));
   } catch (error) {
     console.error('Failed to fetch available rooms for branch:', error);
-    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}` );
+    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
   }
@@ -816,30 +831,27 @@ export async function assignRoomAndCheckIn(
     }
 
     let actualCheckInTime: string;
-    let queryParamsForTxUpdate: any[] = [TRANSACTION_STATUS.UNPAID, roomId];
-    let checkInTimeQueryPart: string;
-
+    let queryParamsForTxUpdate: any[];
+    
+    // Check if it's an advance reservation with a specific check-in time
     if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION || current_status === TRANSACTION_STATUS.UNPAID ) && reserved_check_in_datetime) {
       actualCheckInTime = reserved_check_in_datetime; 
-      checkInTimeQueryPart = `$${queryParamsForTxUpdate.length + 1}::TEXT::TIMESTAMP WITHOUT TIME ZONE`;
-      queryParamsForTxUpdate.push(actualCheckInTime);
+      queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, roomId, actualCheckInTime, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, transactionId];
     } else {
+      // Otherwise, use current time for check-in
       const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
       actualCheckInTime = nowRes.rows[0].now_val; 
-      checkInTimeQueryPart = `$${queryParamsForTxUpdate.length + 1}::TEXT::TIMESTAMP WITHOUT TIME ZONE`;
-      queryParamsForTxUpdate.push(actualCheckInTime);
+      queryParamsForTxUpdate = [TRANSACTION_STATUS.UNPAID, roomId, actualCheckInTime, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, transactionId];
     }
-    queryParamsForTxUpdate.push(TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED); 
-    queryParamsForTxUpdate.push(transactionId);
 
     const updateTransactionRes = await client.query(
       `UPDATE transactions
        SET status = $1,
            hotel_room_id = $2,
-           check_in_time = ${checkInTimeQueryPart},
-           is_accepted = $${queryParamsForTxUpdate.length -1}, 
+           check_in_time = $3::TIMESTAMP WITHOUT TIME ZONE,
+           is_accepted = $4, 
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $${queryParamsForTxUpdate.length}
+       WHERE id = $5
        RETURNING *`,
        queryParamsForTxUpdate
     );
@@ -927,6 +939,7 @@ export async function updateUnassignedReservation(
     const isAdminCreated = currentTransactionRes.rows[0].is_admin_created === 1;
 
     let newStatus = currentStatus;
+    // Only staff can change status during edit if it's not admin created pending acceptance
     if (!isAdminCreated || currentStatus !== TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE) {
         newStatus = is_advance_reservation ? TRANSACTION_STATUS.ADVANCE_RESERVATION : TRANSACTION_STATUS.ADVANCE_PAID;
     }
@@ -993,9 +1006,13 @@ export async function listNotificationsForBranch(tenantId: number, branchId: num
        FROM notification n
        LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id
        LEFT JOIN users u ON n.creator_user_id = u.id
-       LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id AND t.branch_id = n.target_branch_id
+       LEFT JOIN transactions t ON n.transaction_id = t.id AND t.tenant_id = n.tenant_id 
        WHERE n.tenant_id = $1 AND (n.target_branch_id = $2 OR n.target_branch_id IS NULL)
        ORDER BY n.created_at DESC`;
+       // Removed AND t.branch_id = n.target_branch_id from LEFT JOIN transactions
+       // because target_branch_id on notification can be NULL for tenant-wide notifications,
+       // but the transaction itself WILL have a branch_id if it's a reservation.
+       // The important part is that transaction.tenant_id = notification.tenant_id.
     const res = await client.query(query, [tenantId, branchId]);
     return res.rows.map(row => ({
         ...row,
@@ -1194,5 +1211,3 @@ export async function declineReservationByStaff(
         client.release();
     }
 }
-
-    
