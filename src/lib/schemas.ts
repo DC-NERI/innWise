@@ -192,9 +192,9 @@ export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
 
-export const baseTransactionFields = {
+const baseTransactionFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
-  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  selected_rate_id: z.coerce.number().int().positive("A rate must be selected.").optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
   is_advance_reservation: z.boolean().optional().default(false),
@@ -212,44 +212,60 @@ export const baseTransactionFields = {
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
       message: "Invalid reserved check-out datetime string.",
     }),
-  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(),
+  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(), // Used only for walk-in form selection
+  is_paid: z.boolean().optional().default(false), // For frontend checkbox
+  tender_amount_at_checkin: z.coerce.number().positive("Tender amount must be a positive number if provided.").optional().nullable(),
 };
 
 export const transactionObjectSchema = z.object(baseTransactionFields);
 
-export const transactionCreateSchema = transactionObjectSchema.extend({
-  selected_rate_id: z.coerce.number().int().positive("A rate must be selected for booking.").optional().nullable(), // Staff booking needs a rate
-}).superRefine((data, ctx) => {
-  if (data.is_advance_reservation) {
-    if (!data.reserved_check_in_datetime) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Reserved check-in date and time are required for advance reservations.",
-        path: ["reserved_check_in_datetime"],
-      });
-    }
-    if (!data.reserved_check_out_datetime) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Reserved check-out date and time are required for advance reservations.",
-        path: ["reserved_check_out_datetime"],
-      });
-    }
-    if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
-      if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
+export const transactionCreateSchema = transactionObjectSchema
+  .superRefine((data, ctx) => {
+    if (data.is_advance_reservation) {
+      if (!data.reserved_check_in_datetime) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Reserved check-out date/time must be after check-in date/time.",
+          message: "Reserved check-in date and time are required for advance reservations.",
+          path: ["reserved_check_in_datetime"],
+        });
+      }
+      if (!data.reserved_check_out_datetime) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Reserved check-out date and time are required for advance reservations.",
           path: ["reserved_check_out_datetime"],
         });
       }
+      if (data.reserved_check_in_datetime && data.reserved_check_out_datetime) {
+        if (new Date(data.reserved_check_out_datetime) <= new Date(data.reserved_check_in_datetime)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Reserved check-out date/time must be after check-in date/time.",
+            path: ["reserved_check_out_datetime"],
+          });
+        }
+      }
     }
-  }
-});
+    if (data.is_paid && (data.tender_amount_at_checkin === null || data.tender_amount_at_checkin === undefined || data.tender_amount_at_checkin <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Tender amount is required and must be positive if transaction is marked as paid.",
+        path: ["tender_amount_at_checkin"],
+      });
+    }
+     if (data.is_paid && (data.selected_rate_id === null || data.selected_rate_id === undefined)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "A rate must be selected if transaction is marked as paid.",
+        path: ["selected_rate_id"],
+      });
+    }
+  });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
+
 export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
-  client_name: z.string().max(255).optional().nullable(),
+  client_name: z.string().max(255).optional().nullable(), // Client name might be pre-filled and not strictly required for update by staff
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
 }).superRefine((data, ctx) => {
   if (data.is_advance_reservation) {
@@ -263,8 +279,16 @@ export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend(
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Reservation check-out must be after check-in.", path: ["reserved_check_out_datetime"] });
     }
   }
+   if (data.is_paid && (data.tender_amount_at_checkin === null || data.tender_amount_at_checkin === undefined || data.tender_amount_at_checkin <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Tender amount is required and must be positive if transaction is marked as paid.",
+        path: ["tender_amount_at_checkin"],
+      });
+    }
 });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
+
 
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
@@ -313,7 +337,7 @@ export const notificationCreateSchema = z.object({
     if (!data.reservation_client_name) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
     }
-    // Rate is optional for admin-created notification reservations
+    // Rate ID is optional for admin creating notification + reservation
     if (data.reservation_is_advance) {
       if (!data.reservation_check_in_datetime) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-in date/time for advance reservation is required.", path: ["reservation_check_in_datetime"] });

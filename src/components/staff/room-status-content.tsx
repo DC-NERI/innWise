@@ -5,10 +5,11 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle as ShadDialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionFromUI, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionFromUI, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Label } from "@/components/ui/label"; 
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -39,7 +40,9 @@ import {
   TRANSACTION_STATUS_TEXT,
   ROOM_CLEANING_STATUS,
   ROOM_CLEANING_STATUS_TEXT,
-  ROOM_CLEANING_STATUS_OPTIONS
+  ROOM_CLEANING_STATUS_OPTIONS,
+  TRANSACTION_IS_PAID_STATUS,
+  TRANSACTION_IS_PAID_STATUS_TEXT
 } from '@/lib/constants';
 import { format, parseISO, addHours, differenceInMilliseconds } from 'date-fns';
 import type { z } from 'zod';
@@ -57,6 +60,8 @@ const defaultBookingFormValues: TransactionCreateData = {
   selected_rate_id: undefined,
   client_payment_method: 'Cash',
   notes: '',
+  is_paid: false,
+  tender_amount_at_checkin: null,
 };
 
 const defaultNotesEditFormValues: TransactionUpdateNotesData = {
@@ -74,6 +79,11 @@ const defaultCheckoutFormValues: CheckoutFormData = {
     tender_amount: 0,
 };
 
+const defaultCleaningUpdateFormValues: RoomCleaningStatusUpdateData = {
+    cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
+    cleaning_notes: '',
+};
+
 
 export default function RoomStatusContent({ tenantId, branchId, staffUserId, showAvailableRoomsOverview, onCloseAvailableRoomsOverview }: RoomStatusContentProps) {
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
@@ -89,7 +99,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const [isTransactionDetailsDialogOpen, setIsTransactionDetailsDialogOpen] = useState(false);
   const [transactionDetails, setTransactionDetails] = useState<Transaction | null>(null);
   const [editingModeForDialog, setEditingModeForDialog] = useState<'notesOnly' | 'fullReservation' | null>(null);
-  const [isEditNotesMode, setIsEditNotesMode] = useState(false);
   
   const [roomForActionConfirmation, setRoomForActionConfirmation] = useState<HotelRoom | null>(null);
   const [activeTransactionIdForAction, setActiveTransactionIdForAction] = useState<number | null>(null);
@@ -117,6 +126,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   const [selectedRoomForRatesDisplay, setSelectedRoomForRatesDisplay] = useState<HotelRoom | null>(null);
 
   const [activeCleaningTab, setActiveCleaningTab] = useState<string>(ROOM_CLEANING_STATUS.DIRTY);
+  const [isSubmittingCleaningStatus, setIsSubmittingCleaningStatus] = useState(false);
 
 
   const { toast } = useToast();
@@ -125,6 +135,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     resolver: zodResolver(transactionCreateSchema),
     defaultValues: defaultBookingFormValues,
   });
+  const watchIsPaidInBookingForm = useWatch({ control: bookingForm.control, name: 'is_paid' });
 
   const notesForm = useForm<TransactionUpdateNotesData>({ 
     resolver: zodResolver(transactionUpdateNotesSchema),
@@ -142,16 +153,15 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   });
   const tenderAmountWatch = useWatch({ control: checkoutForm.control, name: 'tender_amount'});
 
-  const cleaningUpdateForm = useForm<RoomCleaningStatusAndNotesUpdateData>({
+  const cleaningUpdateForm = useForm<RoomCleaningStatusUpdateData>({
     resolver: zodResolver(roomCleaningStatusAndNotesUpdateSchema),
-    defaultValues: {
-      cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
-      cleaning_notes: '',
-    },
+    defaultValues: defaultCleaningUpdateFormValues,
   });
+  const watchCleaningStatusInModal = useWatch({ control: cleaningUpdateForm.control, name: 'cleaning_status'});
 
 
   const updateRoomInLocalState = useCallback((updatedRoomPartial: Partial<HotelRoom> & { id: number }) => {
+    console.log("[RoomStatusContent] Updating local state for room:", updatedRoomPartial.id, updatedRoomPartial);
     setRooms(prevRooms => {
       const newRooms = prevRooms.map(r =>
         r.id === updatedRoomPartial.id ? { ...r, ...updatedRoomPartial } : r
@@ -234,13 +244,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       toast({ title: "Error", description: "Tenant or branch information missing.", variant: "destructive" });
       return;
     }
-    if (room.is_available !== ROOM_AVAILABILITY_STATUS.AVAILABLE) {
-      toast({ title: `Cannot ${mode}`, description: `Room is not available. Status: ${ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}`, variant: "default" });
-      return;
-    }
-    if (room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN) {
-      toast({ title: `Cannot ${mode}`, description: `Room is not clean. Status: ${ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}`, variant: "default" });
-      return;
+    // This check is now more specific to allow booking only if room is CLEAN and AVAILABLE
+    if (room.is_available !== ROOM_AVAILABILITY_STATUS.AVAILABLE || room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN) {
+        let reason = "";
+        if(room.is_available !== ROOM_AVAILABILITY_STATUS.AVAILABLE) reason = `Room not available (Status: ${ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]})`;
+        else if (room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN) reason = `Room not clean (Status: ${ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || 'N/A']})`;
+        toast({ title: `Cannot ${mode}`, description: reason, variant: "default" });
+        return;
     }
 
     setSelectedRoomForBooking(room);
@@ -264,7 +274,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     setIsSubmitting(true);
     try {
       let result;
-      const apiData = { ...data, selected_rate_id: Number(data.selected_rate_id) }; // Ensure rate ID is number
+      const apiData = { ...data, selected_rate_id: Number(data.selected_rate_id) }; 
       if (bookingMode === 'book') {
         result = await createTransactionAndOccupyRoom( apiData, tenantId, branchId, selectedRoomForBooking.id, apiData.selected_rate_id, staffUserId );
       } else if (bookingMode === 'reserve') {
@@ -305,7 +315,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         if (room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED) {
           setEditingModeForDialog('notesOnly'); 
           notesForm.reset({ notes: transaction.notes || '' });
-        } else if (room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && transaction.status === TRANSACTION_STATUS.ADVANCE_PAID) {
+        } else if (room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && (transaction.status === TRANSACTION_STATUS.ADVANCE_PAID || transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION)) {
           setEditingModeForDialog('fullReservation');
           reservationEditForm.reset({
             client_name: transaction.client_name,
@@ -316,7 +326,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         } else { 
             setEditingModeForDialog(null); 
             notesForm.reset({ notes: transaction.notes || '' }); 
-            setIsEditNotesMode(false); 
         }
         setIsTransactionDetailsDialogOpen(true);
       } else {
@@ -328,7 +337,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       toast({ title: "Error", description: `Failed to fetch transaction details. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
       setTransactionDetails(null); setEditingModeForDialog(null);
     } finally { setIsSubmitting(false); }
-  }, [tenantId, branchId, toast, notesForm, reservationEditForm, rooms]);
+  }, [tenantId, branchId, toast, notesForm, reservationEditForm]);
 
 
   const handleOpenCheckoutConfirmation = useCallback(async (room: HotelRoom) => {
@@ -349,11 +358,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         setTransactionDetailsForCheckout(transaction);
 
         const check_in_time_str = transaction.check_in_time;
-        const check_in_time = parseISO(check_in_time_str.replace(' ', 'T')); 
-        const current_time = new Date();
-        setCurrentTimeForCheckoutModal(format(current_time, 'yyyy-MM-dd hh:mm:ss aa'));
+        const check_in_time_dt = parseISO(check_in_time_str!.replace(' ', 'T')); 
+        const current_time_dt = new Date();
+        setCurrentTimeForCheckoutModal(format(current_time_dt, 'yyyy-MM-dd hh:mm:ss aa'));
         
-        const diffMillisecondsVal = differenceInMilliseconds(current_time, check_in_time);
+        const diffMillisecondsVal = differenceInMilliseconds(current_time_dt, check_in_time_dt);
         let hours_used_calc = Math.ceil(diffMillisecondsVal / (1000 * 60 * 60));
         if (hours_used_calc <= 0) hours_used_calc = 1; 
         setDisplayHoursUsedForCheckoutModal(hours_used_calc > 0 ? `${hours_used_calc} hr(s)` : 'Less than 1 hr');
@@ -375,7 +384,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         }
 
         setCurrentBillForCheckout(bill);
-        checkoutForm.reset({ tender_amount: bill });
+        checkoutForm.reset({ tender_amount: bill }); // Pre-fill tender amount with the bill
         setIsCheckoutModalOpen(true);
     } catch (error) { 
         console.error("Checkout prep error:", error);
@@ -517,6 +526,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                     id: roomToUpdate.id,
                     active_transaction_client_name: result.updatedTransaction.client_name,
                     active_transaction_rate_name: allBranchActiveRates.find(rate => rate.id === result.updatedTransaction!.hotel_rate_id)?.name || roomToUpdate.active_transaction_rate_name,
+                     // Potentially more fields if needed, like check-in time if it was editable.
                 });
             }
             if (editingModeForDialog === 'notesOnly') notesForm.reset({ notes: result.updatedTransaction!.notes || '' });
@@ -527,7 +537,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                  notes: result.updatedTransaction.notes || '',
             });
             setEditingModeForDialog(null); 
-            setIsEditNotesMode(false);
         } else { toast({ title: "Update Failed", description: result.message || "Could not update details.", variant: "destructive" }); }
     } catch (error) { 
         console.error("Error updating transaction details:", error);
@@ -543,7 +552,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       const transaction = await getActiveTransactionForRoom(room.transaction_id, tenantId, branchId);
       if (transaction) {
         setCurrentNotesForDisplay(transaction.notes || "No notes recorded for this transaction.");
-        setSelectedRoomForCleaningUpdate(room); 
+        setSelectedRoomForCleaningUpdate(room); // Re-using this state for context, might rename later
         setIsNotesOnlyModalOpen(true);
       } else { toast({ title: "Info", description: "No active transaction found to display notes.", variant: "default" }); }
     } catch (error) { console.error("[handleOpenNotesOnlyModal] Error fetching notes:", error); toast({ title: "Error", description: `Failed to fetch notes. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
@@ -555,7 +564,14 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     if (status === ROOM_CLEANING_STATUS.CLEAN) return "This is ready for use.";
     if (status === ROOM_CLEANING_STATUS.DIRTY) return "Please clean the room.";
     if (status === ROOM_CLEANING_STATUS.INSPECTION) return "Please do a room inspection.";
-    if (status === ROOM_CLEANING_STATUS.OUT_OF_ORDER) return currentNotes && status === selectedRoomForCleaningUpdate?.cleaning_status ? currentNotes : "";
+    if (status === ROOM_CLEANING_STATUS.OUT_OF_ORDER) {
+      // If we are setting it to Out of Order, start with empty notes.
+      // If it's ALREADY Out of Order and we are opening the modal to edit, use current notes.
+      if (targetCleaningStatusForModal === ROOM_CLEANING_STATUS.OUT_OF_ORDER && selectedRoomForCleaningUpdate?.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER) {
+          return ""; // Setting to Out of Order, notes should be empty
+      }
+      return currentNotes || ""; // Editing existing Out of Order, or other statuses
+    }
     return currentNotes || ""; 
   };
   
@@ -570,12 +586,12 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     setIsCleaningUpdateModalOpen(true);
   };
 
-  const handleSaveCleaningUpdate = async (data: RoomCleaningStatusAndNotesUpdateData) => {
+  const handleSaveCleaningUpdate = async (data: RoomCleaningStatusUpdateData) => {
     if (!selectedRoomForCleaningUpdate || !tenantId || !branchId || !staffUserId) {
       toast({ title: "Error", description: "Missing details to update cleaning status/notes.", variant: "destructive" });
       return;
     }
-    setIsSubmitting(true); // Changed from setIsSubmittingModal
+    setIsSubmittingCleaningStatus(true);
     try {
       const result = await updateRoomCleaningStatus(
         selectedRoomForCleaningUpdate.id, 
@@ -599,7 +615,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     } catch (error) {
       toast({ title: "Error", description: "An unexpected error occurred saving status/notes.", variant: "destructive" });
     } finally {
-      setIsSubmitting(false); // Changed from setIsSubmittingModal
+      setIsSubmittingCleaningStatus(false);
     }
   };
   
@@ -618,10 +634,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
   ];
 
   const calculatedChange = useMemo(() => {
-    const tender = parseFloat(String(tenderAmountWatch));
+    const tender = parseFloat(String(tenderAmountWatch)); // Ensure tenderAmountWatch is treated as a string before parseFloat
     const bill = currentBillForCheckout;
     console.log("[RoomStatusContent] Calculating change. Watched Tender:", tenderAmountWatch, "Parsed Tender:", tender, "Type:", typeof tender, "Bill:", bill);
-    if (bill !== null && !isNaN(tender) && tender >= 0) {
+    if (bill !== null && !isNaN(tender) && tender >= 0) { // Ensure tender is a valid number
       const change = tender - bill;
       return change;
     }
@@ -630,6 +646,11 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
 
   const getRoomRateNameForCard = (room: HotelRoom): string => {
     if (!room.hotel_rate_id || room.hotel_rate_id.length === 0) return 'N/A';
+    // Try to get the active transaction's rate first if room is occupied/reserved
+    if (room.active_transaction_rate_name) {
+        return room.active_transaction_rate_name;
+    }
+    // Fallback to the first associated rate for available rooms
     const firstRateId = room.hotel_rate_id[0];
     const rate = allBranchActiveRates.find(r => r.id === firstRateId);
     return rate ? rate.name : `Rate ID: ${firstRateId}`;
@@ -650,7 +671,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room statuses...</p></div>;
   }
   if (!branchId && !isLoading) {
-    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><ShadDialogTitle>Room Status</ShadDialogTitle></div><ShadCardDescription>View current room availability.</ShadCardDescription></CardHeader><CardContent><p className="text-muted-foreground">No branch assigned or selected. Please ensure your staff account is assigned to a branch.</p></CardContent></Card>;
+    return <Card><CardHeader><div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><ShadDialogTitle>Room Status</ShadDialogTitle></div><ShadCardDescriptionAliased>View current room availability.</ShadCardDescriptionAliased></CardHeader><CardContent><p className="text-muted-foreground">No branch assigned or selected. Please ensure your staff account is assigned to a branch.</p></CardContent></Card>;
   }
   
   return (
@@ -661,16 +682,16 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             <Wrench className="h-5 w-5 text-primary" />
             <CardTitle>Housekeeping Monitoring</CardTitle>
           </div>
-          <ShadCardDescription className="flex justify-between items-center">
+          <ShadCardDescriptionAliased className="flex justify-between items-center">
             <span>Quickly update the cleaning status for rooms. Click status icon to update.</span>
             <Button variant="ghost" size="sm" onClick={fetchRoomsAndRatesData} className="ml-4" disabled={isLoading}>
               <RefreshCw className={`mr-2 h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} /> Refresh Room List
             </Button>
-          </ShadCardDescription>
+          </ShadCardDescriptionAliased>
         </CardHeader>
         <CardContent>
-           <div className="flex items-center space-x-4 mb-4 text-xs text-muted-foreground">
-            <p className="font-semibold">Legend (Click icon to update status):</p>
+           <div className="flex items-center space-x-4 mb-4 text-xs text-muted-foreground border p-2 rounded-md bg-muted/30">
+            <p className="font-semibold">Legend (Click icon to update status & notes):</p>
             {cleaningStatusActionButtons.map(btn => (
               <span key={btn.status} className="flex items-center">
                 {React.cloneElement(btn.icon, {size: 14, className: cn("mr-1", btn.className.replace(/hover:[^ ]+ /g, '').replace(/text-[^-]+-\d+/g, ''))})} {btn.label}
@@ -687,7 +708,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             </TabsList>
             {ROOM_CLEANING_STATUS_OPTIONS.map(opt => (
               <TabsContent key={opt.value} value={opt.value}>
-                <Accordion type="multiple" defaultValue={Object.keys(groupedRooms)} className="w-full">
+                <Accordion type="multiple" defaultValue={[]} className="w-full">
                   {Object.entries(groupedRooms).map(([floor, floorRooms]) => {
                     const filteredFloorRooms = floorRooms.filter(r => r.status === '1' && (r.cleaning_status || ROOM_CLEANING_STATUS.CLEAN) === opt.value);
                     if (filteredFloorRooms.length === 0) return null;
@@ -721,10 +742,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                       size="icon"
                                       className={cn("h-8 w-8", actionBtn.className)}
                                       onClick={() => handleOpenCleaningUpdateModal(room, actionBtn.status)}
-                                      disabled={isSubmitting || room.cleaning_status === actionBtn.status || room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED }
+                                      disabled={isSubmittingCleaningStatus || room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED }
                                       title={room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED || room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED ? `Cannot change cleaning status: Room is ${ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}` : actionBtn.label}
                                     >
-                                      {isSubmitting && selectedRoomForCleaningUpdate?.id === room.id && targetCleaningStatusForModal === actionBtn.status ? <Loader2 className="h-4 w-4 animate-spin" /> : React.cloneElement(actionBtn.icon, { size: 16 }) }
+                                      {isSubmittingCleaningStatus && selectedRoomForCleaningUpdate?.id === room.id && targetCleaningStatusForModal === actionBtn.status ? <Loader2 className="h-4 w-4 animate-spin" /> : React.cloneElement(actionBtn.icon, { size: 16 }) }
                                     </Button>
                                   ))}
                                 </div>
@@ -752,7 +773,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
           const reservedCount = floorRooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.status === '1').length;
           const availableNotCleanCount = floorRooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.status === '1' && room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER).length;
 
-          if (floorRooms.filter(r => r.status === '1').length === 0) return null; // Skip floor if no active rooms
+          if (floorRooms.filter(r => r.status === '1').length === 0) return null;
 
           return (
             <AccordionItem value={floor} key={`status-floor-${floor}`} className="border bg-card rounded-md shadow-sm">
@@ -762,7 +783,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                     <span className="text-xs font-normal ml-4 flex items-center space-x-3">
                         <span className="flex items-center text-green-600"><CheckCircle2 className="h-4 w-4 mr-1" />{availableCleanCount}</span>
                         <span className="flex items-center text-orange-600"><UserIcon className="h-4 w-4 mr-1" />{occupiedCount}</span>
-                        <span className="flex items-center text-yellow-500"><CalendarClock className="h-4 w-4 mr-1" />{reservedCount}</span>
+                        <span className="flex items-center text-yellow-600"><CalendarClock className="h-4 w-4 mr-1" />{reservedCount}</span>
                         <span className="flex items-center text-slate-500"><Wrench className="h-4 w-4 mr-1" />{availableNotCleanCount}</span>
                     </span>
                 </div>
@@ -851,7 +872,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             )}
                             {room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && room.active_transaction_check_in_time && (
                                 <p className="text-xs text-muted-foreground">
-                                In: {format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa')}
+                                In: {format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}
                                 </p>
                             )}
                             {room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.active_transaction_client_name && ( 
@@ -865,13 +886,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             )}
                             {room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.transaction_id && room.active_transaction_check_in_time && ( 
                                 <p className="text-xs text-muted-foreground">
-                                Reserved: {format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa')}
+                                Reserved: {format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}
                                 </p>
                             )}
                             <div className="flex items-center text-xs mt-1">
                                 <Wrench size={12} className="inline mr-1 text-muted-foreground" />
                                 <span className="text-muted-foreground">{ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}</span>
-                                {room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER && (
+                                { (room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN || room.cleaning_notes) && (
                                   <Button variant="ghost" size="icon" className="h-5 w-5 ml-1" title="Edit Cleaning Note" onClick={() => handleOpenCleaningUpdateModal(room, room.cleaning_status || ROOM_CLEANING_STATUS.DIRTY )}>
                                     <Edit3 className="h-3 w-3" />
                                   </Button>
@@ -923,35 +944,18 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                         >
                                             <Info className="mr-2 h-4 w-4" /> View Details
                                         </Button>
-                                        <AlertDialog 
-                                            open={isCheckoutModalOpen && roomForActionConfirmation?.id === room.id && activeTransactionIdForCheckout === room.transaction_id}
-                                            onOpenChange={(open) => {
-                                                if (!open) {
-                                                    setIsCheckoutModalOpen(false);
-                                                    setRoomForActionConfirmation(null);
-                                                    setActiveTransactionIdForCheckout(null);
-                                                    setTransactionDetailsForCheckout(null);
-                                                    setCurrentBillForCheckout(null);
-                                                    checkoutForm.reset(defaultCheckoutFormValues);
-                                                } else if(roomForActionConfirmation?.id === room.id) { // Only set true if it's for this room
-                                                     setIsCheckoutModalOpen(true);
-                                                }
+                                         <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            className="w-full"
+                                            title="Check-out Guest"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleOpenCheckoutConfirmation(room);
                                             }}
                                         >
-                                            <Button
-                                                variant="destructive"
-                                                size="sm"
-                                                className="w-full"
-                                                title="Check-out Guest"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleOpenCheckoutConfirmation(room);
-                                                }}
-                                            >
-                                                <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
-                                            </Button>
-                                        </AlertDialog>
-                                          
+                                            <LogOutIcon className="mr-2 h-4 w-4" /> Check-out
+                                        </Button>
                                     </div>
                                 )}
                                 {room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && (
@@ -1102,6 +1106,55 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                     </Select><FormMessage />
                   </FormItem>
                 )} />
+                 <FormField
+                  control={bookingForm.control}
+                  name="is_paid"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(checked) => {
+                            field.onChange(checked);
+                            if (!checked) { // If unpaid, clear tender amount
+                              bookingForm.setValue('tender_amount_at_checkin', null);
+                            }
+                          }}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <RHFFormLabel>Paid at Check-in?</RHFFormLabel>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+                {watchIsPaidInBookingForm && (
+                  <FormField
+                    control={bookingForm.control}
+                    name="tender_amount_at_checkin"
+                    render={({ field }) => (
+                      <FormItem>
+                        <RHFFormLabel>Tender Amount *</RHFFormLabel>
+                        <FormControl>
+                           <Input
+                            type="text"
+                            placeholder="0.00"
+                            {...field}
+                            value={field.value === null ? "" : String(field.value)}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
+                                field.onChange(val === "" ? null : val);
+                                }
+                            }}
+                            className="w-[90%]"
+                            />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField control={bookingForm.control} name="notes" render={({ field }) => (
                   <FormItem><RHFFormLabel>Notes (Optional)</RHFFormLabel><FormControl><Textarea placeholder="Any special requests or notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                 )} />
@@ -1121,7 +1174,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       <Dialog open={isTransactionDetailsDialogOpen} onOpenChange={(open) => {
           if (!open) {
               setIsTransactionDetailsDialogOpen(false); setTransactionDetails(null); setEditingModeForDialog(null);
-              notesForm.reset(defaultNotesEditFormValues); reservationEditForm.reset(defaultReservationEditFormValues); setIsEditNotesMode(false);
+              notesForm.reset(defaultNotesEditFormValues); reservationEditForm.reset(defaultReservationEditFormValues);
           } else { setIsTransactionDetailsDialogOpen(open); }
       }}>
         <DialogContent className="sm:max-w-md p-3">
@@ -1137,6 +1190,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
               {transactionDetails.check_out_time && (<p><strong>Check-out:</strong> {format(parseISO(transactionDetails.check_out_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa')}</p>)}
               {transactionDetails.hours_used !== undefined && transactionDetails.hours_used !== null && (<p><strong>Hours Used:</strong> {transactionDetails.hours_used}</p>)}
               {transactionDetails.total_amount !== undefined && transactionDetails.total_amount !== null && (<p><strong>Total Amount:</strong> ₱{Number(transactionDetails.total_amount).toFixed(2)}</p>)}
+              {transactionDetails.is_paid !== undefined && transactionDetails.is_paid !== null && (<p><strong>Payment Status:</strong> {TRANSACTION_IS_PAID_STATUS_TEXT[transactionDetails.is_paid as keyof typeof TRANSACTION_IS_PAID_STATUS_TEXT]}</p>)}
+              {transactionDetails.tender_amount !== undefined && transactionDetails.tender_amount !== null && (<p><strong>Tender Amount:</strong> ₱{Number(transactionDetails.tender_amount).toFixed(2)}</p>)}
+
 
               {editingModeForDialog === 'fullReservation' ? (
                 <Form {...reservationEditForm}>
@@ -1185,19 +1241,19 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                         <Button type="submit" size="sm" disabled={isSubmitting || !reservationEditForm.formState.isValid}>
                             {isSubmitting ? <Loader2 className="animate-spin h-3 w-3" /> : "Save Reservation Changes"}
                         </Button>
-                         <Button type="button" variant="outline" size="sm" onClick={() => { setEditingModeForDialog(null); reservationEditForm.reset(defaultReservationEditFormValues); if(transactionDetails) notesForm.reset({ notes: transactionDetails.notes || ''}); setIsEditNotesMode(false); }}>Cancel Edit</Button>
+                         <Button type="button" variant="outline" size="sm" onClick={() => { setEditingModeForDialog(null); reservationEditForm.reset(defaultReservationEditFormValues); if(transactionDetails) notesForm.reset({ notes: transactionDetails.notes || ''}); }}>Cancel Edit</Button>
                     </div>
                   </form>
                 </Form>
               ) : ( 
                  <div className="pt-3 border-t mt-3 space-y-1">
                     <div className="flex justify-between items-center">
-                        {isEditNotesMode ? null : <Label>Notes:</Label>}
-                        {!isEditNotesMode && (transactionDetails.status === TRANSACTION_STATUS.UNPAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID) && (
-                            <Button variant="ghost" size="sm" onClick={() => setIsEditNotesMode(true)}><Edit3 className="h-3 w-3 mr-1" /> Edit Notes</Button>
+                        {editingModeForDialog === 'notesOnly' ? null : <Label>Notes:</Label>}
+                        {editingModeForDialog !== 'notesOnly' && (transactionDetails.status === TRANSACTION_STATUS.UNPAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && (
+                            <Button variant="ghost" size="sm" onClick={() => setEditingModeForDialog('notesOnly')}><Edit3 className="h-3 w-3 mr-1" /> Edit Notes</Button>
                         )}
                     </div>
-                    {isEditNotesMode ? (
+                    {editingModeForDialog === 'notesOnly' ? (
                          <Form {...notesForm}>
                             <form onSubmit={notesForm.handleSubmit(data => handleUpdateTransactionDetails(data as TransactionUpdateNotesData))} className="space-y-3">
                                 <FormField control={notesForm.control} name="notes" render={({ field }) => (
@@ -1207,7 +1263,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                     <Button type="submit" size="sm" disabled={isSubmitting || !notesForm.formState.isValid}>
                                         {isSubmitting ? <Loader2 className="animate-spin h-3 w-3" /> : "Save Notes"}
                                     </Button>
-                                    <Button type="button" variant="outline" size="sm" onClick={() => setIsEditNotesMode(false)}>Cancel</Button>
+                                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditingModeForDialog(null); if(transactionDetails) notesForm.reset({ notes: transactionDetails.notes || ''}); }}>Cancel</Button>
                                 </div>
                             </form>
                         </Form>
@@ -1221,7 +1277,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             </div>
           ) : <p className="py-4">Loading details or no active transaction...</p>}
           <DialogFooter className="pt-4 flex flex-row justify-between items-center">
-             {transactionDetails && (transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && editingModeForDialog !== 'fullReservation' && !isEditNotesMode && (
+             {transactionDetails && (transactionDetails.status === TRANSACTION_STATUS.ADVANCE_PAID || transactionDetails.status === TRANSACTION_STATUS.ADVANCE_RESERVATION) && editingModeForDialog !== 'fullReservation' && editingModeForDialog !== 'notesOnly' && (
                 <AlertDialog
                     open={isCancelReservationConfirmOpen && activeTransactionIdForAction === transactionDetails.id}
                     onOpenChange={(open) => {
@@ -1273,7 +1329,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             <div className="flex-grow"></div> 
             <DialogClose asChild><Button variant="outline" onClick={() => {
               setIsTransactionDetailsDialogOpen(false); setTransactionDetails(null); setEditingModeForDialog(null);
-              notesForm.reset(defaultNotesEditFormValues); reservationEditForm.reset(defaultReservationEditFormValues); setIsEditNotesMode(false);
+              notesForm.reset(defaultNotesEditFormValues); reservationEditForm.reset(defaultReservationEditFormValues);
             }}>Close</Button></DialogClose>
           </DialogFooter>
         </DialogContent>
@@ -1301,10 +1357,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             {transactionDetailsForCheckout && currentBillForCheckout !== null && (
                 <div className="space-y-3 text-sm py-2">
                     <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Client:</span> <span className="font-semibold">{transactionDetailsForCheckout.client_name}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Checked-in:</span> <span className="font-semibold">{format(parseISO(transactionDetailsForCheckout.check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Checked-in:</span> <span className="font-semibold">{transactionDetailsForCheckout.check_in_time ? format(parseISO(transactionDetailsForCheckout.check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</span></div>
                     <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Current Time:</span> <span className="font-semibold">{currentTimeForCheckoutModal}</span></div>
-                    <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Rate:</span> <span className="font-semibold">{transactionDetailsForCheckout.rate_name || 'N/A'}</span></div>
                     <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Hours Stayed (Est.):</span> <span className="font-semibold">{displayHoursUsedForCheckoutModal}</span></div>
+                    <div className="flex justify-between items-center"><span className="text-muted-foreground font-medium">Rate:</span> <span className="font-semibold">{transactionDetailsForCheckout.rate_name || 'N/A'}</span></div>
                     <hr className="my-2 border-border"/>
                     <div className="flex justify-between items-center text-lg"><span className="font-semibold text-muted-foreground">Total Bill:</span> <span className="font-bold text-primary">₱{currentBillForCheckout.toFixed(2)}</span></div>
                     
@@ -1321,19 +1377,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                                 type="text"
                                                 placeholder="0.00"
                                                 {...field}
+                                                value={field.value === null || field.value === undefined ? "" : String(field.value)}
                                                 onChange={(e) => {
-                                                    const { value } = e.target;
-                                                    const sanitizedValue = value.replace(/[^0-9.]/g, '');
-                                                    const parts = sanitizedValue.split('.');
-                                                    let finalValue = sanitizedValue;
-                                                    if (parts.length > 2) {
-                                                        finalValue = parts[0] + '.' + parts.slice(1).join('');
+                                                    const val = e.target.value;
+                                                    // Allow only numbers and up to one decimal point with two decimal places
+                                                    if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
+                                                        field.onChange(val); // Pass the string value directly
                                                     }
-                                                    if (parts[1] && parts[1].length > 2) {
-                                                        finalValue = parts[0] + '.' + parts[1].substring(0, 2);
-                                                    }
-                                                    field.onChange(finalValue);
-                                                    console.log("Tender amount input changed, raw value:", e.target.value, "Processed value:", finalValue);
                                                 }}
                                                 className="w-full text-lg p-2 text-right"
                                             />
@@ -1395,10 +1445,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             if (!isOpen) {
                 setSelectedRoomForCleaningUpdate(null);
                 setTargetCleaningStatusForModal(null);
-                cleaningUpdateForm.reset({
-                    cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
-                    cleaning_notes: '',
-                });
+                cleaningUpdateForm.reset(defaultCleaningUpdateFormValues);
             }
              setIsCleaningUpdateModalOpen(isOpen);
         }}>
@@ -1442,7 +1489,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                 <FormItem>
                                     <RHFFormLabel>
                                         Notes
-                                        {cleaningUpdateForm.getValues('cleaning_status') === ROOM_CLEANING_STATUS.OUT_OF_ORDER && ' * (Required)'}
+                                        {watchCleaningStatusInModal === ROOM_CLEANING_STATUS.OUT_OF_ORDER && ' * (Required)'}
                                     </RHFFormLabel>
                                     <FormControl><Textarea placeholder="Enter notes..." {...field} value={field.value ?? ''} rows={4} className="w-full" /></FormControl>
                                     <FormMessage />
@@ -1450,7 +1497,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                             )}
                         />
                         <DialogFooter className="sm:justify-start pt-3">
-                             <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin mr-2" size={16} /> : null} Save Changes</Button>
+                             <Button type="submit" disabled={isSubmittingCleaningStatus}>{isSubmittingCleaningStatus ? <Loader2 className="animate-spin mr-2" size={16} /> : null} Save Changes</Button>
                              <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                         </DialogFooter>
                     </form>
@@ -1459,7 +1506,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
         </Dialog>
 
       {/* Available Rooms Overview Modal */}
-      <Dialog open={showAvailableRoomsOverview} onOpenChange={onCloseAvailableRoomsOverview}>
+      <Dialog open={showAvailableRoomsOverview} onOpenChange={(open) => {
+          if(!open) onCloseAvailableRoomsOverview();
+      }}>
         <DialogContent className="sm:max-w-2xl md:max-w-3xl lg:max-w-4xl p-0 flex flex-col max-h-[90vh] overflow-hidden">
           <DialogHeader className="p-3 border-b">
             <ShadDialogTitle className="flex items-center">
@@ -1573,4 +1622,3 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
     </div>
   );
 }
-

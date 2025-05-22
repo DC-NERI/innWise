@@ -1,4 +1,6 @@
 
+import type { z } from 'zod';
+
 export type UserRole = "admin" | "sysad" | "staff" | "housekeeping";
 
 export interface User {
@@ -96,7 +98,7 @@ export interface HotelRoom {
   updated_at: string;
 
   // Fields populated from joined active transaction
-  active_transaction_id?: number | null; // This might be redundant if transaction_id is the source
+  active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
@@ -125,8 +127,12 @@ export interface Transaction {
     check_out_time?: string | null;
     hours_used?: number | null;
     total_amount?: number | null;
+    tender_amount?: number | null; // Added for storing tender amount
+    is_paid?: number | null; // 0 for unpaid, 1 for paid
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
+    accepted_by_user_id?: number | null;
+    declined_by_user_id?: number | null;
     status: string; // '0' Unpaid, '1' Paid, '2' Advance Paid, '3' Cancelled, '4' Advance Reservation, '5' Pending Branch Acceptance
     created_at: string;
     updated_at: string;
@@ -134,8 +140,6 @@ export interface Transaction {
     reserved_check_out_datetime?: string | null;
     is_admin_created?: number | null; // 0 = default, 1 = admin created
     is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending
-    accepted_by_user_id?: number | null;
-    declined_by_user_id?: number | null;
 
     // For display purposes, joined from other tables
     room_name?: string | null;
@@ -173,7 +177,6 @@ export interface Notification {
   acknowledged_by_user_id?: number | null;
 }
 
-// This type was previously defined but might be superseded by roomCleaningStatusAndNotesUpdateSchema
 export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusAndNotesUpdateSchema>;
 export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
 
@@ -185,4 +188,3 @@ export interface RoomCleaningLog {
     user_id?: number | null;
     created_at: string;
 }
-```

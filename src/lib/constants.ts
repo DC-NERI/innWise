@@ -31,21 +31,31 @@ export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).
 
 
 export const TRANSACTION_STATUS = {
-  UNPAID: '0',
-  PAID: '1',
-  ADVANCE_PAID: '2',
+  UNPAID: '0', // Active, awaiting payment at checkout
+  PAID: '1', // Completed and paid
+  ADVANCE_PAID: '2', // Reservation where payment might have been made for full or partial amount
   CANCELLED: '3',
-  ADVANCE_RESERVATION: '4',
-  PENDING_BRANCH_ACCEPTANCE: '5',
+  ADVANCE_RESERVATION: '4', // Future reservation, typically unpaid yet or partially paid
+  PENDING_BRANCH_ACCEPTANCE: '5', // Admin-created reservation awaiting branch action
 } as const;
 
 export const TRANSACTION_STATUS_TEXT: { [key: string]: string } = {
   [TRANSACTION_STATUS.UNPAID]: 'Unpaid / Occupied',
   [TRANSACTION_STATUS.PAID]: 'Paid',
-  [TRANSACTION_STATUS.ADVANCE_PAID]: 'Advance Paid', // For staff-created reservations directly
+  [TRANSACTION_STATUS.ADVANCE_PAID]: 'Advance Paid',
   [TRANSACTION_STATUS.CANCELLED]: 'Cancelled',
-  [TRANSACTION_STATUS.ADVANCE_RESERVATION]: 'Advance Reservation', // For staff-created future reservations
-  [TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance', // For admin-created reservations
+  [TRANSACTION_STATUS.ADVANCE_RESERVATION]: 'Advance Reservation',
+  [TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
+};
+
+export const TRANSACTION_IS_PAID_STATUS = {
+  UNPAID: 0,
+  PAID: 1,
+} as const;
+
+export const TRANSACTION_IS_PAID_STATUS_TEXT: { [key: number]: string } = {
+  [TRANSACTION_IS_PAID_STATUS.UNPAID]: 'Unpaid',
+  [TRANSACTION_IS_PAID_STATUS.PAID]: 'Paid',
 };
 
 export const NOTIFICATION_STATUS = {
