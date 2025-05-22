@@ -19,7 +19,7 @@ import {
   roomCleaningStatusUpdateSchema,
   checkoutFormSchema,
 } from '@/lib/schemas';
-import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_STATUS_TEXT, ROOM_CLEANING_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT, NOTIFICATION_STATUS_TEXT, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS } from '@/lib/constants'; 
+import { ROOM_AVAILABILITY_STATUS, TRANSACTION_STATUS, NOTIFICATION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS } from '@/lib/constants'; 
 import type { z } from 'zod';
 
 
@@ -106,7 +106,6 @@ export async function createTransactionAndOccupyRoom(
         id: roomId,
         is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
         transaction_id: newTransaction.id,
-        active_transaction_id: newTransaction.id,
         active_transaction_client_name: newTransaction.client_name,
         active_transaction_check_in_time: newTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
@@ -249,7 +248,6 @@ export async function createReservation(
         id: roomId,
         is_available: ROOM_AVAILABILITY_STATUS.RESERVED,
         transaction_id: newTransaction.id,
-        active_transaction_id: newTransaction.id,
         active_transaction_client_name: newTransaction.client_name,
         active_transaction_check_in_time: newTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
@@ -432,7 +430,7 @@ export async function checkOutGuestAndFreeRoom(
     await client.query('BEGIN');
 
     const transactionAndRateRes = await client.query(
-      `SELECT t.*, h_rates.price as rate_price, h_rates.hours as rate_hours, h_rates.excess_hour_price as rate_excess_hour_price
+      `SELECT t.*, h_rates.price as rate_price, h_rates.hours as rate_hours, h_rates.excess_hour_price as rate_excess_hour_price, h_rates.name as rate_name
        FROM transactions t
        JOIN hotel_rates h_rates ON t.hotel_rate_id = h_rates.id
        WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.hotel_room_id = $4
@@ -447,11 +445,11 @@ export async function checkOutGuestAndFreeRoom(
     const transactionDetails = transactionAndRateRes.rows[0];
     const check_in_time_str = transactionDetails.check_in_time;
     
-    const check_in_time = new Date(check_in_time_str.replace(' ', 'T') + 'Z'); 
-
     const checkOutTimeRes = await client.query("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as db_check_out_time_val");
     const db_check_out_time_str = checkOutTimeRes.rows[0].db_check_out_time_val;
-    const check_out_time_obj = new Date(db_check_out_time_str.replace(' ', 'T') + 'Z'); 
+
+    const check_in_time = new Date(check_in_time_str.replace(' ', 'T') + 'Z');
+    const check_out_time_obj = new Date(db_check_out_time_str.replace(' ', 'T') + 'Z');
 
     const diffMilliseconds = check_out_time_obj.getTime() - check_in_time.getTime();
     let hours_used = Math.ceil(diffMilliseconds / (1000 * 60 * 60));
@@ -516,7 +514,13 @@ export async function checkOutGuestAndFreeRoom(
       message: "Guest checked out successfully. Room set to 'Needs Inspection'.",
       transaction: {
         ...updatedTransaction,
-        rate_name: transactionDetails.rate_name, // from initial fetch
+        check_in_time: updatedTransaction.check_in_time,
+        check_out_time: updatedTransaction.check_out_time,
+        reserved_check_in_datetime: updatedTransaction.reserved_check_in_datetime,
+        reserved_check_out_datetime: updatedTransaction.reserved_check_out_datetime,
+        created_at: updatedTransaction.created_at,
+        updated_at: updatedTransaction.updated_at,
+        rate_name: transactionDetails.rate_name,
       } as Transaction,
       updatedRoomData: {
         id: roomId,
@@ -650,32 +654,29 @@ export async function checkInReservedGuest(
     }
     const { client_name, hotel_rate_id, reserved_check_in_datetime, current_status } = transactionCheckRes.rows[0];
 
-    let actualCheckInTimeQueryPart: string;
     let actualCheckInTimeValue: string;
-    const queryParams = [TRANSACTION_STATUS.UNPAID];
-
+    let checkInTimeQueryPart: string;
+    let queryParams: any[] = [];
 
     if ( (current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION || current_status === TRANSACTION_STATUS.ADVANCE_PAID ) && reserved_check_in_datetime) {
-      actualCheckInTimeQueryPart = `$${queryParams.length + 1}::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'`;
       actualCheckInTimeValue = reserved_check_in_datetime; 
+      checkInTimeQueryPart = `$1::TIMESTAMP WITHOUT TIME ZONE`;
       queryParams.push(actualCheckInTimeValue);
     } else {
       const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
       actualCheckInTimeValue = nowRes.rows[0].now_val;
-      actualCheckInTimeQueryPart = `$${queryParams.length + 1}::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'`;
+      checkInTimeQueryPart = `($1::TEXT::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila')`;
       queryParams.push(actualCheckInTimeValue);
     }
-    queryParams.push(transactionId);
-
-
+    
     const updateTransactionRes = await client.query(
       `UPDATE transactions
-       SET status = $1,
-           check_in_time = ${actualCheckInTimeQueryPart},
+       SET status = $${queryParams.length + 1},
+           check_in_time = ${checkInTimeQueryPart},
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $${queryParams.length}
+       WHERE id = $${queryParams.length + 2}
        RETURNING *`,
-       queryParams
+       [...queryParams, TRANSACTION_STATUS.UNPAID, transactionId]
     );
 
     if (updateTransactionRes.rowCount === 0) {
@@ -720,7 +721,6 @@ export async function checkInReservedGuest(
         id: roomId,
         is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
         transaction_id: transactionId,
-        active_transaction_id: transactionId,
         active_transaction_client_name: client_name,
         active_transaction_check_in_time: actualCheckInTimeValue, 
         active_transaction_rate_name: rate_name,
@@ -746,7 +746,7 @@ export async function listUnassignedReservations(tenantId: number, branchId: num
        FROM transactions t
        LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id
        WHERE t.tenant_id = $1 AND t.branch_id = $2
-       AND (t.status = $3 OR t.status = $4) -- Only ADVANCE_PAID or ADVANCE_RESERVATION
+       AND (t.status = $3 OR t.status = $4) 
        AND t.hotel_room_id IS NULL
        ORDER BY t.reserved_check_in_datetime ASC, t.created_at DESC`,
       [tenantId, branchId, TRANSACTION_STATUS.ADVANCE_PAID, TRANSACTION_STATUS.ADVANCE_RESERVATION]
@@ -793,15 +793,22 @@ export async function createUnassignedReservation(
     const res = await client.query(
       `INSERT INTO transactions (
          tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method,
-         notes, check_in_time, status, created_by_user_id, reserved_check_in_datetime,
-         reserved_check_out_datetime, updated_at, is_admin_created, is_accepted, created_at
+         notes, status, created_by_user_id, reserved_check_in_datetime,
+         reserved_check_out_datetime, updated_at, is_admin_created, is_accepted, created_at,
+         check_in_time 
        )
-       VALUES ($1, $2, NULL, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $7, $8, $9, $10, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $11, $12, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
+       VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $11, $12, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'),
+         CASE 
+           WHEN $7 = $13 THEN NULL -- Pending, no check-in yet
+           ELSE (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') -- Not pending, set check-in
+         END
+       )
        RETURNING *`,
       [
         tenantId, branchId, selected_rate_id, client_name, client_payment_method, notes,
         transactionStatus, staffUserId,
-        r_check_in, r_check_out, isAdminCreatedValue, acceptedStatus
+        r_check_in, r_check_out, isAdminCreatedValue, acceptedStatus,
+        TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE 
       ]
     );
     if (res.rows.length > 0) {
@@ -847,7 +854,7 @@ export async function listAvailableRoomsForBranch(tenantId: number, branchId: nu
     }));
   } catch (error) {
     console.error('Failed to fetch available rooms for branch:', error);
-    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}` };
+    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
   } finally {
     client.release();
   }
@@ -915,33 +922,33 @@ export async function assignRoomAndCheckIn(
       return { success: false, message: "This reservation must be accepted by the branch before assigning a room." };
     }
 
-    let actualCheckInTimeQueryPart: string;
     let actualCheckInTimeValue: string | null = null;
-    const queryParams = [TRANSACTION_STATUS.UNPAID, roomId];
-    
+    let checkInTimeQueryPart: string;
+    const queryParamsUpdateTx: any[] = [];
+
+    // If it's an advance reservation with a set time, use that. Otherwise, use current time.
     if ((current_status === TRANSACTION_STATUS.ADVANCE_RESERVATION || current_status === TRANSACTION_STATUS.UNPAID) && reserved_check_in_datetime) {
-      actualCheckInTimeValue = reserved_check_in_datetime;
-      actualCheckInTimeQueryPart = `$${queryParams.length + 1}::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'`;
-      queryParams.push(actualCheckInTimeValue);
-    } else { 
-      const nowRes = await client.query(`SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val`);
-      actualCheckInTimeValue = nowRes.rows[0].now_val;
-      actualCheckInTimeQueryPart = `$${queryParams.length + 1}::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'`;
-      queryParams.push(actualCheckInTimeValue);
+        actualCheckInTimeValue = reserved_check_in_datetime;
+        checkInTimeQueryPart = `$${queryParamsUpdateTx.length + 1}::TIMESTAMP WITHOUT TIME ZONE`;
+        queryParamsUpdateTx.push(actualCheckInTimeValue);
+    } else {
+        const nowRes = await client.query("SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') as now_val");
+        actualCheckInTimeValue = nowRes.rows[0].now_val;
+        checkInTimeQueryPart = `($${queryParamsUpdateTx.length + 1}::TEXT::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila')`;
+        queryParamsUpdateTx.push(actualCheckInTimeValue);
     }
-    queryParams.push(TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, transactionId);
 
 
     const updateTransactionRes = await client.query(
       `UPDATE transactions
-       SET status = $1,
-           hotel_room_id = $2,
-           check_in_time = ${actualCheckInTimeQueryPart},
-           is_accepted = $${queryParams.length -1}, 
+       SET status = $${queryParamsUpdateTx.length + 1},
+           hotel_room_id = $${queryParamsUpdateTx.length + 2},
+           check_in_time = ${checkInTimeQueryPart},
+           is_accepted = $${queryParamsUpdateTx.length + 3}, 
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $${queryParams.length}
+       WHERE id = $${queryParamsUpdateTx.length + 4}
        RETURNING *`,
-       queryParams
+       [...queryParamsUpdateTx, TRANSACTION_STATUS.UNPAID, roomId, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, transactionId]
     );
 
     if (updateTransactionRes.rowCount === 0) {
@@ -986,7 +993,6 @@ export async function assignRoomAndCheckIn(
         id: roomId,
         is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
         transaction_id: transactionId,
-        active_transaction_id: transactionId,
         active_transaction_client_name: client_name,
         active_transaction_check_in_time: actualCheckInTimeValue, 
         active_transaction_rate_name: rate_name,
@@ -1357,7 +1363,7 @@ export async function updateRoomCleaningStatus(
     } catch (error) {
         await client.query('ROLLBACK');
         console.error(`Failed to update cleaning status for room ${roomId}:`, error);
-        const displayError = ROOM_CLEANING_STATUS_TEXT ? `Database error: ${error instanceof Error ? error.message : String(error)}` : `Database error (constants missing): ${error instanceof Error ? error.message : String(error)}`;
+        const displayError = ROOM_CLEANING_STATUS_TEXT[newCleaningStatus] ? `Database error: ${error instanceof Error ? error.message : String(error)}` : `Database error (constants missing for ${newCleaningStatus}): ${error instanceof Error ? error.message : String(error)}`;
         return { success: false, message: displayError };
     } finally {
         client.release();
