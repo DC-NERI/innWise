@@ -21,7 +21,7 @@ export type LoginResult = {
   lastName?: string;
   tenantBranchId?: number;
   branchName?: string;
-  userId?: number; 
+  userId?: number;
 };
 
 const pool = new Pool({
@@ -47,48 +47,53 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     }
 
     const { username, password } = validatedFields.data;
-    
+
     const client = await pool.connect();
     try {
+      console.log(`[auth.ts] Attempting login for username: ${username}`);
       const userResult = await client.query(
-        `SELECT u.id, u.username, u.password_hash, u.role, u.tenant_id, u.first_name, u.last_name, u.tenant_branch_id, tb.branch_name 
+        `SELECT u.id, u.username, u.password_hash, u.role, u.tenant_id, u.first_name, u.last_name, u.tenant_branch_id, tb.branch_name
          FROM users u
          LEFT JOIN tenant_branch tb ON u.tenant_branch_id = tb.id AND u.tenant_id = tb.tenant_id
-         WHERE u.username = $1 AND u.status = '1'`, 
+         WHERE u.username = $1 AND u.status = '1'`,
         [username]
       );
 
       if (userResult.rows.length === 0) {
+        console.warn(`[auth.ts] User not found or inactive for username: ${username}`);
         return { message: "Invalid username, password, or inactive account.", success: false };
       }
 
       const user = userResult.rows[0];
-      console.log("[auth.ts] User found in DB:", {id: user.id, username: user.username, role: user.role});
+      console.log("[auth.ts] User found in DB:", {id: user.id, username: user.username, role: user.role, tenant_id: user.tenant_id});
 
 
-      const passwordMatches = bcrypt.compareSync(password, user.password_hash); 
+      const passwordMatches = bcrypt.compareSync(password, user.password_hash);
 
       if (!passwordMatches) {
+        console.warn(`[auth.ts] Password mismatch for username: ${username}`);
         return { message: "Invalid username or password.", success: false };
       }
-      
+
       const userRole = user.role as UserRole;
-      const validRoles: UserRole[] = ["admin", "sysad", "staff"];
+      const validRoles: UserRole[] = ["admin", "sysad", "staff", "housekeeping"]; // Added "housekeeping"
       if (!validRoles.includes(userRole)) {
-        console.warn(`User ${username} has an unrecognized role: ${user.role}`);
+        console.warn(`[auth.ts] User ${username} has an unrecognized role for dashboard access: ${user.role}`);
         return { message: "Login successful, but user role is not recognized for dashboard access.", success: false };
       }
 
       if (user.tenant_id && userRole !== 'sysad') {
         const tenantStatusRes = await client.query('SELECT status FROM tenants WHERE id = $1', [user.tenant_id]);
         if (tenantStatusRes.rows.length === 0 || tenantStatusRes.rows[0].status !== '1') {
+           console.warn(`[auth.ts] Login failed for ${username}: Tenant account ${user.tenant_id} is inactive or does not exist.`);
           return { message: "Login failed: Tenant account is inactive or does not exist.", success: false };
         }
       }
 
-      if (user.tenant_branch_id && userRole === 'staff') {
+      if (user.tenant_branch_id && (userRole === 'staff' || userRole === 'housekeeping')) {
         const branchStatusRes = await client.query('SELECT status FROM tenant_branch WHERE id = $1', [user.tenant_branch_id]);
          if (branchStatusRes.rows.length === 0 || branchStatusRes.rows[0].status !== '1') {
+           console.warn(`[auth.ts] Login failed for ${username}: Assigned branch ${user.tenant_branch_id} is inactive or does not exist.`);
           return { message: "Login failed: Assigned branch is inactive or does not exist.", success: false };
         }
       }
@@ -106,7 +111,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         if (tenantResult.rows.length > 0) {
           tenantName = tenantResult.rows[0].tenant_name;
         } else {
-          console.warn(`Tenant ID ${user.tenant_id} found for user ${username}, but no matching active tenant in tenants table.`);
+          console.warn(`[auth.ts] Tenant ID ${user.tenant_id} found for user ${username}, but no matching active tenant in tenants table.`);
            return { message: "Login failed: Associated tenant is inactive or not found.", success: false };
         }
       }
@@ -115,10 +120,10 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         'UPDATE users SET last_log_in = (CURRENT_TIMESTAMP AT TIME ZONE \'Asia/Manila\') WHERE id = $1',
         [user.id]
       );
-      
-      const loginResultData: LoginResult = { 
-        message: "Login successful!", 
-        success: true, 
+
+      const loginResultData: LoginResult = {
+        message: "Login successful!",
+        success: true,
         role: userRole,
         tenantId: tenantId,
         tenantName: tenantName,
@@ -127,20 +132,20 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         lastName: user.last_name,
         tenantBranchId: user.tenant_branch_id,
         branchName: user.branch_name,
-        userId: user.id, 
+        userId: user.id,
       };
       console.log("[auth.ts] Login result being returned:", loginResultData);
       return loginResultData;
 
     } catch (dbError) {
-      console.error("Database error during login:", dbError);
+      console.error("[auth.ts] Database error during login:", dbError);
       return { message: "A database error occurred. Please try again later.", success: false };
     } finally {
       client.release();
     }
 
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("[auth.ts] Login error:", error);
     let errorMessage = "An unexpected error occurred during login.";
     if (error instanceof Error) {
         errorMessage = error.message;
@@ -148,5 +153,3 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     return { message: errorMessage, success: false };
   }
 }
-
-    
