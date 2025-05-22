@@ -1,5 +1,7 @@
 
 import type { z } from 'zod';
+import type { transactionObjectSchema, roomCleaningStatusAndNotesUpdateSchema, checkoutFormSchema } from '@/lib/schemas';
+
 
 export type UserRole = "admin" | "sysad" | "staff" | "housekeeping";
 
@@ -81,23 +83,22 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null; // Array of rate IDs
-  rate_names?: string[]; // For display
+  hotel_rate_id: number[] | null; 
+  rate_names?: string[]; 
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
+  is_available: number; 
   cleaning_status?: string | null;
-  cleaning_notes?: string | null;
-  status: string; // '0' or '1' for room definition status
-  transaction_id?: number | null; // Link to the active transaction
+  cleaning_notes?: string | null; 
+  status: string; 
+  transaction_id?: number | null; 
   created_at: string;
   updated_at: string;
 
-  // Fields populated from joined active transaction
   active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
@@ -126,22 +127,21 @@ export interface Transaction {
     check_in_time: string | null;
     check_out_time?: string | null;
     hours_used?: number | null;
-    total_amount?: number | null;
-    tender_amount?: number | null; // Added for storing tender amount
+    total_amount?: number | null; 
+    tender_amount?: number | null; 
     is_paid?: number | null; // 0 for unpaid, 1 for paid
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
-    status: string; // '0' Unpaid, '1' Paid, '2' Advance Paid, '3' Cancelled, '4' Advance Reservation, '5' Pending Branch Acceptance
+    status: string; // '0' Unpaid/Occupied, '1' Paid/Completed, '2' Advance Paid (Reservation), '3' Cancelled, '4' Advance Reservation, '5' Pending Branch Acceptance
     created_at: string;
     updated_at: string;
     reserved_check_in_datetime?: string | null;
     reserved_check_out_datetime?: string | null;
-    is_admin_created?: number | null; // 0 = default, 1 = admin created
-    is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending
+    is_admin_created?: number | null; 
+    is_accepted?: number | null; 
 
-    // For display purposes, joined from other tables
     room_name?: string | null;
     rate_name?: string | null;
     rate_price?: number | null;
@@ -159,7 +159,7 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; // 0 for unread, 1 for read
+  status: number; 
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
@@ -167,9 +167,9 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number; // 0 for Pending Action, 1 for Reservation Created
-  transaction_is_accepted?: number | null; // From joined transaction.is_accepted
-  linked_transaction_status?: string | null; // From joined transaction.status
+  transaction_status: number; 
+  transaction_is_accepted?: number | null; 
+  linked_transaction_status?: string | null; 
 
   notification_type?: string | null;
   priority?: number | null;
@@ -177,8 +177,8 @@ export interface Notification {
   acknowledged_by_user_id?: number | null;
 }
 
-export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusAndNotesUpdateSchema>;
-export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
+export type RoomCleaningStatusUpdateData = z.infer<typeof roomCleaningStatusAndNotesUpdateSchema>;
+export type CheckoutFormData = z.infer<typeof checkoutFormSchema>;
 
 export interface RoomCleaningLog {
     id: number;
@@ -188,3 +188,6 @@ export interface RoomCleaningLog {
     user_id?: number | null;
     created_at: string;
 }
+
+export type TransactionCreateData = z.infer<typeof transactionObjectSchema>;
+
