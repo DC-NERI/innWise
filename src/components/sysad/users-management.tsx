@@ -318,6 +318,7 @@ export default function UsersManagement() {
                     <SelectItem value="staff">Staff</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                     <SelectItem value="sysad">SysAd</SelectItem>
+                    <SelectItem value="housekeeping">Housekeeping</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -329,9 +330,9 @@ export default function UsersManagement() {
           render={({ field }) => {
             return (
               <FormItem>
-                <FormLabel>Tenant {selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? '*' : '(Optional)'}</FormLabel>
+                <FormLabel>Tenant {selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' || selectedRoleInForm === 'housekeeping' ? '*' : '(Optional)'}</FormLabel>
                 <Select onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)} value={field.value?.toString()}>
-                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={selectedRoleInForm === 'staff' || selectedRoleInForm === 'admin' || selectedRoleInForm === 'housekeeping' ? "Select tenant *" : "Assign to tenant (Optional)"} /></SelectTrigger></FormControl>
                   <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
                 </Select>
                 <FormMessage />
@@ -343,13 +344,13 @@ export default function UsersManagement() {
           render={({ field }) => {
             return (
               <FormItem>
-                <FormLabel>Branch {selectedRoleInForm === 'staff' ? '*' : '(Optional)'}</FormLabel>
+                <FormLabel>Branch {selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? '*' : '(Optional)'}</FormLabel>
                 <Select
                   onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)}
                   value={field.value?.toString()}
                   disabled={!selectedTenantIdInForm || isLoadingBranches || availableBranches.length === 0}
                 >
-                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : !selectedTenantIdInForm ? "Select tenant first" : availableBranches.length === 0 ? "No branches for tenant" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : !selectedTenantIdInForm ? "Select tenant first" : availableBranches.length === 0 ? "No branches for tenant" : (selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
                   <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
                 </Select>
                 <FormMessage />
@@ -391,8 +392,6 @@ export default function UsersManagement() {
                     setIsEditDialogOpen(false);
                     setAvailableBranches([]); 
                     form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchema) } as any);
-                } else {
-                  // Triggered by button click
                 }
             }}
         >
@@ -408,10 +407,10 @@ export default function UsersManagement() {
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                   {renderFormFields()}
                 </div>
-                <DialogFooter className="bg-card py-4 border-t px-3">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>
