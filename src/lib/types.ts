@@ -79,7 +79,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null; // Array of rate IDs
+  hotel_rate_id: number[] | null; 
   rate_names?: string[];
   room_name: string;
   room_code: string;
@@ -87,19 +87,19 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
-  cleaning_status?: string | null; // e.g., 'clean', 'dirty', 'inspection', 'out_of_order'
-  cleaning_notes?: string | null; 
-  status: string;
-  transaction_id?: number | null;
+  is_available: number; 
+  cleaning_status?: string | null; 
+  cleaning_notes?: string | null;
+  status: string; 
+  transaction_id?: number | null; 
   created_at: string;
   updated_at: string;
 
-  active_transaction_id?: number | null;
+  active_transaction_id?: number | null; 
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
-  active_transaction_status?: string | null;
+  active_transaction_status?: string | null; 
   active_transaction_rate_hours?: number | null;
 }
 
@@ -124,6 +124,7 @@ export interface Transaction {
     check_out_time?: string | null; 
     hours_used?: number | null;
     total_amount?: number | null;
+    tender_amount?: number | null; // Added
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     status: string;
@@ -138,6 +139,9 @@ export interface Transaction {
 
     room_name?: string | null;
     rate_name?: string | null;
+    rate_price?: number | null; // For checkout bill calculation
+    rate_hours?: number | null; // For checkout bill calculation
+    rate_excess_hour_price?: number | null; // For checkout bill calculation
     checked_out_by_username?: string;
 }
 
@@ -196,14 +200,14 @@ export interface ShiftLog {
   created_at: string;
 }
 
-// DDL for room_cleaning_logs implies user_id is on the table, let's add it.
 export interface RoomCleaningLog {
     id: number;
     room_id: number;
     room_cleaning_status: string;
     notes?: string | null;
-    user_id?: number | null; // User who made the change/note
+    user_id?: number | null; 
     created_at: string;
 }
 
+export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
     
