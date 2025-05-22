@@ -37,24 +37,24 @@ export const userCreateSchema = z.object({
   username: z.string().min(1, "Username is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff", "sysad"]).default("staff"),
+  role: z.enum(["admin", "staff", "sysad", "housekeeping"]).default("staff"),
   tenant_id: z.coerce.number().int().positive().optional().nullable(),
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
-  if (data.role === 'admin' || data.role === 'staff') {
+  if (data.role === 'admin' || data.role === 'staff' || data.role === 'housekeeping') {
     if (data.tenant_id === null || data.tenant_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Tenant is required for admin and staff members.",
+        message: "Tenant is required for admin, staff, and housekeeping members.",
         path: ["tenant_id"],
       });
     }
   }
-  if (data.role === 'staff') {
+  if (data.role === 'staff' || data.role === 'housekeeping') {
     if (data.tenant_branch_id === null || data.tenant_branch_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Branch is required for staff members.",
+        message: "Branch is required for staff and housekeeping members.",
         path: ["tenant_branch_id"],
       });
     }
@@ -68,13 +68,13 @@ export const userCreateSchemaAdmin = z.object({
   username: z.string().min(1, "Username is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff"]).default("staff"), // Admin cannot create sysad
+  role: z.enum(["admin", "staff", "housekeeping"]).default("staff"), // Admin cannot create sysad
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
 }).superRefine((data, ctx) => {
-  if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
+  if ((data.role === 'staff' || data.role === 'housekeeping') && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Branch is required for staff members.",
+      message: "Branch is required for staff and housekeeping members.",
       path: ["tenant_branch_id"],
     });
   }
@@ -87,25 +87,25 @@ export const userUpdateSchemaSysAd = z.object({
   last_name: z.string().min(1, "Last name is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff", "sysad"]).default("staff"),
+  role: z.enum(["admin", "staff", "sysad", "housekeeping"]).default("staff"),
   tenant_id: z.coerce.number().int().positive().optional().nullable(),
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
-  if (data.role === 'admin' || data.role === 'staff') {
+  if (data.role === 'admin' || data.role === 'staff' || data.role === 'housekeeping') {
     if (data.tenant_id === null || data.tenant_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Tenant is required for admin and staff members.",
+        message: "Tenant is required for admin, staff, and housekeeping members.",
         path: ["tenant_id"],
       });
     }
   }
-  if (data.role === 'staff') {
+  if (data.role === 'staff' || data.role === 'housekeeping') {
     if (data.tenant_branch_id === null || data.tenant_branch_id === undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Branch is required for staff members.",
+        message: "Branch is required for staff and housekeeping members.",
         path: ["tenant_branch_id"],
       });
     }
@@ -118,14 +118,14 @@ export const userUpdateSchemaAdmin = z.object({
   last_name: z.string().min(1, "Last name is required").max(100),
   password: z.string().min(6, "Password must be at least 6 characters").max(100).optional().nullable().or(z.literal('')),
   email: z.string().email("Invalid email address").max(255).optional().nullable(),
-  role: z.enum(["admin", "staff"]).default("staff"), // Admin cannot change to sysad
+  role: z.enum(["admin", "staff", "housekeeping"]).default("staff"), // Admin cannot assign sysad
   tenant_branch_id: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['0', '1']).default('1'),
 }).superRefine((data, ctx) => {
-  if (data.role === 'staff' && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
+  if ((data.role === 'staff' || data.role === 'housekeeping') && (data.tenant_branch_id === null || data.tenant_branch_id === undefined)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Branch is required for staff members.",
+      message: "Branch is required for staff and housekeeping members.",
       path: ["tenant_branch_id"],
     });
   }
@@ -190,8 +190,7 @@ export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
-
-const baseTransactionFields = {
+export const baseTransactionFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
   selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
@@ -211,12 +210,10 @@ const baseTransactionFields = {
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
       message: "Invalid reserved check-out datetime string.",
     }),
-  // This placeholder field is not part of the actual transaction data,
-  // it's just to make the walk-in form hook work with a room selector
-  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(),
+  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(), // Only used for form control, not directly in data
 };
 
-const transactionObjectSchema = z.object(baseTransactionFields);
+export const transactionObjectSchema = z.object(baseTransactionFields);
 
 export const transactionCreateSchema = transactionObjectSchema.superRefine((data, ctx) => {
   if (data.is_advance_reservation) {
@@ -249,7 +246,7 @@ export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
 
 export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
-  client_name: z.string().max(255).optional().nullable(), // Overriding to be optional for this form
+  client_name: z.string().max(255).optional().nullable(), // Client name is usually pre-filled and might not need re-validation for presence
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
 }).superRefine((data, ctx) => {
   if (data.is_advance_reservation) {
@@ -266,6 +263,7 @@ export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend(
 });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
+
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
@@ -273,6 +271,7 @@ export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSc
 
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
+  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
@@ -289,7 +288,7 @@ export const notificationCreateSchema = z.object({
   message: z.string().min(1, "Message is required.").max(2000, "Message is too long."),
   target_branch_id: z.coerce.number().int().positive().optional().nullable(),
   do_reservation: z.boolean().optional().default(false),
-  // Reservation specific fields, only validated if do_reservation is true
+  // Reservation specific fields, optional based on do_reservation
   reservation_client_name: z.string().max(255).optional().nullable(),
   reservation_selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
   reservation_client_payment_method: z.string().max(50).optional().nullable(),
@@ -313,7 +312,7 @@ export const notificationCreateSchema = z.object({
     if (!data.reservation_client_name) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
     }
-    // Removed requirement for reservation_selected_rate_id for admin creating notification
+    // Note: reservation_selected_rate_id is intentionally optional here for Admins creating notifications
     if (data.reservation_is_advance) {
       if (!data.reservation_check_in_datetime) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-in date/time for advance reservation is required.", path: ["reservation_check_in_datetime"] });
@@ -339,3 +338,4 @@ export const checkoutFormSchema = z.object({
 });
 export type CheckoutFormData = z.infer<typeof checkoutFormSchema>;
 
+    

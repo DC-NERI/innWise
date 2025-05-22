@@ -1,5 +1,5 @@
 
-export type UserRole = "admin" | "sysad" | "staff";
+export type UserRole = "admin" | "sysad" | "staff" | "housekeeping";
 
 export interface User {
   id: string | number;
@@ -79,7 +79,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null; 
+  hotel_rate_id: number[] | null;
   rate_names?: string[];
   room_name: string;
   room_code: string;
@@ -87,19 +87,19 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; 
-  cleaning_status?: string | null; 
+  is_available: number;
+  cleaning_status?: string | null;
   cleaning_notes?: string | null;
-  status: string; 
-  transaction_id?: number | null; 
+  status: string;
+  transaction_id?: number | null;
   created_at: string;
   updated_at: string;
 
-  active_transaction_id?: number | null; 
+  active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
-  active_transaction_status?: string | null; 
+  active_transaction_status?: string | null;
   active_transaction_rate_hours?: number | null;
 }
 
@@ -120,28 +120,28 @@ export interface Transaction {
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string; 
-    check_out_time?: string | null; 
+    check_in_time: string | null; // Can be null if status is PENDING_BRANCH_ACCEPTANCE
+    check_out_time?: string | null;
     hours_used?: number | null;
     total_amount?: number | null;
-    tender_amount?: number | null; // Added
+    tender_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     status: string;
-    created_at: string; 
-    updated_at: string; 
-    reserved_check_in_datetime?: string | null; 
-    reserved_check_out_datetime?: string | null; 
-    is_admin_created?: number | null;
-    is_accepted?: number | null; 
+    created_at: string;
+    updated_at: string;
+    reserved_check_in_datetime?: string | null;
+    reserved_check_out_datetime?: string | null;
+    is_admin_created?: number | null; // 0 = default, 1 = admin created
+    is_accepted?: number | null; // 0=Default, 1=Not Accepted, 2=Accepted, 3=Pending
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
 
     room_name?: string | null;
     rate_name?: string | null;
-    rate_price?: number | null; // For checkout bill calculation
-    rate_hours?: number | null; // For checkout bill calculation
-    rate_excess_hour_price?: number | null; // For checkout bill calculation
+    rate_price?: number | null;
+    rate_hours?: number | null;
+    rate_excess_hour_price?: number | null;
     checked_out_by_username?: string;
 }
 
@@ -154,60 +154,33 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; 
+  status: number;
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
   creator_username?: string | null;
   transaction_id?: number | null;
-  created_at: string; 
-  read_at?: string | null; 
-  transaction_status: number; 
-  transaction_is_accepted?: number | null; 
-  linked_transaction_status?: string | null; 
+  created_at: string;
+  read_at?: string | null;
+  transaction_status: number;
+  transaction_is_accepted?: number | null;
+  linked_transaction_status?: string | null;
 
-  notification_type?: string | null; 
-  priority?: number | null; 
-  acknowledged_at?: string | null; 
+  notification_type?: string | null;
+  priority?: number | null;
+  acknowledged_at?: string | null;
   acknowledged_by_user_id?: number | null;
 }
 
 export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusUpdateSchema>;
-
-export interface GuestCharge {
-  id: number;
-  transaction_id: number;
-  tenant_id: number;
-  branch_id: number;
-  item_description: string;
-  amount: number;
-  quantity: number;
-  charge_datetime: string; 
-  charged_by_user_id?: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ShiftLog {
-  id: number;
-  tenant_id: number;
-  branch_id: number;
-  user_id: number;
-  username?: string; 
-  log_datetime: string; 
-  message: string;
-  category?: string | null;
-  created_at: string;
-}
-
+export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
+    
 export interface RoomCleaningLog {
     id: number;
     room_id: number;
     room_cleaning_status: string;
     notes?: string | null;
-    user_id?: number | null; 
+    user_id?: number | null;
     created_at: string;
 }
-
-export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
-    
+```
