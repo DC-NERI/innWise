@@ -79,23 +79,24 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null;
-  rate_names?: string[];
+  hotel_rate_id: number[] | null; // Array of rate IDs
+  rate_names?: string[]; // For display
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number;
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
   cleaning_status?: string | null;
   cleaning_notes?: string | null;
-  status: string;
-  transaction_id?: number | null;
+  status: string; // '0' or '1' for room definition status
+  transaction_id?: number | null; // Link to the active transaction
   created_at: string;
   updated_at: string;
 
-  active_transaction_id?: number | null;
+  // Fields populated from joined active transaction
+  active_transaction_id?: number | null; // This might be redundant if transaction_id is the source
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
@@ -120,14 +121,13 @@ export interface Transaction {
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string | null; // Can be null if status is PENDING_BRANCH_ACCEPTANCE
+    check_in_time: string | null;
     check_out_time?: string | null;
     hours_used?: number | null;
     total_amount?: number | null;
-    tender_amount?: number | null;
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
-    status: string;
+    status: string; // '0' Unpaid, '1' Paid, '2' Advance Paid, '3' Cancelled, '4' Advance Reservation, '5' Pending Branch Acceptance
     created_at: string;
     updated_at: string;
     reserved_check_in_datetime?: string | null;
@@ -137,6 +137,7 @@ export interface Transaction {
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
 
+    // For display purposes, joined from other tables
     room_name?: string | null;
     rate_name?: string | null;
     rate_price?: number | null;
@@ -154,7 +155,7 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number;
+  status: number; // 0 for unread, 1 for read
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
@@ -162,9 +163,9 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number;
-  transaction_is_accepted?: number | null;
-  linked_transaction_status?: string | null;
+  transaction_status: number; // 0 for Pending Action, 1 for Reservation Created
+  transaction_is_accepted?: number | null; // From joined transaction.is_accepted
+  linked_transaction_status?: string | null; // From joined transaction.status
 
   notification_type?: string | null;
   priority?: number | null;
@@ -172,9 +173,10 @@ export interface Notification {
   acknowledged_by_user_id?: number | null;
 }
 
-export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusUpdateSchema>;
+// This type was previously defined but might be superseded by roomCleaningStatusAndNotesUpdateSchema
+export type RoomCleaningStatusUpdateData = z.infer<typeof import('@/lib/schemas').roomCleaningStatusAndNotesUpdateSchema>;
 export type CheckoutFormData = z.infer<typeof import('@/lib/schemas').checkoutFormSchema>;
-    
+
 export interface RoomCleaningLog {
     id: number;
     room_id: number;

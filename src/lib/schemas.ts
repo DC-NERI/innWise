@@ -182,13 +182,15 @@ export const hotelRoomCreateSchema = z.object({
   capacity: z.coerce.number().int().min(1, "Capacity must be at least 1").optional().nullable().default(2),
   is_available: z.coerce.number().int().min(0).max(2).default(ROOM_AVAILABILITY_STATUS.AVAILABLE),
   cleaning_status: z.enum(roomCleaningStatusValues).default(ROOM_CLEANING_STATUS.CLEAN).optional().nullable(),
+  cleaning_notes: z.string().max(1000, "Cleaning notes too long").optional().nullable(),
 });
 export type HotelRoomCreateData = z.infer<typeof hotelRoomCreateSchema>;
 
 export const hotelRoomUpdateSchema = hotelRoomCreateSchema.extend({
-  status: z.enum(['0', '1']).default('1'),
+  status: z.enum(['0', '1']).default('1'), // Room definition status
 });
 export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
+
 
 export const baseTransactionFields = {
   client_name: z.string().min(1, "Client name is required").max(255),
@@ -210,12 +212,14 @@ export const baseTransactionFields = {
     .refine(val => val === null || !isNaN(new Date(val).getTime()), {
       message: "Invalid reserved check-out datetime string.",
     }),
-  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(), // Only used for form control, not directly in data
+  selected_room_id_placeholder_for_walkin: z.coerce.number().int().positive().optional().nullable(),
 };
 
 export const transactionObjectSchema = z.object(baseTransactionFields);
 
-export const transactionCreateSchema = transactionObjectSchema.superRefine((data, ctx) => {
+export const transactionCreateSchema = transactionObjectSchema.extend({
+  selected_rate_id: z.coerce.number().int().positive("A rate must be selected for booking.").optional().nullable(), // Staff booking needs a rate
+}).superRefine((data, ctx) => {
   if (data.is_advance_reservation) {
     if (!data.reserved_check_in_datetime) {
       ctx.addIssue({
@@ -244,9 +248,8 @@ export const transactionCreateSchema = transactionObjectSchema.superRefine((data
 });
 export type TransactionCreateData = z.infer<typeof transactionCreateSchema>;
 
-
 export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
-  client_name: z.string().max(255).optional().nullable(), // Client name is usually pre-filled and might not need re-validation for presence
+  client_name: z.string().max(255).optional().nullable(),
   selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
 }).superRefine((data, ctx) => {
   if (data.is_advance_reservation) {
@@ -263,7 +266,6 @@ export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend(
 });
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
-
 export const transactionUpdateNotesSchema = z.object({
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
@@ -271,7 +273,7 @@ export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSc
 
 export const transactionReservedUpdateSchema = z.object({
   client_name: z.string().min(1, "Client name is required").max(255),
-  selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
+  selected_rate_id: z.coerce.number().int().positive().optional().nullable(), // Rate is optional if only updating notes/client
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),
 });
@@ -288,7 +290,6 @@ export const notificationCreateSchema = z.object({
   message: z.string().min(1, "Message is required.").max(2000, "Message is too long."),
   target_branch_id: z.coerce.number().int().positive().optional().nullable(),
   do_reservation: z.boolean().optional().default(false),
-  // Reservation specific fields, optional based on do_reservation
   reservation_client_name: z.string().max(255).optional().nullable(),
   reservation_selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
   reservation_client_payment_method: z.string().max(50).optional().nullable(),
@@ -312,7 +313,7 @@ export const notificationCreateSchema = z.object({
     if (!data.reservation_client_name) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Client name for reservation is required.", path: ["reservation_client_name"] });
     }
-    // Note: reservation_selected_rate_id is intentionally optional here for Admins creating notifications
+    // Rate is optional for admin-created notification reservations
     if (data.reservation_is_advance) {
       if (!data.reservation_check_in_datetime) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Check-in date/time for advance reservation is required.", path: ["reservation_check_in_datetime"] });
@@ -328,14 +329,25 @@ export const notificationCreateSchema = z.object({
 });
 export type NotificationCreateData = z.infer<typeof notificationCreateSchema>;
 
-export const roomCleaningStatusUpdateSchema = z.object({
+
+export const roomCleaningStatusAndNotesUpdateSchema = z.object({
   cleaning_status: z.enum(ROOM_CLEANING_STATUS_OPTIONS.map(o => o.value) as [string, ...string[]]).refine(val => val !== undefined, {message: "Cleaning status is required"}),
+  cleaning_notes: z.string().max(1000, "Notes cannot exceed 1000 characters.").optional().nullable(),
+}).superRefine((data, ctx) => {
+  if (data.cleaning_status === ROOM_CLEANING_STATUS.OUT_OF_ORDER) {
+    if (!data.cleaning_notes || data.cleaning_notes.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Notes are required when setting room to 'Out of Order'.",
+        path: ["cleaning_notes"],
+      });
+    }
+  }
 });
-export type RoomCleaningStatusUpdateData = z.infer<typeof roomCleaningStatusUpdateSchema>;
+export type RoomCleaningStatusAndNotesUpdateData = z.infer<typeof roomCleaningStatusAndNotesUpdateSchema>;
+
 
 export const checkoutFormSchema = z.object({
   tender_amount: z.coerce.number().min(0, "Tender amount cannot be negative."),
 });
 export type CheckoutFormData = z.infer<typeof checkoutFormSchema>;
-
-    
