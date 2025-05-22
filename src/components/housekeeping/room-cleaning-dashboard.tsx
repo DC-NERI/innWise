@@ -48,4 +48,3 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
     </Card>
   );
 }
-```
