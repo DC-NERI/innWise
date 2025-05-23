@@ -14,8 +14,10 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import type { HotelRoom, SimpleRate } from '@/lib/types';
-import { listAvailableRoomsForBranch, createTransactionAndOccupyRoom } from '@/actions/staff';
-import { getRatesForBranchSimple } from '@/actions/admin';
+// Updated imports for actions:
+import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
+import { createTransactionAndOccupyRoom } from '@/actions/staff/transactions/createTransactionAndOccupyRoom';
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
 import { useToast } from '@/hooks/use-toast';
 import { TRANSACTION_PAYMENT_STATUS } from '@/lib/constants';
 
@@ -57,6 +59,8 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
   });
 
   const watchIsPaid = form.watch("is_paid");
+  const watchedSelectedRoomIdFromForm = useWatch({ control: form.control, name: "selected_room_id_placeholder_for_walkin" });
+
 
   const fetchInitialData = useCallback(async () => {
     if (!tenantId || !branchId) return;
@@ -84,7 +88,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
   useEffect(() => {
     if (selectedRoomId) {
       const room = availableRooms.find(r => r.id === selectedRoomId);
-      if (room && room.hotel_rate_id) {
+      if (room && room.hotel_rate_id && Array.isArray(room.hotel_rate_id)) {
         const filteredRates = allBranchRates.filter(rate => room.hotel_rate_id!.includes(rate.id));
         setApplicableRates(filteredRates);
         if (filteredRates.length > 0) {
@@ -254,7 +258,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                 <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm">
                   <FormControl>
                     <Checkbox
-                      checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
+                      checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID}
                       onCheckedChange={(checked) => {
                         field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID);
                         if (!checked) {
@@ -270,7 +274,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
               )}
             />
 
-            {(watchIsPaid === TRANSACTION_PAYMENT_STATUS.PAID || watchIsPaid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID) && (
+            {watchIsPaid === TRANSACTION_PAYMENT_STATUS.PAID && (
               <FormField
                 control={form.control}
                 name="tender_amount_at_checkin"

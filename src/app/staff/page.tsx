@@ -8,7 +8,7 @@ import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, S
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Building, Archive as LostAndFoundIcon } from 'lucide-react';
-import { getTenantDetails } from '@/actions/admin'; // Assuming this is fine for fetching tenant name
+import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails'; // Updated import
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
@@ -16,7 +16,7 @@ import NotificationsContent from '@/components/staff/notifications-content';
 import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
 import DashboardContent from '@/components/staff/dashboard-content';
 import LostAndFoundContent from '@/components/staff/lost-and-found-content';
-import { listUnassignedReservations } from '@/actions/staff';
+import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 
@@ -54,16 +54,40 @@ const StaffDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'staff' && storedRole !== 'housekeeping' && storedRole !== 'admin') { // Allow admin to view staff page for dev/demo
-            // router.push('/'); // Comment out for dev if admin needs to access
-            // return;
+        if (storedRole !== 'staff' && storedRole !== 'admin') { // Allow admin to view staff page for dev/demo
+            router.push('/');
+            return;
         }
       } else {
         router.push('/');
         return;
       }
 
-      if (storedTenantId) setTenantId(parseInt(storedTenantId, 10));
+      if (storedTenantId) {
+        const parsedTenantId = parseInt(storedTenantId, 10);
+        setTenantId(parsedTenantId);
+        if (storedTenantName) {
+          setTenantName(storedTenantName);
+        } else {
+          getTenantDetails(parsedTenantId).then(tenant => {
+            if (tenant) {
+              setTenantName(tenant.tenant_name);
+              if (typeof window !== 'undefined') {
+                  localStorage.setItem('userTenantName', tenant.tenant_name);
+              }
+            } else {
+              setTenantName("Tenant Not Found");
+            }
+          }).catch(error => {
+            console.error("Error fetching tenant details for staff page:", error);
+            setTenantName("Error Fetching Tenant Info");
+          });
+        }
+      } else {
+        setTenantName("Tenant Information Unavailable");
+      }
+
+
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
@@ -79,25 +103,6 @@ const StaffDashboardPage: NextPage = () => {
         }
       } else {
         setUserId(null);
-      }
-
-      if (storedTenantName) {
-        setTenantName(storedTenantName);
-      } else if (storedTenantId) {
-        getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
-          if (tenant) {
-            setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('userTenantName', tenant.tenant_name);
-            }
-          } else {
-            setTenantName("Tenant Not Found");
-          }
-        }).catch(error => {
-          setTenantName("Error Fetching Tenant Info");
-        });
-      } else {
-        setTenantName("Tenant Information Unavailable");
       }
     }
 
@@ -115,6 +120,7 @@ const StaffDashboardPage: NextPage = () => {
         const reservations = await listUnassignedReservations(tenantId, branchId);
         setUnassignedReservationsCount(reservations.length);
       } catch (error) {
+        console.error("Failed to fetch unassigned reservation count:", error);
         setUnassignedReservationsCount(0);
       }
     } else {
@@ -347,3 +353,4 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
+
