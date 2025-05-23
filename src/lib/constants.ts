@@ -2,7 +2,7 @@
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2, // This status on hotel_room is set when a transaction's status is RESERVATION_WITH_ROOM or PENDING_BRANCH_ACCEPTANCE
+  RESERVED: 2,
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -35,7 +35,6 @@ export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).
   label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT]
 }));
 
-
 export const NOTIFICATION_STATUS = {
   UNREAD: 0,
   READ: 1,
@@ -56,20 +55,12 @@ export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string 
   [NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED]: 'Tx Linked',
 };
 
-// Based on user's DDL for transactions.status:
-// 0: check-in
-// 1: check-out
-// 2: reservation w/ room assignment
-// 3: reservation w/ no room assignment
-// 4: reservation transaction made by admin (PENDING_BRANCH_ACCEPTANCE)
-// 5: declined reservation from admin
-// 6: voided/cancelled reservation
 export const TRANSACTION_LIFECYCLE_STATUS = {
-  CHECKED_IN: 0,
-  CHECKED_OUT: 1,
-  RESERVATION_WITH_ROOM: 2, // Staff created reservation, room assigned
-  RESERVATION_NO_ROOM: 3,   // Staff created reservation, no room assigned yet
-  PENDING_BRANCH_ACCEPTANCE: 4, // Admin created reservation, awaiting branch action
+  CHECKED_IN: 0,                 // Was UNPAID, now clearly CHECKED_IN
+  CHECKED_OUT: 1,                // Was PAID, now clearly CHECKED_OUT and implies payment settled
+  RESERVATION_WITH_ROOM: 2,      // Was ADVANCE_PAID, implies reservation with a room, payment may or may not be settled yet (see is_paid)
+  RESERVATION_NO_ROOM: 3,        // Was ADVANCE_RESERVATION, implies reservation without a room, payment may or may not be settled
+  PENDING_BRANCH_ACCEPTANCE: 4,  // Admin created reservation
   ADMIN_RESERVATION_DECLINED: 5, // Admin created reservation, declined by branch
   VOIDED_CANCELLED: 6,
 } as const;
@@ -84,15 +75,10 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
 };
 
-
-// Based on user's DDL for transactions.is_paid:
-// 0: unpaid
-// 1: paid
-// 2: advance paid
 export const TRANSACTION_PAYMENT_STATUS = {
   UNPAID: 0,
   PAID: 1,
-  ADVANCE_PAID: 2,
+  ADVANCE_PAID: 2, // This status on is_paid indicates the payment for an advance booking was made.
 } as const;
 
 export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
@@ -101,11 +87,6 @@ export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID]: 'Advance Paid',
 };
 
-// Based on user's DDL for transactions.is_accepted:
-// 0 = Default
-// 1 = Not Accepted
-// 2 = Accepted
-// 3 = Pending
 export const TRANSACTION_IS_ACCEPTED_STATUS = {
     DEFAULT: 0,
     NOT_ACCEPTED: 1,
@@ -119,7 +100,6 @@ export const TRANSACTION_IS_ACCEPTED_STATUS_TEXT: { [key: number]: string} = {
     [TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED]: 'Accepted by Branch',
     [TRANSACTION_IS_ACCEPTED_STATUS.PENDING]: 'Pending Branch Action',
 };
-
 
 export const LOST_AND_FOUND_STATUS = {
   FOUND: 0,

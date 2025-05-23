@@ -11,7 +11,6 @@ pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 
-
 import { Pool } from 'pg';
 import type { HotelRoom, Transaction } from '@/lib/types';
 import {
@@ -19,12 +18,12 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_LIFECYCLE_STATUS_TEXT,
   ROOM_CLEANING_STATUS,
-  ROOM_CLEANING_STATUS_TEXT,
   TRANSACTION_PAYMENT_STATUS,
   HOTEL_ENTITY_STATUS
 } from '@/lib/constants';
 import { format as formatDateTime, parseISO, differenceInMilliseconds } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+import { toZonedTime, format as formatInTimeZone } from 'date-fns-tz';
+
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -70,11 +69,18 @@ export async function checkOutGuestAndFreeRoom(
       return { success: false, message: `Transaction (ID: ${transactionId}) not found for room ${roomId}.` };
     }
     const initialTransactionState = initialTransactionCheckRes.rows[0];
-    const initialStatusNumber = Number(initialTransactionState.status);
+    const rawStatusFromDb = initialTransactionState.status; // This is a string '0', '1', etc.
+    const initialStatusNumber = Number(rawStatusFromDb);
+
+    // DETAILED LOGGING
+    console.log(`[checkOutGuestAndFreeRoom] For Tx ID ${transactionId}: Raw status from DB: '${rawStatusFromDb}', Parsed initialStatusNumber: ${initialStatusNumber}`);
+    console.log(`[checkOutGuestAndFreeRoom] Checking against CHECKED_IN status: ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN}`);
+    console.log(`[checkOutGuestAndFreeRoom] Text for initialStatusNumber (${initialStatusNumber}): `, TRANSACTION_LIFECYCLE_STATUS_TEXT[initialStatusNumber]);
+
 
     if (initialStatusNumber !== TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN) {
       await client.query('ROLLBACK');
-      const currentStatusText = TRANSACTION_LIFECYCLE_STATUS_TEXT[initialStatusNumber as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown';
+      const currentStatusText = TRANSACTION_LIFECYCLE_STATUS_TEXT[initialStatusNumber] || 'Unknown';
       const expectedStatusText = TRANSACTION_LIFECYCLE_STATUS_TEXT[TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN];
       return {
         success: false,
@@ -82,7 +88,6 @@ export async function checkOutGuestAndFreeRoom(
       };
     }
 
-    // 1. Fetch the active transaction and its rate details
     const transactionDetailsQuery = `
       SELECT
         t.*,
@@ -90,28 +95,32 @@ export async function checkOutGuestAndFreeRoom(
         hr.hours as rate_hours,
         hr.excess_hour_price as rate_excess_hour_price
       FROM transactions t
-      LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id AND hr.status = '${HOTEL_ENTITY_STATUS.ACTIVE}'
-      WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN}
+      LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id AND hr.status = $4
+      WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status::INTEGER = $5
       FOR UPDATE OF t;
     `;
-    const transactionRes = await client.query(transactionDetailsQuery, [transactionId, tenantId, branchId]);
+    const transactionRes = await client.query(transactionDetailsQuery, [
+      transactionId, 
+      tenantId, 
+      branchId, 
+      HOTEL_ENTITY_STATUS.ACTIVE,
+      TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN
+    ]);
 
     if (transactionRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      // This should ideally be caught by the initial check, but it's a safeguard.
-      return { success: false, message: "Active transaction for checkout not found or not in 'Checked-In' state." };
+      return { success: false, message: "Active transaction for checkout not found or not in 'Checked-In' state after initial check." };
     }
     const transaction = transactionRes.rows[0];
 
-    // 2. Calculate checkout time, hours used, and total amount
     const checkOutTimeObject = toZonedTime(new Date(), manilaTimeZone);
-    const checkOutTimeStringForDb = formatDateTime(checkOutTimeObject, "yyyy-MM-dd HH:mm:ssXXX", { timeZone: manilaTimeZone });
+    const checkOutTimeStringForDb = formatInTimeZone(checkOutTimeObject, manilaTimeZone, "yyyy-MM-dd HH:mm:ss");
+
 
     const checkInTime = parseISO(String(transaction.check_in_time).replace(' ', 'T'));
-
     const diffMs = differenceInMilliseconds(checkOutTimeObject, checkInTime);
     let hoursUsed = Math.ceil(diffMs / (1000 * 60 * 60));
-    if (hoursUsed <= 0) hoursUsed = 1; // Minimum 1 hour charge
+    if (hoursUsed <= 0) hoursUsed = 1;
 
     let totalAmount = parseFloat(transaction.rate_price || '0');
     const rateHours = parseInt(transaction.rate_hours || '0', 10);
@@ -119,31 +128,30 @@ export async function checkOutGuestAndFreeRoom(
 
     if (rateHours > 0 && hoursUsed > rateHours && excessHourPrice && excessHourPrice > 0) {
       totalAmount += (hoursUsed - rateHours) * excessHourPrice;
-    } else if (rateHours > 0) {
-      totalAmount = parseFloat(transaction.rate_price || '0');
-    } else if (rateHours === 0 && excessHourPrice && excessHourPrice > 0) {
+    } else if (rateHours > 0 && hoursUsed <= rateHours) {
+       totalAmount = parseFloat(transaction.rate_price || '0'); // Charge base rate if within standard hours
+    } else if (rateHours === 0 && excessHourPrice && excessHourPrice > 0) { // Purely hourly rate
         totalAmount = hoursUsed * excessHourPrice;
     }
-
-    if (hoursUsed > 0 && totalAmount < parseFloat(transaction.rate_price || '0') && rateHours > 0) {
+    // Ensure minimum charge is base rate if rateHours are defined
+    if (rateHours > 0 && totalAmount < parseFloat(transaction.rate_price || '0')) {
         totalAmount = parseFloat(transaction.rate_price || '0');
     }
 
 
-    // 3. Update the transaction
     const updateTransactionQueryText = `
       UPDATE transactions
       SET
         check_out_time = $1,
         hours_used = $2,
         total_amount = $3,
-        tender_amount = $4, -- This is the tender amount for this specific checkout operation
+        tender_amount = $4,
         client_payment_method = $5,
-        is_paid = ${TRANSACTION_PAYMENT_STATUS.PAID}, -- Mark as fully paid
-        status = '${TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString()}', -- Mark as checked-out
-        check_out_by_user_id = $6,
+        is_paid = $6,
+        status = $7,
+        check_out_by_user_id = $8,
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-      WHERE id = $7
+      WHERE id = $9
       RETURNING *;
     `;
     const updatedTransactionResult = await client.query(updateTransactionQueryText, [
@@ -152,29 +160,36 @@ export async function checkOutGuestAndFreeRoom(
       totalAmount.toFixed(2),
       tenderAmountAtCheckout.toFixed(2),
       paymentMethodAtCheckout,
+      TRANSACTION_PAYMENT_STATUS.PAID,
+      TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(),
       staffUserId,
       transactionId
     ]);
 
     const updatedTransactionRow = updatedTransactionResult.rows[0];
 
-    // 4. Update the room status and cleaning status
     const newCleaningStatus = ROOM_CLEANING_STATUS.INSPECTION;
-    const cleaningNotesForRoom = `${ROOM_CLEANING_STATUS_TEXT[newCleaningStatus]} after checkout by user ID ${staffUserId}.`;
+    const cleaningNotesForRoom = `Needs inspection after checkout by user ID ${staffUserId}. Guest: ${transaction.client_name}.`;
 
     const updateRoomQueryText = `
       UPDATE hotel_room
       SET
-        is_available = ${ROOM_AVAILABILITY_STATUS.AVAILABLE},
+        is_available = $1,
         transaction_id = NULL,
-        cleaning_status = ${newCleaningStatus},
-        cleaning_notes = $1,
+        cleaning_status = $2,
+        cleaning_notes = $3,
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-      WHERE id = $2 AND tenant_id = $3 AND branch_id = $4;
+      WHERE id = $4 AND tenant_id = $5 AND branch_id = $6;
     `;
-    await client.query(updateRoomQueryText, [cleaningNotesForRoom, roomId, tenantId, branchId]);
+    await client.query(updateRoomQueryText, [
+      ROOM_AVAILABILITY_STATUS.AVAILABLE,
+      newCleaningStatus,
+      cleaningNotesForRoom,
+      roomId,
+      tenantId,
+      branchId
+    ]);
 
-    // 5. Log the cleaning status change
     const logCleaningQueryText = `
       INSERT INTO room_cleaning_logs (room_id, tenant_id, branch_id, room_cleaning_status, notes, user_id, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
@@ -184,7 +199,7 @@ export async function checkOutGuestAndFreeRoom(
       tenantId,
       branchId,
       newCleaningStatus,
-      cleaningNotesForRoom, // Use the same note for the log
+      cleaningNotesForRoom,
       staffUserId
     ]);
 
@@ -212,8 +227,8 @@ export async function checkOutGuestAndFreeRoom(
         is_paid: Number(updatedTransactionRow.is_paid),
         is_accepted: updatedTransactionRow.is_accepted !== null ? Number(updatedTransactionRow.is_accepted) : null,
         is_admin_created: updatedTransactionRow.is_admin_created !== null ? Number(updatedTransactionRow.is_admin_created) : null,
-        total_amount: parseFloat(updatedTransactionRow.total_amount),
-        tender_amount: parseFloat(updatedTransactionRow.tender_amount),
+        total_amount: updatedTransactionRow.total_amount ? parseFloat(updatedTransactionRow.total_amount) : null,
+        tender_amount: updatedTransactionRow.tender_amount ? parseFloat(updatedTransactionRow.tender_amount) : null,
         check_in_time: String(updatedTransactionRow.check_in_time),
         check_out_time: updatedTransactionRow.check_out_time ? String(updatedTransactionRow.check_out_time) : null,
         reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime ? String(updatedTransactionRow.reserved_check_in_datetime) : null,
