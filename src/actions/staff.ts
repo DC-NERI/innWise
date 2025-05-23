@@ -2,27 +2,39 @@
 "use server";
 
 import pg from 'pg';
-pg.types.setTypeParser(1114, (stringValue) => stringValue);
-pg.types.setTypeParser(1184, (stringValue) => stringValue);
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10));
 pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
 
 
 import { Pool } from 'pg';
-import type { Transaction, HotelRoom, SimpleRate, Notification, GroupedRooms, RoomCleaningStatusUpdateData, TransactionCreateData as ActualTransactionCreateData } from '@/lib/types';
+import type { Transaction, HotelRoom, SimpleRate, Notification, GroupedRooms, LostAndFoundLog } from '@/lib/types';
 import {
   transactionCreateSchema,
   transactionUpdateNotesSchema, TransactionUpdateNotesData,
   transactionReservedUpdateSchema,
   assignRoomAndCheckInSchema, AssignRoomAndCheckInData,
   transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData,
-  roomCleaningStatusAndNotesUpdateSchema,
-  checkoutFormSchema,
+  roomCleaningStatusAndNotesUpdateSchema, RoomCleaningStatusUpdateData,
+  checkoutFormSchema, CheckoutFormData,
+  lostAndFoundCreateSchema, LostAndFoundCreateData,
+  lostAndFoundUpdateStatusSchema, LostAndFoundUpdateStatusData,
 } from '@/lib/schemas';
 import {
-  ROOM_AVAILABILITY_STATUS, TRANSACTION_LIFECYCLE_STATUS, NOTIFICATION_STATUS, TRANSACTION_IS_ACCEPTED_STATUS,
-  ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, NOTIFICATION_STATUS_TEXT, TRANSACTION_LIFECYCLE_STATUS_TEXT,
-  TRANSACTION_IS_ACCEPTED_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_PAYMENT_STATUS_TEXT, HOTEL_ENTITY_STATUS
+  ROOM_AVAILABILITY_STATUS,
+  TRANSACTION_LIFECYCLE_STATUS,
+  NOTIFICATION_STATUS,
+  TRANSACTION_IS_ACCEPTED_STATUS,
+  ROOM_CLEANING_STATUS,
+  ROOM_CLEANING_STATUS_TEXT,
+  NOTIFICATION_STATUS_TEXT,
+  TRANSACTION_LIFECYCLE_STATUS_TEXT,
+  TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
+  TRANSACTION_PAYMENT_STATUS,
+  TRANSACTION_PAYMENT_STATUS_TEXT,
+  HOTEL_ENTITY_STATUS,
+  LOST_AND_FOUND_STATUS
 } from '@/lib/constants';
 import type { z } from 'zod';
 import { format as formatDateTime, parseISO, addHours as dateFnsAddHours, differenceInMilliseconds } from 'date-fns';
@@ -38,7 +50,7 @@ pool.on('error', (err) => {
 });
 
 export async function createTransactionAndOccupyRoom(
-  data: ActualTransactionCreateData,
+  data: z.infer<typeof transactionCreateSchema>, // Use the base schema type
   tenantId: number,
   branchId: number,
   roomId: number,
@@ -65,17 +77,19 @@ export async function createTransactionAndOccupyRoom(
   try {
     await client.query('BEGIN');
 
-    const finalTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN; // 0
-    const finalPaymentStatus = data.is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID; // 1 or 0
+    const finalTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN;
+    const finalPaymentStatus = data.is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID;
 
     let finalTotalAmount = null;
     let finalTenderAmount = null;
     let rate_name = null;
     let rate_hours_val = null;
+    let check_out_time_val = null; // Will be set if paid upfront for fixed duration
+    let hours_used_val = null;     // Will be set if paid upfront for fixed duration
 
     const rateDetailsRes = await client.query(
-        'SELECT name, price, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4',
-        [rateId, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]
+        'SELECT name, price, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4',
+        [rateId, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
     );
     if (rateDetailsRes.rows.length === 0) {
         await client.query('ROLLBACK');
@@ -88,24 +102,28 @@ export async function createTransactionAndOccupyRoom(
     if (data.is_paid) {
       finalTotalAmount = parseFloat(rateDetails.price);
       finalTenderAmount = tender_amount_at_checkin;
+      // If paid upfront, it might imply the transaction covers the full initial rate duration
+      // However, the lifecycle status remains CHECKED_IN. Checkout time and hours_used are only set at actual checkout.
     }
 
     const transactionRes = await client.query(
       `INSERT INTO transactions (
          tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes,
          check_in_time, status, created_by_user_id, updated_at, created_at, is_accepted,
-         is_paid, tender_amount, total_amount
+         is_paid, tender_amount, total_amount, check_out_time, hours_used
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $8, $9, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $8, $9, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [
         tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes,
         finalTransactionLifecycleStatus.toString(),
         staffUserId,
-        TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
+        TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, // Staff bookings are auto-accepted by branch
         finalPaymentStatus,
         finalTenderAmount,
         finalTotalAmount,
+        check_out_time_val, // NULL unless logic changes to pre-set it
+        hours_used_val,     // NULL unless logic changes to pre-set it
       ]
     );
 
@@ -136,7 +154,7 @@ export async function createTransactionAndOccupyRoom(
         is_paid: Number(newTransaction.is_paid),
         is_accepted: Number(newTransaction.is_accepted),
         is_admin_created: Number(newTransaction.is_admin_created),
-        check_in_time: newTransaction.check_in_time,
+        check_in_time: newTransaction.check_in_time, // Will be string from DB
         room_name: (await client.query('SELECT room_name FROM hotel_room WHERE id = $1', [roomId])).rows[0]?.room_name,
         rate_name,
       } as Transaction,
@@ -149,7 +167,7 @@ export async function createTransactionAndOccupyRoom(
         active_transaction_check_in_time: newTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
         active_transaction_rate_hours: rate_hours_val,
-        active_transaction_status: newTransaction.status,
+        active_transaction_status: Number(newTransaction.status),
       }
     };
 
@@ -206,7 +224,7 @@ export async function updateRoomCleaningStatus(
             success: true,
             message: "Room cleaning status and notes updated and logged successfully.",
             updatedRoom: {
-                id: updateRoomRes.rows[0].id,
+                id: Number(updateRoomRes.rows[0].id),
                 cleaning_status: Number(updateRoomRes.rows[0].cleaning_status),
                 cleaning_notes: updateRoomRes.rows[0].cleaning_notes,
             }
@@ -223,7 +241,7 @@ export async function updateRoomCleaningStatus(
 
 
 export async function createReservation(
-  data: ActualTransactionCreateData,
+  data: z.infer<typeof transactionCreateSchema>, // Use the base schema type
   tenantId: number,
   branchId: number,
   roomId: number,
@@ -244,21 +262,24 @@ export async function createReservation(
     return { success: false, message: "Rate ID is required for reservation." };
   }
 
-  const { client_name, client_payment_method, notes, is_paid, tender_amount_at_checkin } = validatedFields.data;
+  const { client_name, client_payment_method, notes, is_paid, tender_amount_at_checkin, is_advance_reservation, reserved_check_in_datetime, reserved_check_out_datetime } = validatedFields.data;
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
-    const transactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM; // 2
-    const finalPaymentStatus = data.is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID; // 1 or 0
+    const transactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM;
+    const finalPaymentStatus = data.is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID;
     let finalTotalAmount = null;
     let finalTenderAmount = null;
 
     let rate_name = null;
     let rate_hours_val = null;
 
-     const rateDetailsRes = await client.query('SELECT name, price, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4', [rateId, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]);
+     const rateDetailsRes = await client.query(
+        'SELECT name, price, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4',
+        [rateId, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
+     );
       if (rateDetailsRes.rows.length === 0) {
         await client.query('ROLLBACK');
         return { success: false, message: "Selected rate not found or inactive for reservation." };
@@ -276,9 +297,10 @@ export async function createReservation(
       `INSERT INTO transactions (
          tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes,
          check_in_time, status, created_by_user_id, updated_at, created_at, is_accepted,
-         is_paid, tender_amount, total_amount
+         is_paid, tender_amount, total_amount,
+         reserved_check_in_datetime, reserved_check_out_datetime
         )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $8, $9, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $10, $11, $12, $13)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $8, $9, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $10, $11, $12, $13, $14, $15)
        RETURNING *`,
       [
         tenantId, branchId, roomId, rateId, client_name, client_payment_method, notes,
@@ -287,7 +309,9 @@ export async function createReservation(
         TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
         finalPaymentStatus,
         finalTenderAmount,
-        finalTotalAmount
+        finalTotalAmount,
+        reserved_check_in_datetime,
+        reserved_check_out_datetime
       ]
     );
 
@@ -331,7 +355,7 @@ export async function createReservation(
         active_transaction_check_in_time: newTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
         active_transaction_rate_hours: rate_hours_val,
-        active_transaction_status: newTransaction.status,
+        active_transaction_status: Number(newTransaction.status),
       }
     };
 
@@ -376,19 +400,19 @@ export async function getActiveTransactionForRoom(
           t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} OR
           t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
           t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
-          t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING}
+          t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE}
         )
       ORDER BY t.created_at DESC LIMIT 1
-    `;
+    `; // Status check ensures we get currently active or pending reservations
     const res = await client.query(query, [transactionId, tenantId, branchId]);
     if (res.rows.length > 0) {
       const row = res.rows[0];
       return {
         ...row,
         status: Number(row.status),
-        is_paid: Number(row.is_paid),
-        is_accepted: Number(row.is_accepted),
-        is_admin_created: Number(row.is_admin_created),
+        is_paid: row.is_paid !== null ? Number(row.is_paid) : null,
+        is_accepted: row.is_accepted !== null ? Number(row.is_accepted) : null,
+        is_admin_created: row.is_admin_created !== null ? Number(row.is_admin_created) : null,
       } as Transaction;
     }
     return null;
@@ -434,9 +458,9 @@ export async function updateTransactionNotes(
         updatedTransaction: {
           ...updatedRow,
           status: Number(updatedRow.status),
-          is_paid: Number(updatedRow.is_paid),
-          is_accepted: Number(updatedRow.is_accepted),
-          is_admin_created: Number(updatedRow.is_admin_created),
+          is_paid: updatedRow.is_paid !== null ? Number(updatedRow.is_paid) : null,
+          is_accepted: updatedRow.is_accepted !== null ? Number(updatedRow.is_accepted) : null,
+          is_admin_created: updatedRow.is_admin_created !== null ? Number(updatedRow.is_admin_created) : null,
           room_name,
           rate_name,
           rate_price: detailsRes.rows.length > 0 && detailsRes.rows[0].rate_price ? parseFloat(detailsRes.rows[0].rate_price) : null,
@@ -471,7 +495,7 @@ export async function updateReservedTransactionDetails(
     const res = await client.query(
       `UPDATE transactions
        SET client_name = $1, client_payment_method = $2, notes = $3, hotel_rate_id = $4, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $5 AND tenant_id = $6 AND branch_id = $7 AND (status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING})
+       WHERE id = $5 AND tenant_id = $6 AND branch_id = $7 AND (status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE})
        RETURNING *`,
       [client_name, client_payment_method, notes, selected_rate_id, transactionId, tenantId, branchId]
     );
@@ -494,9 +518,9 @@ export async function updateReservedTransactionDetails(
         updatedTransaction: {
           ...updatedRow,
           status: Number(updatedRow.status),
-          is_paid: Number(updatedRow.is_paid),
-          is_accepted: Number(updatedRow.is_accepted),
-          is_admin_created: Number(updatedRow.is_admin_created),
+          is_paid: updatedRow.is_paid !== null ? Number(updatedRow.is_paid) : null,
+          is_accepted: updatedRow.is_accepted !== null ? Number(updatedRow.is_accepted) : null,
+          is_admin_created: updatedRow.is_admin_created !== null ? Number(updatedRow.is_admin_created) : null,
           room_name,
           rate_name,
           rate_price: detailsRes.rows.length > 0 && detailsRes.rows[0].rate_price ? parseFloat(detailsRes.rows[0].rate_price) : null,
@@ -521,21 +545,33 @@ export async function checkOutGuestAndFreeRoom(
   tenantId: number,
   branchId: number,
   roomId: number,
-  tenderAmount: number
+  data: CheckoutFormData
 ): Promise<{
   success: boolean;
   message?: string;
   transaction?: Transaction;
   updatedRoomData?: Partial<HotelRoom> & { id: number }
 }> {
+   const validatedFields = checkoutFormSchema.safeParse(data);
+    if (!validatedFields.success) {
+        return { success: false, message: "Invalid checkout data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors) };
+    }
+    const { tender_amount, payment_method } = validatedFields.data;
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const debugTxStatusRes = await client.query('SELECT status, is_paid FROM transactions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [transactionId, tenantId, branchId]);
-    if (debugTxStatusRes.rows.length === 0) {
+    const debugTxRes = await client.query('SELECT status, is_paid, total_amount, tender_amount as current_tender_amount FROM transactions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [transactionId, tenantId, branchId]);
+    if (debugTxRes.rows.length === 0) {
         await client.query('ROLLBACK');
         return { success: false, message: "Transaction not found or doesn't belong to this tenant/branch." };
+    }
+    const { status: currentStatus, is_paid: currentIsPaid, total_amount: currentTotalAmount, current_tender_amount: currentDbTenderAmount } = debugTxRes.rows[0];
+
+    if (Number(currentStatus) !== TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN) {
+         await client.query('ROLLBACK');
+         return { success: false, message: `Transaction is not in 'Checked-In' state. Current status: ${TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(currentStatus) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}.` };
     }
 
     const transactionAndRateRes = await client.query(
@@ -561,44 +597,53 @@ export async function checkOutGuestAndFreeRoom(
     const now = new Date();
     const db_check_out_time_str = formatDateTime(now, "yyyy-MM-dd HH:mm:ss");
 
-    const check_in_time_dt = parseISO(check_in_time_str.replace(' ', 'T'));
+    const check_in_time_dt = parseISO(check_in_time_str.replace(' ', 'T')); // DB string is space separated
     const check_out_time_dt = parseISO(db_check_out_time_str.replace(' ', 'T'));
 
     const diffMillisecondsVal = differenceInMilliseconds(check_out_time_dt, check_in_time_dt);
     let hours_used_calc = Math.ceil(diffMillisecondsVal / (1000 * 60 * 60));
     if (hours_used_calc <= 0) hours_used_calc = 1;
 
-    let total_amount_calculated = parseFloat(transactionDetails.rate_price);
+    let final_total_amount_calculated = parseFloat(transactionDetails.rate_price);
     const rate_hours_val = parseInt(transactionDetails.rate_hours, 10);
     const rate_excess_hour_price_val = transactionDetails.rate_excess_hour_price ? parseFloat(transactionDetails.rate_excess_hour_price) : null;
 
     if (hours_used_calc > rate_hours_val && rate_excess_hour_price_val && rate_excess_hour_price_val > 0) {
-        total_amount_calculated = parseFloat(transactionDetails.rate_price) + (hours_used_calc - rate_hours_val) * rate_excess_hour_price_val;
+        final_total_amount_calculated = parseFloat(transactionDetails.rate_price) + (hours_used_calc - rate_hours_val) * rate_excess_hour_price_val;
     } else {
-        total_amount_calculated = parseFloat(transactionDetails.rate_price);
+        final_total_amount_calculated = parseFloat(transactionDetails.rate_price);
     }
 
-    if (hours_used_calc > 0 && total_amount_calculated < parseFloat(transactionDetails.rate_price)) {
-        total_amount_calculated = parseFloat(transactionDetails.rate_price);
+    // Ensure total amount is at least the base rate price if any time was used
+    if (hours_used_calc > 0 && final_total_amount_calculated < parseFloat(transactionDetails.rate_price)) {
+        final_total_amount_calculated = parseFloat(transactionDetails.rate_price);
     }
+
+    // The tender_amount for this update is the amount paid AT THIS CHECKOUT.
+    // If a payment was made upfront, it should be considered.
+    // For simplicity here, we assume tender_amount is for the remaining balance or full amount if not paid.
+    // A more complex system would sum up payments.
+    // We will update `client_payment_method` with the one used at checkout.
 
     const updatedTransactionRes = await client.query(
       `UPDATE transactions
        SET check_out_time = ($1::TEXT::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'),
            hours_used = $2,
            total_amount = $3,
-           tender_amount = $4,
-           check_out_by_user_id = $5,
-           status = $6,
-           is_paid = $7,
+           tender_amount = $4, -- This is the tender amount for this specific checkout operation
+           client_payment_method = $5,
+           check_out_by_user_id = $6,
+           status = $7,
+           is_paid = $8,
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-       WHERE id = $8
+       WHERE id = $9
        RETURNING *`,
       [
         db_check_out_time_str,
         hours_used_calc,
-        total_amount_calculated,
-        tenderAmount,
+        final_total_amount_calculated,
+        tender_amount, // Amount tendered at checkout
+        payment_method, // Payment method used at checkout
         staffUserId,
         TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(),
         TRANSACTION_PAYMENT_STATUS.PAID,
@@ -611,12 +656,13 @@ export async function checkOutGuestAndFreeRoom(
       return { success: false, message: "Failed to update transaction record during check-out." };
     }
     const updatedTransaction = updatedTransactionRes.rows[0];
-    const inspectionNote = "Please do a room inspection.";
+
+    const defaultCheckoutNote = "Please do a room inspection.";
     const roomUpdateRes = await client.query(
       `UPDATE hotel_room
        SET is_available = $1, transaction_id = NULL, cleaning_status = $2, cleaning_notes = $3, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $4 AND tenant_id = $5 AND branch_id = $6`,
-      [ROOM_AVAILABILITY_STATUS.AVAILABLE, ROOM_CLEANING_STATUS.INSPECTION, inspectionNote, roomId, tenantId, branchId]
+      [ROOM_AVAILABILITY_STATUS.AVAILABLE, ROOM_CLEANING_STATUS.INSPECTION, defaultCheckoutNote, roomId, tenantId, branchId]
     );
 
     if (roomUpdateRes.rowCount === 0) {
@@ -624,11 +670,12 @@ export async function checkOutGuestAndFreeRoom(
       return { success: false, message: "Check-out processed for transaction, but failed to update room status. Please check manually." };
     }
 
-    await client.query(
+     await client.query(
         `INSERT INTO room_cleaning_logs (room_id, room_cleaning_status, notes, user_id, created_at)
          VALUES ($1, $2, $3, $4, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))`,
-        [roomId, ROOM_CLEANING_STATUS.INSPECTION.toString(), inspectionNote, staffUserId]
+        [roomId, ROOM_CLEANING_STATUS.INSPECTION.toString(), defaultCheckoutNote, staffUserId]
     );
+
 
     await client.query('COMMIT');
     return {
@@ -655,7 +702,7 @@ export async function checkOutGuestAndFreeRoom(
         active_transaction_status: null,
         active_transaction_rate_hours: null,
         cleaning_status: ROOM_CLEANING_STATUS.INSPECTION,
-        cleaning_notes: inspectionNote,
+        cleaning_notes: defaultCheckoutNote,
       }
     };
 
@@ -685,22 +732,22 @@ export async function cancelReservation(
     const transactionUpdateRes = await client.query(
       `UPDATE transactions
        SET status = $1,
-           is_paid = $2,
-           is_accepted = $3,
+           is_paid = $2, -- Typically, cancelled reservations are not marked as paid
+           is_accepted = $3, -- Could be 'Not Accepted' or 'Default' depending on flow
            updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
        WHERE id = $4 AND tenant_id = $5 AND branch_id = $6
        AND (
             status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} OR
             status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
             status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT}
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE} OR
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT} -- Allow cancelling even if checked out for corrections
         )
-       RETURNING hotel_room_id`,
+       RETURNING hotel_room_id, status as old_status`, // Get old status to decide on room update
       [
         TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED.toString(),
-        TRANSACTION_PAYMENT_STATUS.UNPAID,
-        TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED,
+        TRANSACTION_PAYMENT_STATUS.UNPAID, // Set to unpaid upon cancellation
+        TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED, // Mark as not accepted
         transactionId, tenantId, branchId,
       ]
     );
@@ -711,12 +758,15 @@ export async function cancelReservation(
     }
 
     const actualRoomId = roomId ?? transactionUpdateRes.rows[0].hotel_room_id;
+    const oldStatus = Number(transactionUpdateRes.rows[0].old_status);
     let updatedRoomData: (Partial<HotelRoom> & { id: number }) | undefined = undefined;
 
-    if (actualRoomId) {
+    // Only free up the room if it was linked to this specific transaction
+    // and was in an occupied or reserved state due to THIS transaction.
+    if (actualRoomId && (oldStatus === TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN || oldStatus === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM)) {
       const roomUpdateRes = await client.query(
         `UPDATE hotel_room SET is_available = $1, transaction_id = NULL, cleaning_status = $2, cleaning_notes = $3, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-         WHERE id = $4 AND tenant_id = $5 AND branch_id = $6 AND transaction_id = $7`,
+         WHERE id = $4 AND tenant_id = $5 AND branch_id = $6 AND transaction_id = $7`, // Ensure we only update if it's still linked
         [ROOM_AVAILABILITY_STATUS.AVAILABLE, ROOM_CLEANING_STATUS.CLEAN, 'Reservation cancelled, room available.', actualRoomId, tenantId, branchId, transactionId]
       );
 
@@ -781,8 +831,8 @@ export async function checkInReservedGuest(
       `SELECT client_name, hotel_rate_id, reserved_check_in_datetime, status, is_paid, total_amount, tender_amount
        FROM transactions
        WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id = $4
-       AND (status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN})
-       `,
+       AND (status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE})
+       `, // Only these two statuses are valid for this "check-in reserved guest" action
       [transactionId, tenantId, branchId, roomId]
     );
 
@@ -790,36 +840,25 @@ export async function checkInReservedGuest(
       await client.query('ROLLBACK');
       return { success: false, message: "Reservation not found for this room, already checked in, or not in a check-in ready status." };
     }
-    const { client_name, hotel_rate_id, reserved_check_in_datetime, status: current_status, is_paid: currentIsPaid, total_amount: currentTotalAmount, tender_amount: currentTenderAmount } = transactionCheckRes.rows[0];
-
-    let checkInTimeQueryPart = `check_in_time = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')`;
-    let checkInTimeParam = null;
-
-    if ( (Number(current_status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM) &&
-         reserved_check_in_datetime && new Date(reserved_check_in_datetime.replace(' ','T')) > new Date() ) {
-        checkInTimeQueryPart = `check_in_time = $1`;
-        checkInTimeParam = reserved_check_in_datetime;
-    }
+    const { client_name, hotel_rate_id, reserved_check_in_datetime, status: current_status_db, is_paid: currentIsPaid, total_amount: currentTotalAmount, tender_amount: currentTenderAmount } = transactionCheckRes.rows[0];
 
     const newTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN;
+    let actualCheckInTimeValue = formatDateTime(new Date(), "yyyy-MM-dd HH:mm:ss"); // Default to now
 
-    const queryText = `
-      UPDATE transactions
-      SET status = $1,
-          is_paid = $2,
-          total_amount = $3,
-          tender_amount = $4,
-          ${checkInTimeQueryPart},
-          updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-      WHERE id = $${checkInTimeParam ? 5 : 6}
-      RETURNING *, check_in_time as effective_check_in_time`;
+    // Use reserved time if it's in the future for an advance reservation, otherwise use current time
+    if (reserved_check_in_datetime && new Date(reserved_check_in_datetime) > new Date()) {
+        actualCheckInTimeValue = reserved_check_in_datetime;
+    }
 
-    const queryParams = checkInTimeParam
-        ? [newTransactionLifecycleStatus.toString(), currentIsPaid, currentTotalAmount, currentTenderAmount, checkInTimeParam, transactionId]
-        : [newTransactionLifecycleStatus.toString(), currentIsPaid, currentTotalAmount, currentTenderAmount, transactionId];
-
-
-    const updateTransactionRes = await client.query(queryText, queryParams);
+    const updateTransactionRes = await client.query(
+      `UPDATE transactions
+       SET status = $1,
+           check_in_time = ($2::TEXT::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'),
+           updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+       WHERE id = $3
+       RETURNING *`,
+      [newTransactionLifecycleStatus.toString(), actualCheckInTimeValue, transactionId]
+    );
 
 
     if (updateTransactionRes.rowCount === 0) {
@@ -827,7 +866,6 @@ export async function checkInReservedGuest(
       return { success: false, message: "Failed to update transaction status for check-in." };
     }
     const updatedTransaction = updateTransactionRes.rows[0];
-    const actualCheckInTimeValue = updatedTransaction.effective_check_in_time;
 
     const roomUpdateRes = await client.query(
       `UPDATE hotel_room
@@ -844,7 +882,10 @@ export async function checkInReservedGuest(
     let rate_name = null;
     let rate_hours_val = null;
     if (hotel_rate_id) {
-        const rateDetailsRes = await client.query('SELECT name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [hotel_rate_id, tenantId, branchId]);
+        const rateDetailsRes = await client.query(
+          'SELECT name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3',
+          [hotel_rate_id, tenantId, branchId]
+        );
         if (rateDetailsRes.rows.length > 0) {
             rate_name = rateDetailsRes.rows[0].name;
             rate_hours_val = parseInt(rateDetailsRes.rows[0].hours, 10);
@@ -861,7 +902,7 @@ export async function checkInReservedGuest(
         is_paid: Number(updatedTransaction.is_paid),
         is_accepted: Number(updatedTransaction.is_accepted),
         is_admin_created: Number(updatedTransaction.is_admin_created),
-        check_in_time: actualCheckInTimeValue,
+        check_in_time: updatedTransaction.check_in_time,
         room_name: (await client.query('SELECT room_name FROM hotel_room WHERE id = $1', [roomId])).rows[0]?.room_name,
         rate_name,
       } as Transaction,
@@ -871,10 +912,10 @@ export async function checkInReservedGuest(
         transaction_id: transactionId,
         active_transaction_id: transactionId,
         active_transaction_client_name: client_name,
-        active_transaction_check_in_time: actualCheckInTimeValue,
+        active_transaction_check_in_time: updatedTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
         active_transaction_rate_hours: rate_hours_val,
-        active_transaction_status: updatedTransaction.status,
+        active_transaction_status: Number(updatedTransaction.status),
       }
     };
 
@@ -896,16 +937,16 @@ export async function listUnassignedReservations(tenantId: number, branchId: num
        LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id
        WHERE t.tenant_id = $1 AND t.branch_id = $2
        AND t.hotel_room_id IS NULL
-       AND (t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} )
+       AND (t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE})
        ORDER BY t.reserved_check_in_datetime ASC, t.created_at DESC`,
       [tenantId, branchId]
     );
      return res.rows.map(row => ({
         ...row,
         status: Number(row.status),
-        is_paid: Number(row.is_paid),
-        is_accepted: Number(row.is_accepted),
-        is_admin_created: Number(row.is_admin_created),
+        is_paid: row.is_paid !== null ? Number(row.is_paid) : null,
+        is_accepted: row.is_accepted !== null ? Number(row.is_accepted) : null,
+        is_admin_created: row.is_admin_created !== null ? Number(row.is_admin_created) : null,
     })) as Transaction[];
   } catch (error) {
     console.error('Failed to fetch unassigned reservations:', error);
@@ -916,7 +957,7 @@ export async function listUnassignedReservations(tenantId: number, branchId: num
 }
 
 export async function createUnassignedReservation(
-  data: ActualTransactionCreateData,
+  data: z.infer<typeof transactionCreateSchema>,
   tenantId: number,
   branchId: number,
   staffUserId: number,
@@ -939,20 +980,23 @@ export async function createUnassignedReservation(
     let finalTotalAmount = null;
 
     if (is_admin_created_flag) {
-        transactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING; // 5
-        acceptedStatus = TRANSACTION_IS_ACCEPTED_STATUS.PENDING; // 3
-    } else {
-        transactionLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM; // 3
-        acceptedStatus = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // 2
+        transactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE;
+        acceptedStatus = TRANSACTION_IS_ACCEPTED_STATUS.PENDING;
+    } else { // Staff creating for own branch
+        transactionLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
+        acceptedStatus = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // Auto-accepted if staff creates for own branch
     }
 
     if (data.is_paid && selected_rate_id) {
-        const rateRes = await client.query('SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4', [selected_rate_id, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]);
+        const rateRes = await client.query(
+          'SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4',
+          [selected_rate_id, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
+        );
         if (rateRes.rows.length > 0) {
             finalTotalAmount = parseFloat(rateRes.rows[0].price);
-        } else if (!is_admin_created_flag && selected_rate_id) {
+        } else if (selected_rate_id) { // Only error if rate was selected but not found
             await client.query('ROLLBACK');
-            return { success: false, message: "Selected rate not found for calculating total amount." };
+            return { success: false, message: "Selected rate not found or inactive for calculating total amount." };
         }
     }
 
@@ -1019,9 +1063,9 @@ export async function listAvailableRoomsForBranch(tenantId: number, branchId: nu
   try {
     const res = await client.query(
       `SELECT id, room_name, room_code, hotel_rate_id FROM hotel_room
-       WHERE tenant_id = $1 AND branch_id = $2 AND is_available = $3 AND status = $4 AND cleaning_status = $5
+       WHERE tenant_id = $1 AND branch_id = $2 AND is_available = $3 AND status::INTEGER = $4 AND cleaning_status = $5
        ORDER BY floor ASC, room_code ASC`,
-      [tenantId, branchId, ROOM_AVAILABILITY_STATUS.AVAILABLE, HOTEL_ENTITY_STATUS.ACTIVE, ROOM_CLEANING_STATUS.CLEAN]
+      [tenantId, branchId, ROOM_AVAILABILITY_STATUS.AVAILABLE, Number(HOTEL_ENTITY_STATUS.ACTIVE), ROOM_CLEANING_STATUS.CLEAN]
     );
     return res.rows.map(row => {
        let parsedRateIds: number[] = [];
@@ -1038,7 +1082,7 @@ export async function listAvailableRoomsForBranch(tenantId: number, branchId: nu
             parsedRateIds = [];
         }
         return {
-            id: row.id,
+            id: Number(row.id),
             room_name: row.room_name,
             room_code: row.room_code,
             hotel_rate_id: parsedRateIds
@@ -1076,8 +1120,8 @@ export async function assignRoomAndCheckIn(
     await client.query('BEGIN');
 
     const roomCheckRes = await client.query(
-      `SELECT is_available, room_name, cleaning_status FROM hotel_room WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4`,
-      [roomId, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]
+      `SELECT is_available, room_name, cleaning_status FROM hotel_room WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4`,
+      [roomId, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
     );
     if (roomCheckRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -1099,9 +1143,9 @@ export async function assignRoomAndCheckIn(
        WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id IS NULL
        AND (
             status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN}
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR /* Should not happen if hotel_room_id is NULL */
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE} OR
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} /* If it was 'Unpaid' (0) due to prior acceptance */
         )
        `,
       [transactionId, tenantId, branchId]
@@ -1111,51 +1155,46 @@ export async function assignRoomAndCheckIn(
       await client.query('ROLLBACK');
       return { success: false, message: "Reservation not found, already assigned, or not in a valid unassigned status." };
     }
-    const { client_name, hotel_rate_id, reserved_check_in_datetime, status: current_status, is_accepted, is_paid: currentIsPaid, total_amount: currentTotalAmount, tender_amount: currentTenderAmount } = transactionCheckRes.rows[0];
+    const { client_name, hotel_rate_id, reserved_check_in_datetime, status: current_status_db, is_accepted, is_paid: currentIsPaid, total_amount: currentTotalAmount, tender_amount: currentTenderAmount } = transactionCheckRes.rows[0];
+    const current_status = Number(current_status_db);
 
-    if (Number(current_status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING && Number(is_accepted) !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED) {
+    if (current_status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE && Number(is_accepted) !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED) {
       await client.query('ROLLBACK');
       return { success: false, message: "This reservation must be accepted by the branch before assigning a room." };
     }
 
-    let checkInTimeQueryPart = `check_in_time = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')`;
-    let checkInTimeParam = null;
-
-    if ( (Number(current_status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM || Number(current_status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM) &&
-         reserved_check_in_datetime && new Date(reserved_check_in_datetime.replace(' ','T')) > new Date() ) {
-        checkInTimeQueryPart = `check_in_time = $1`;
-        checkInTimeParam = reserved_check_in_datetime;
+    let checkInTimeForUpdate = formatDateTime(new Date(), "yyyy-MM-dd HH:mm:ss"); // Default to now
+    if ( (current_status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM || current_status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM || current_status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE) &&
+         reserved_check_in_datetime && new Date(reserved_check_in_datetime) > new Date() ) {
+        checkInTimeForUpdate = reserved_check_in_datetime; // Use future reserved time
     }
 
+    const newTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN;
 
-    const newTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN; // 0
-
-    const queryText = `
-        UPDATE transactions
+    const updateTransactionRes = await client.query(
+        `UPDATE transactions
         SET status = $1,
             hotel_room_id = $2,
-            ${checkInTimeQueryPart},
-            is_accepted = $3,
-            is_paid = $4,
-            total_amount = $5,
-            tender_amount = $6,
+            check_in_time = ($3::TEXT::TIMESTAMP WITHOUT TIME ZONE AT TIME ZONE 'Asia/Manila'),
+            is_accepted = $4, -- Ensure it's marked as accepted if it was pending
             updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-        WHERE id = $${checkInTimeParam ? 7 : 8}
-        RETURNING *, check_in_time as effective_check_in_time`;
+        WHERE id = $5
+        RETURNING *`,
+        [
+            newTransactionLifecycleStatus.toString(),
+            roomId,
+            checkInTimeForUpdate,
+            TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
+            transactionId
+        ]
+    );
 
-    const queryParams = checkInTimeParam
-        ? [newTransactionLifecycleStatus.toString(), roomId, checkInTimeParam, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, currentIsPaid, currentTotalAmount, currentTenderAmount, transactionId]
-        : [newTransactionLifecycleStatus.toString(), roomId, TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED, currentIsPaid, currentTotalAmount, currentTenderAmount, transactionId];
-
-    const updateTransactionRes = await client.query(queryText, queryParams);
 
     if (updateTransactionRes.rowCount === 0) {
       await client.query('ROLLBACK');
       return { success: false, message: "Failed to update transaction for check-in." };
     }
     const updatedTransaction = updateTransactionRes.rows[0];
-    const actualCheckInTimeValue = updatedTransaction.effective_check_in_time;
-
 
     const roomUpdateRes = await client.query(
       `UPDATE hotel_room
@@ -1172,7 +1211,10 @@ export async function assignRoomAndCheckIn(
     let rate_name = null;
     let rate_hours_val = null;
     if (hotel_rate_id) {
-        const rateDetailsRes = await client.query('SELECT name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [hotel_rate_id, tenantId, branchId]);
+        const rateDetailsRes = await client.query(
+          'SELECT name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3',
+          [hotel_rate_id, tenantId, branchId]
+        );
         if (rateDetailsRes.rows.length > 0) {
           rate_name = rateDetailsRes.rows[0].name;
           rate_hours_val = parseInt(rateDetailsRes.rows[0].hours, 10);
@@ -1189,7 +1231,7 @@ export async function assignRoomAndCheckIn(
         is_paid: Number(updatedTransaction.is_paid),
         is_accepted: Number(updatedTransaction.is_accepted),
         is_admin_created: Number(updatedTransaction.is_admin_created),
-        check_in_time: actualCheckInTimeValue,
+        check_in_time: updatedTransaction.check_in_time,
         room_name: roomName,
         rate_name,
       } as Transaction,
@@ -1199,10 +1241,10 @@ export async function assignRoomAndCheckIn(
         transaction_id: transactionId,
         active_transaction_id: transactionId,
         active_transaction_client_name: client_name,
-        active_transaction_check_in_time: actualCheckInTimeValue,
+        active_transaction_check_in_time: updatedTransaction.check_in_time,
         active_transaction_rate_name: rate_name,
         active_transaction_rate_hours: rate_hours_val,
-        active_transaction_status: updatedTransaction.status,
+        active_transaction_status: Number(updatedTransaction.status),
       }
     };
 
@@ -1253,15 +1295,18 @@ export async function updateUnassignedReservation(
     let finalTotalAmount = null;
 
 
-    if (!isAdminCreated || currentStatus !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING) {
-        newLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM; // For staff, unassigned is always NO_ROOM
-    }
+    if (!isAdminCreated || currentStatus !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE) { // If not an admin-pending, staff are managing their own
+        newLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
+    } // Else, admin-pending status remains until explicitly accepted/declined by staff
 
     if (data.is_paid && selected_rate_id) {
-        const rateRes = await client.query('SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4', [selected_rate_id, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]);
+        const rateRes = await client.query(
+          'SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4',
+          [selected_rate_id, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
+        );
         if (rateRes.rows.length > 0) {
             finalTotalAmount = parseFloat(rateRes.rows[0].price);
-        } else if (!isAdminCreated && selected_rate_id) {
+        } else if(selected_rate_id) {
              return { success: false, message: "Selected rate not found for calculating total amount." };
         }
     }
@@ -1283,8 +1328,8 @@ export async function updateUnassignedReservation(
        WHERE id = $11 AND tenant_id = $12 AND branch_id = $13 AND hotel_room_id IS NULL
        AND (
             status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
-            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING}
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR /* should not happen with hotel_room_id IS NULL */
+            status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE}
         )
        RETURNING *`,
       [
@@ -1347,8 +1392,17 @@ export async function listNotificationsForBranch(tenantId: number, branchId: num
        ORDER BY n.created_at DESC`;
     const res = await client.query(query, [tenantId, branchId]);
     return res.rows.map(row => ({
-        ...row,
+        id: Number(row.id),
+        tenant_id: Number(row.tenant_id),
+        message: row.message,
         status: Number(row.status),
+        target_branch_id: row.target_branch_id ? Number(row.target_branch_id) : null,
+        target_branch_name: row.target_branch_name,
+        creator_user_id: row.creator_user_id ? Number(row.creator_user_id) : null,
+        creator_username: row.creator_username,
+        transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
+        created_at: row.created_at,
+        read_at: row.read_at,
         transaction_status: Number(row.transaction_status),
         transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
         linked_transaction_status: row.linked_transaction_status ? Number(row.linked_transaction_status) : null,
@@ -1365,7 +1419,7 @@ export async function markStaffNotificationAsRead(notificationId: number, tenant
   const client = await pool.connect();
   try {
     const checkRes = await client.query('SELECT target_branch_id FROM notification WHERE id = $1 AND tenant_id = $2', [notificationId, tenantId]);
-    if (checkRes.rows.length === 0 || (checkRes.rows[0].target_branch_id !== null && checkRes.rows[0].target_branch_id !== branchId)) {
+    if (checkRes.rows.length === 0 || (checkRes.rows[0].target_branch_id !== null && Number(checkRes.rows[0].target_branch_id) !== branchId)) {
         return { success: false, message: "Notification not found or not targeted to this branch/tenant."};
     }
 
@@ -1395,8 +1449,17 @@ export async function markStaffNotificationAsRead(notificationId: number, tenant
         success: true,
         message: "Notification marked as read.",
         notification: {
-            ...fullNotif,
+            id: Number(fullNotif.id),
+            tenant_id: Number(fullNotif.tenant_id),
+            message: fullNotif.message,
             status: Number(fullNotif.status),
+            target_branch_id: fullNotif.target_branch_id ? Number(fullNotif.target_branch_id) : null,
+            target_branch_name: fullNotif.target_branch_name,
+            creator_user_id: fullNotif.creator_user_id ? Number(fullNotif.creator_user_id) : null,
+            creator_username: fullNotif.creator_username,
+            transaction_id: fullNotif.transaction_id ? Number(fullNotif.transaction_id) : null,
+            created_at: fullNotif.created_at,
+            read_at: fullNotif.read_at,
             transaction_status: Number(fullNotif.transaction_status),
             transaction_is_accepted: fullNotif.transaction_is_accepted !== null ? Number(fullNotif.transaction_is_accepted) : null,
             linked_transaction_status: fullNotif.linked_transaction_status ? Number(fullNotif.linked_transaction_status) : null,
@@ -1443,21 +1506,24 @@ export async function acceptReservationByStaff(
             await client.query('ROLLBACK');
             return { success: false, message: "Admin-created reservation not found in this branch." };
         }
-         if (Number(transactionCheckRes.rows[0].status) !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING) {
+         if (Number(transactionCheckRes.rows[0].status) !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE) {
             await client.query('ROLLBACK');
             return { success: false, message: "This reservation is not pending branch acceptance." };
         }
 
-        const newTransactionLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM; // Now '3' (No room) or '3'
-        const finalPaymentStatus = data.is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID;
-        let finalTenderAmount = (data.is_paid && tender_amount_at_checkin !== null && tender_amount_at_checkin !== undefined) ? tender_amount_at_checkin : null;
+        const newTransactionLifecycleStatus = is_advance_reservation ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
+        const finalPaymentStatus = is_paid ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID;
+        let finalTenderAmount = (is_paid && tender_amount_at_checkin !== null && tender_amount_at_checkin !== undefined) ? tender_amount_at_checkin : null;
         let finalTotalAmount = null;
 
-        if (data.is_paid && selected_rate_id) {
-            const rateRes = await client.query('SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4', [selected_rate_id, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]);
+        if (is_paid && selected_rate_id) {
+            const rateRes = await client.query(
+              'SELECT price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status::INTEGER = $4',
+              [selected_rate_id, tenantId, branchId, Number(HOTEL_ENTITY_STATUS.ACTIVE)]
+            );
             if (rateRes.rows.length > 0) {
                 finalTotalAmount = parseFloat(rateRes.rows[0].price);
-            } else if(selected_rate_id) { // only error if rate was selected but not found
+            } else if(selected_rate_id) {
                  await client.query('ROLLBACK');
                  return { success: false, message: "Selected rate not found for calculating total amount." };
             }
@@ -1539,7 +1605,7 @@ export async function declineReservationByStaff(
             await client.query('ROLLBACK');
             return { success: false, message: "Admin-created reservation not found in this branch." };
         }
-         if (Number(transactionCheckRes.rows[0].status) !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING) {
+         if (Number(transactionCheckRes.rows[0].status) !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE) {
             await client.query('ROLLBACK');
             return { success: false, message: "This reservation is not pending branch acceptance." };
         }
@@ -1547,15 +1613,15 @@ export async function declineReservationByStaff(
         const res = await client.query(
             `UPDATE transactions
              SET status = $1, is_accepted = $2, declined_by_user_id = $3,
-                 is_paid = $4,
+                 is_paid = $4, -- Mark as unpaid if declined
                  updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
              WHERE id = $5 AND tenant_id = $6 AND branch_id = $7
              RETURNING *`,
             [
-                TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED.toString(), // '6'
-                TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED, // 1
+                TRANSACTION_LIFECYCLE_STATUS.RESERVATION_DECLINED_BY_BRANCH.toString(),
+                TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED,
                 staffUserId,
-                TRANSACTION_PAYMENT_STATUS.UNPAID, // 0
+                TRANSACTION_PAYMENT_STATUS.UNPAID,
                 transactionId, tenantId, branchId
             ]
         );
@@ -1585,4 +1651,157 @@ export async function declineReservationByStaff(
     } finally {
         client.release();
     }
+}
+
+export async function listLostAndFoundItems(tenantId: number, branchId: number): Promise<LostAndFoundLog[]> {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT
+        laf.id, laf.tenant_id, laf.branch_id,
+        laf.item_name, laf.description, laf.found_location,
+        laf.reported_by_user_id, u.username as reported_by_username,
+        laf.status, laf.found_at, laf.updated_at, laf.claimed_at, laf.claimed_by_details, laf.disposed_details
+      FROM lost_and_found_logs laf
+      LEFT JOIN users u ON laf.reported_by_user_id = u.id
+      WHERE laf.tenant_id = $1 AND laf.branch_id = $2
+      ORDER BY laf.found_at DESC, laf.id DESC
+    `;
+    const res = await client.query(query, [tenantId, branchId]);
+    return res.rows.map(row => ({
+      ...row,
+      id: Number(row.id),
+      tenant_id: Number(row.tenant_id),
+      branch_id: Number(row.branch_id),
+      status: Number(row.status),
+      reported_by_user_id: row.reported_by_user_id ? Number(row.reported_by_user_id) : null,
+    })) as LostAndFoundLog[];
+  } catch (error) {
+    console.error('[listLostAndFoundItems DB Error]', error);
+    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    client.release();
+  }
+}
+
+export async function addLostAndFoundItem(
+  data: LostAndFoundCreateData,
+  tenantId: number,
+  branchId: number,
+  reportedByUserId: number
+): Promise<{ success: boolean; message?: string; item?: LostAndFoundLog }> {
+  const validatedFields = lostAndFoundCreateSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors) };
+  }
+  const { item_name, description, found_location } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    const query = `
+      INSERT INTO lost_and_found_logs (
+        tenant_id, branch_id, item_name, description, found_location,
+        reported_by_user_id, status, found_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7,
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'),
+        (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+      ) RETURNING id, tenant_id, branch_id, item_name, description, found_location, reported_by_user_id, status, found_at, updated_at, claimed_at, claimed_by_details, disposed_details
+    `;
+    const res = await client.query(query, [
+      tenantId, branchId, item_name, description, found_location,
+      reportedByUserId, LOST_AND_FOUND_STATUS.FOUND
+    ]);
+
+    if (res.rows.length > 0) {
+      const newItem = res.rows[0];
+      const userRes = await client.query('SELECT username FROM users WHERE id = $1', [reportedByUserId]);
+      const reported_by_username = userRes.rows.length > 0 ? userRes.rows[0].username : null;
+      return {
+        success: true,
+        message: "Lost item logged successfully.",
+        item: {
+          ...newItem,
+          id: Number(newItem.id),
+          status: Number(newItem.status),
+          reported_by_username,
+        } as LostAndFoundLog
+      };
+    }
+    return { success: false, message: "Failed to log item." };
+  } catch (error) {
+    console.error('[addLostAndFoundItem DB Error]', error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
+}
+
+export async function updateLostAndFoundItemStatus(
+  itemId: number,
+  data: LostAndFoundUpdateStatusData,
+  tenantId: number,
+  branchId: number,
+  updatedByUserId: number // Can be used for logging who updated it, if needed
+): Promise<{ success: boolean; message?: string; item?: LostAndFoundLog }> {
+  const validatedFields = lostAndFoundUpdateStatusSchema.safeParse(data);
+  if (!validatedFields.success) {
+    return { success: false, message: "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors) };
+  }
+  const { status, claimed_by_details, disposed_details } = validatedFields.data;
+  const client = await pool.connect();
+  try {
+    let setClauses = ["status = $1", "updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')"];
+    const queryParams: (number | string | null)[] = [status];
+
+    if (status === LOST_AND_FOUND_STATUS.CLAIMED) {
+      setClauses.push("claimed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')");
+      setClauses.push("claimed_by_details = $2");
+      queryParams.push(claimed_by_details || null);
+    } else {
+      queryParams.push(null); // Placeholder for claimed_by_details
+    }
+
+    if (status === LOST_AND_FOUND_STATUS.DISPOSED) {
+      // setClauses.push("disposed_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')"); // If you add disposed_at column
+      setClauses.push("disposed_details = $3");
+      queryParams.push(disposed_details || null);
+    } else {
+       queryParams.push(null); // Placeholder for disposed_details
+    }
+
+    queryParams.push(itemId, tenantId, branchId);
+    const placeholderIndexOffset = status === LOST_AND_FOUND_STATUS.CLAIMED ? 3 : (status === LOST_AND_FOUND_STATUS.DISPOSED ? 3 : 2);
+
+
+    const query = `
+      UPDATE lost_and_found_logs
+      SET ${setClauses.join(", ")}
+      WHERE id = $${placeholderIndexOffset} AND tenant_id = $${placeholderIndexOffset+1} AND branch_id = $${placeholderIndexOffset+2}
+      RETURNING id, tenant_id, branch_id, item_name, description, found_location, reported_by_user_id, status, found_at, updated_at, claimed_at, claimed_by_details, disposed_details
+    `;
+
+    const res = await client.query(query, queryParams);
+
+    if (res.rows.length > 0) {
+      const updatedItem = res.rows[0];
+       const userRes = await client.query('SELECT username FROM users WHERE id = $1', [updatedItem.reported_by_user_id]);
+      const reported_by_username = userRes.rows.length > 0 ? userRes.rows[0].username : null;
+      return {
+        success: true,
+        message: "Item status updated successfully.",
+        item: {
+           ...updatedItem,
+           id: Number(updatedItem.id),
+           status: Number(updatedItem.status),
+           reported_by_username,
+        } as LostAndFoundLog
+      };
+    }
+    return { success: false, message: "Item not found or update failed." };
+  } catch (error) {
+    console.error('[updateLostAndFoundItemStatus DB Error]', error);
+    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    client.release();
+  }
 }
