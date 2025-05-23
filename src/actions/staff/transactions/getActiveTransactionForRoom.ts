@@ -14,7 +14,7 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
-import { TRANSACTION_LIFECYCLE_STATUS } from '../../../lib/constants'; // Corrected import path
+import { TRANSACTION_LIFECYCLE_STATUS } from '../../../lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -28,20 +28,20 @@ pool.on('error', (err) => {
 export async function getActiveTransactionForRoom(transactionId: number, tenantId: number, branchId: number): Promise<Transaction | null> {
   // Critical check for constants
   if (
-    typeof TRANSACTION_LIFECYCLE_STATUS?.UNPAID === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_PAID === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_RESERVATION === 'undefined' ||
+    typeof TRANSACTION_LIFECYCLE_STATUS?.CHECKED_IN === 'undefined' ||
+    typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_WITH_ROOM === 'undefined' || // Equivalent to old ADVANCE_PAID
+    typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_NO_ROOM === 'undefined' ||   // Equivalent to old ADVANCE_RESERVATION
     typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE === 'undefined'
   ) {
     const errorMessage = "Server configuration error: Critical TRANSACTION_LIFECYCLE_STATUS constants are missing or undefined in getActiveTransactionForRoom.";
     console.error('[getActiveTransactionForRoom] CRITICAL ERROR:', errorMessage, {
         TRANSACTION_LIFECYCLE_STATUS_defined: !!TRANSACTION_LIFECYCLE_STATUS,
-        UNPAID_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.UNPAID,
-        ADVANCE_PAID_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_PAID,
-        ADVANCE_RESERVATION_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_RESERVATION,
+        CHECKED_IN_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.CHECKED_IN,
+        RESERVATION_WITH_ROOM_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_WITH_ROOM,
+        RESERVATION_NO_ROOM_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_NO_ROOM,
         PENDING_BRANCH_ACCEPTANCE_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE,
     });
-    throw new Error(errorMessage); // Throw to ensure it's caught by calling function
+    throw new Error(errorMessage);
   }
 
   const client = await pool.connect();
@@ -61,9 +61,9 @@ export async function getActiveTransactionForRoom(transactionId: number, tenantI
         AND t.tenant_id = $2
         AND t.branch_id = $3
         AND (
-          t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.UNPAID} 
-          OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID}
-          OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION}
+          t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} 
+          OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} 
+          OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} 
           OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE}
         )
       LIMIT 1;
@@ -105,9 +105,10 @@ export async function getActiveTransactionForRoom(transactionId: number, tenantI
       } as Transaction;
     }
     return null;
-  } catch (error) {
-    console.error('[getActiveTransactionForRoom DB Error]', error);
-    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (dbError: any) {
+    console.error('[getActiveTransactionForRoom DB Error Raw]', dbError);
+    const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred while fetching active transaction.';
+    throw new Error(`Database error in getActiveTransactionForRoom: ${errorMessage}`);
   } finally {
     client.release();
   }
