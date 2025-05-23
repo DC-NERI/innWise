@@ -3,10 +3,10 @@
 
 import pg from 'pg';
 // Configure pg to return numeric types as numbers instead of strings
-pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8
-pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2
-pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4
-pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
+pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8/bigint
+pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
+pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
+pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
 // Configure pg to return timestamp without timezone as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
@@ -17,11 +17,13 @@ import type { HotelRoom, Transaction } from '@/lib/types';
 import {
   ROOM_AVAILABILITY_STATUS,
   TRANSACTION_LIFECYCLE_STATUS,
+  TRANSACTION_LIFECYCLE_STATUS_TEXT,
   ROOM_CLEANING_STATUS,
   ROOM_CLEANING_STATUS_TEXT,
-  TRANSACTION_PAYMENT_STATUS
+  TRANSACTION_PAYMENT_STATUS,
+  HOTEL_ENTITY_STATUS
 } from '@/lib/constants';
-import { format as formatDateTime, parseISO, addHours as dateFnsAddHours, differenceInMilliseconds } from 'date-fns';
+import { format as formatDateTime, parseISO, differenceInMilliseconds } from 'date-fns';
 import { toZonedTime } from 'date-fns-tz';
 
 const pool = new Pool({
@@ -42,34 +44,44 @@ export async function checkOutGuestAndFreeRoom(
   tenderAmountAtCheckout: number,
   paymentMethodAtCheckout: string
 ): Promise<{ success: boolean; message?: string; updatedRoomData?: Partial<HotelRoom> & { id: number }, transaction?: Transaction }> {
+  if (!staffUserId || staffUserId <= 0) {
+    return { success: false, message: "Invalid staff user ID for checkout." };
+  }
+  if (!transactionId || !roomId) {
+    return { success: false, message: "Transaction ID or Room ID missing for checkout."};
+  }
+
   const client = await pool.connect();
   const manilaTimeZone = 'Asia/Manila';
 
   try {
     await client.query('BEGIN');
 
-    // Debugging: Log the initial state of the transaction
+    // Check current status of the transaction
     const initialTransactionCheckQuery = `
-      SELECT status, is_paid 
-      FROM transactions 
-      WHERE id = $1 AND tenant_id = $2 AND branch_id = $3
+      SELECT status, is_paid
+      FROM transactions
+      WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id = $4
     `;
-    const initialTransactionCheckRes = await client.query(initialTransactionCheckQuery, [transactionId, tenantId, branchId]);
+    const initialTransactionCheckRes = await client.query(initialTransactionCheckQuery, [transactionId, tenantId, branchId, roomId]);
 
     if (initialTransactionCheckRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      return { success: false, message: "Transaction not found for checkout." };
+      return { success: false, message: `Transaction (ID: ${transactionId}) not found for room ${roomId}.` };
     }
     const initialTransactionState = initialTransactionCheckRes.rows[0];
+    const initialStatusNumber = Number(initialTransactionState.status);
 
-    if (Number(initialTransactionState.status) !== TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN) {
+    if (initialStatusNumber !== TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN) {
       await client.query('ROLLBACK');
-      return { 
-        success: false, 
-        message: `Transaction is not in 'Checked-In' state (current status: ${initialTransactionState.status}, is_paid: ${initialTransactionState.is_paid}). Cannot check out.` 
+      const currentStatusText = TRANSACTION_LIFECYCLE_STATUS_TEXT[initialStatusNumber as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown';
+      const expectedStatusText = TRANSACTION_LIFECYCLE_STATUS_TEXT[TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN];
+      return {
+        success: false,
+        message: `Transaction (ID: ${transactionId}) is not in a valid state for checkout. Current status: ${currentStatusText} (Expected: ${expectedStatusText})`,
       };
     }
-    
+
     // 1. Fetch the active transaction and its rate details
     const transactionDetailsQuery = `
       SELECT
@@ -78,26 +90,26 @@ export async function checkOutGuestAndFreeRoom(
         hr.hours as rate_hours,
         hr.excess_hour_price as rate_excess_hour_price
       FROM transactions t
-      LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id AND hr.status = '1'
+      LEFT JOIN hotel_rates hr ON t.hotel_rate_id = hr.id AND hr.tenant_id = t.tenant_id AND hr.branch_id = t.branch_id AND hr.status = '${HOTEL_ENTITY_STATUS.ACTIVE}'
       WHERE t.id = $1 AND t.tenant_id = $2 AND t.branch_id = $3 AND t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN}
-      FOR UPDATE;
+      FOR UPDATE OF t;
     `;
     const transactionRes = await client.query(transactionDetailsQuery, [transactionId, tenantId, branchId]);
 
     if (transactionRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      // This message means the transaction ISN'T in '0' (Checked-In) state, or doesn't exist with that ID/tenant/branch.
-      // The initial check already handles this for status, so this might be redundant or a more specific error.
-      return { success: false, message: "Active transaction for this room not found, already checked out, or not in 'Checked-In' state (status '0')." };
+      // This should ideally be caught by the initial check, but it's a safeguard.
+      return { success: false, message: "Active transaction for checkout not found or not in 'Checked-In' state." };
     }
     const transaction = transactionRes.rows[0];
 
     // 2. Calculate checkout time, hours used, and total amount
-    const checkOutTime = toZonedTime(new Date(), manilaTimeZone);
-    // Ensure check_in_time is treated as a string from the DB
-    const checkInTime = parseISO(String(transaction.check_in_time).replace(' ', 'T')); 
+    const checkOutTimeObject = toZonedTime(new Date(), manilaTimeZone);
+    const checkOutTimeStringForDb = formatDateTime(checkOutTimeObject, "yyyy-MM-dd HH:mm:ssXXX", { timeZone: manilaTimeZone });
 
-    const diffMs = differenceInMilliseconds(checkOutTime, checkInTime);
+    const checkInTime = parseISO(String(transaction.check_in_time).replace(' ', 'T'));
+
+    const diffMs = differenceInMilliseconds(checkOutTimeObject, checkInTime);
     let hoursUsed = Math.ceil(diffMs / (1000 * 60 * 60));
     if (hoursUsed <= 0) hoursUsed = 1; // Minimum 1 hour charge
 
@@ -107,12 +119,12 @@ export async function checkOutGuestAndFreeRoom(
 
     if (rateHours > 0 && hoursUsed > rateHours && excessHourPrice && excessHourPrice > 0) {
       totalAmount += (hoursUsed - rateHours) * excessHourPrice;
-    } else if (rateHours > 0) { // Base rate applies if within standard hours or no excess pricing
+    } else if (rateHours > 0) {
       totalAmount = parseFloat(transaction.rate_price || '0');
-    } else if (rateHours === 0 && excessHourPrice && excessHourPrice > 0) { // Per hour rate
+    } else if (rateHours === 0 && excessHourPrice && excessHourPrice > 0) {
         totalAmount = hoursUsed * excessHourPrice;
     }
-    // Ensure minimum charge is base rate price if stay occurred
+
     if (hoursUsed > 0 && totalAmount < parseFloat(transaction.rate_price || '0') && rateHours > 0) {
         totalAmount = parseFloat(transaction.rate_price || '0');
     }
@@ -125,17 +137,17 @@ export async function checkOutGuestAndFreeRoom(
         check_out_time = $1,
         hours_used = $2,
         total_amount = $3,
-        tender_amount = $4,
+        tender_amount = $4, -- This is the tender amount for this specific checkout operation
         client_payment_method = $5,
-        is_paid = ${TRANSACTION_PAYMENT_STATUS.PAID.toString()},
-        status = '${TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString()}',
+        is_paid = ${TRANSACTION_PAYMENT_STATUS.PAID}, -- Mark as fully paid
+        status = '${TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString()}', -- Mark as checked-out
         check_out_by_user_id = $6,
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
       WHERE id = $7
       RETURNING *;
     `;
     const updatedTransactionResult = await client.query(updateTransactionQueryText, [
-      formatDateTime(checkOutTime, "yyyy-MM-dd HH:mm:ssXXX", { timeZone: manilaTimeZone }),
+      checkOutTimeStringForDb,
       hoursUsed,
       totalAmount.toFixed(2),
       tenderAmountAtCheckout.toFixed(2),
@@ -144,24 +156,23 @@ export async function checkOutGuestAndFreeRoom(
       transactionId
     ]);
 
-    const updatedTransaction = updatedTransactionResult.rows[0];
-
+    const updatedTransactionRow = updatedTransactionResult.rows[0];
 
     // 4. Update the room status and cleaning status
     const newCleaningStatus = ROOM_CLEANING_STATUS.INSPECTION;
-    const cleaningNotes = `Room set to '${ROOM_CLEANING_STATUS_TEXT[newCleaningStatus]}' after checkout by user ID ${staffUserId}.`;
+    const cleaningNotesForRoom = `${ROOM_CLEANING_STATUS_TEXT[newCleaningStatus]} after checkout by user ID ${staffUserId}.`;
 
     const updateRoomQueryText = `
       UPDATE hotel_room
       SET
         is_available = ${ROOM_AVAILABILITY_STATUS.AVAILABLE},
         transaction_id = NULL,
-        cleaning_status = '${newCleaningStatus.toString()}',
+        cleaning_status = ${newCleaningStatus},
         cleaning_notes = $1,
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
       WHERE id = $2 AND tenant_id = $3 AND branch_id = $4;
     `;
-    await client.query(updateRoomQueryText, [cleaningNotes, roomId, tenantId, branchId]);
+    await client.query(updateRoomQueryText, [cleaningNotesForRoom, roomId, tenantId, branchId]);
 
     // 5. Log the cleaning status change
     const logCleaningQueryText = `
@@ -172,8 +183,8 @@ export async function checkOutGuestAndFreeRoom(
       roomId,
       tenantId,
       branchId,
-      newCleaningStatus.toString(),
-      cleaningNotes,
+      newCleaningStatus,
+      cleaningNotesForRoom, // Use the same note for the log
       staffUserId
     ]);
 
@@ -193,33 +204,32 @@ export async function checkOutGuestAndFreeRoom(
         active_transaction_rate_hours: null,
         active_transaction_lifecycle_status: null,
         cleaning_status: newCleaningStatus,
-        cleaning_notes: cleaningNotes,
+        cleaning_notes: cleaningNotesForRoom,
       },
       transaction: {
-        ...updatedTransaction,
-        status: Number(updatedTransaction.status),
-        is_paid: Number(updatedTransaction.is_paid),
-        is_accepted: updatedTransaction.is_accepted !== null ? Number(updatedTransaction.is_accepted) : null,
-        is_admin_created: updatedTransaction.is_admin_created !== null ? Number(updatedTransaction.is_admin_created) : null,
-        total_amount: parseFloat(updatedTransaction.total_amount),
-        tender_amount: parseFloat(updatedTransaction.tender_amount),
-        // Ensure all date fields are consistently strings
-        check_in_time: String(updatedTransaction.check_in_time),
-        check_out_time: String(updatedTransaction.check_out_time),
-        reserved_check_in_datetime: updatedTransaction.reserved_check_in_datetime ? String(updatedTransaction.reserved_check_in_datetime) : null,
-        reserved_check_out_datetime: updatedTransaction.reserved_check_out_datetime ? String(updatedTransaction.reserved_check_out_datetime) : null,
-        created_at: String(updatedTransaction.created_at),
-        updated_at: String(updatedTransaction.updated_at),
+        ...updatedTransactionRow,
+        status: Number(updatedTransactionRow.status),
+        is_paid: Number(updatedTransactionRow.is_paid),
+        is_accepted: updatedTransactionRow.is_accepted !== null ? Number(updatedTransactionRow.is_accepted) : null,
+        is_admin_created: updatedTransactionRow.is_admin_created !== null ? Number(updatedTransactionRow.is_admin_created) : null,
+        total_amount: parseFloat(updatedTransactionRow.total_amount),
+        tender_amount: parseFloat(updatedTransactionRow.tender_amount),
+        check_in_time: String(updatedTransactionRow.check_in_time),
+        check_out_time: updatedTransactionRow.check_out_time ? String(updatedTransactionRow.check_out_time) : null,
+        reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime ? String(updatedTransactionRow.reserved_check_in_datetime) : null,
+        reserved_check_out_datetime: updatedTransactionRow.reserved_check_out_datetime ? String(updatedTransactionRow.reserved_check_out_datetime) : null,
+        created_at: String(updatedTransactionRow.created_at),
+        updated_at: String(updatedTransactionRow.updated_at),
       } as Transaction,
     };
 
-  } catch (error) {
+  } catch (dbError: any) {
     await client.query('ROLLBACK');
-    console.error('[checkOutGuestAndFreeRoom DB Error]', error);
-    const dbError = error as any;
+    console.error('[checkOutGuestAndFreeRoom DB Error]', dbError);
+    const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred during checkout.';
     return {
       success: false,
-      message: `Database error during checkout: ${dbError.message || String(dbError)}`,
+      message: `Database error during checkout: ${errorMessage}`,
     };
   } finally {
     client.release();
