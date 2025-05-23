@@ -12,7 +12,7 @@ import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
 import NotificationsContent from '@/components/admin/notifications-content';
-import { getTenantDetails } from '@/actions/admin';
+import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails'; // Updated import
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
@@ -58,12 +58,13 @@ const AdminDashboardPage: NextPage = () => {
       if (storedLastName) setLastName(storedLastName);
       if (storedUserId) setUserId(parseInt(storedUserId, 10));
 
-      if (storedRole === 'sysad') {
+      if (storedRole === 'sysad') { // Though sysad will likely be redirected elsewhere
          setTenantName("System Administrator");
       } else if (storedTenantName) {
         setTenantName(storedTenantName);
       } else if (storedTenantId) {
-        getTenantDetails(parseInt(storedTenantId, 10)).then(tenant => {
+        const fetchDetails = async () => {
+          const tenant = await getTenantDetails(parseInt(storedTenantId, 10));
           if (tenant) {
             setTenantName(tenant.tenant_name);
             if (typeof window !== 'undefined') {
@@ -72,8 +73,9 @@ const AdminDashboardPage: NextPage = () => {
           } else {
             setTenantName("Tenant Not Found");
           }
-        }).catch(error => {
-          setTenantName("Error Fetching Tenant Info");
+        };
+        fetchDetails().catch(error => {
+           setTenantName("Error Fetching Tenant Info");
         });
       } else {
         setTenantName("Tenant Information Unavailable");
@@ -245,4 +247,3 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-

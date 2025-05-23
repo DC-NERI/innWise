@@ -5,7 +5,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { getBranchesForTenant, updateBranchDetails } from '@/actions/admin';
+import { getBranchesForTenant } from '@/actions/admin/branches/getBranchesForTenant'; // Updated import
+import { updateBranchDetails } from '@/actions/admin/branches/updateBranchDetails'; // Updated import
 import type { Branch } from '@/lib/types';
 import { branchUpdateSchema } from '@/lib/schemas';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,11 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
 
   useEffect(() => {
     async function fetchBranches() {
+      if (!tenantId) {
+        setBranches([]);
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
         const fetchedBranches = await getBranchesForTenant(tenantId);
@@ -56,9 +62,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
         setIsLoading(false);
       }
     }
-    if (tenantId) {
-      fetchBranches();
-    }
+    fetchBranches();
   }, [tenantId, toast]);
 
   useEffect(() => {
@@ -84,7 +88,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
       const result = await updateBranchDetails(selectedBranch.id, data);
       if (result.success && result.updatedBranch) {
         setBranches(branches.map(b => b.id === result.updatedBranch!.id ? result.updatedBranch! : b));
-        setSelectedBranch(result.updatedBranch); 
+        setSelectedBranch(result.updatedBranch);
         toast({
           title: "Success",
           description: "Branch details updated successfully.",
@@ -157,72 +161,74 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                <FormField
-                  control={form.control}
-                  name="branch_name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Branch Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Main Branch" {...field} className="w-[90%]" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="branch_code"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Branch Code</FormLabel>
-                      <FormControl>
-                        <Input placeholder="BRANCH-001" {...field} className="w-[90%]" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="branch_address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Branch Address</FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="123 Hotel St, City" {...field} className="w-[90%]" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="contact_number"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Contact Number</FormLabel>
-                      <FormControl>
-                        <Input placeholder="+1-555-1234" {...field} className="w-[90%]" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="email_address"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email Address</FormLabel>
-                      <FormControl>
-                        <Input type="email" placeholder="branch@example.com" {...field} className="w-[90%]" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 bg-card rounded-md p-3">
+                <div className="space-y-3">
+                  <FormField
+                    control={form.control}
+                    name="branch_name"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Branch Name</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Main Branch" {...field} className="w-[90%]" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="branch_code"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Branch Code</FormLabel>
+                        <FormControl>
+                          <Input placeholder="BRANCH-001" {...field} className="w-[90%]" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="branch_address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Branch Address</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="123 Hotel St, City" {...field} className="w-[90%]" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="contact_number"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Contact Number</FormLabel>
+                        <FormControl>
+                          <Input placeholder="+1-555-1234" {...field} className="w-[90%]" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="email_address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email Address</FormLabel>
+                        <FormControl>
+                          <Input type="email" placeholder="branch@example.com" {...field} className="w-[90%]" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 <Button type="submit" disabled={isUpdating} className="w-full">
                   {isUpdating ? <Loader2 className="animate-spin" /> : <><Save className="mr-2 h-4 w-4" /> Update Branch</>}
                 </Button>

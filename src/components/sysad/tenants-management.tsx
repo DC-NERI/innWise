@@ -4,7 +4,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { listTenants, createTenant, updateTenant, archiveTenant } from '@/actions/admin';
+import { listTenants } from '@/actions/admin/tenants/listTenants'; // Updated import
+import { createTenant } from '@/actions/admin/tenants/createTenant'; // Updated import
+import { updateTenant } from '@/actions/admin/tenants/updateTenant'; // Updated import
+import { archiveTenant } from '@/actions/admin/tenants/archiveTenant'; // Updated import
 import type { Tenant } from '@/lib/types';
 import { tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData } from '@/lib/schemas';
 import { Button } from '@/components/ui/button';
@@ -19,7 +22,7 @@ import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lu
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { HOTEL_ENTITY_STATUS } from '@/lib/constants'; 
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -28,8 +31,8 @@ const defaultFormValuesCreate: TenantCreateData = {
   tenant_address: '',
   tenant_email: '',
   tenant_contact_info: '',
-  max_branch_count: 5, 
-  max_user_count: 10,  
+  max_branch_count: 5,
+  max_user_count: 10,
 };
 
 export default function TenantsManagement() {
@@ -110,7 +113,7 @@ export default function TenantsManagement() {
       setIsSubmitting(false);
     }
   };
-  
+
   const handleEditSubmit = async (data: TenantUpdateData) => {
     if (!selectedTenant) return;
     setIsSubmitting(true);
@@ -136,7 +139,7 @@ export default function TenantsManagement() {
     try {
       const result = await archiveTenant(tenantId);
       if (result.success) {
-        toast({ title: "Success", description: `Tenant "${tenantName}" archived.` });
+        toast({ title: "Success", description: \`Tenant "\${tenantName}" archived.\` });
         setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: HOTEL_ENTITY_STATUS.ARCHIVED} : t));
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
@@ -147,7 +150,7 @@ export default function TenantsManagement() {
       setIsSubmitting(false);
     }
   };
-  
+
   const handleRestore = async (tenant: Tenant) => {
     setIsSubmitting(true);
     const payload: TenantUpdateData = {
@@ -157,11 +160,11 @@ export default function TenantsManagement() {
         tenant_contact_info: tenant.tenant_contact_info,
         max_branch_count: tenant.max_branch_count,
         max_user_count: tenant.max_user_count,
-        status: HOTEL_ENTITY_STATUS.ACTIVE, 
+        status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     const result = await updateTenant(tenant.id, payload);
     if (result.success && result.tenant) {
-        toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" restored.` });
+        toast({ title: "Success", description: \`Tenant "\${tenant.tenant_name}" restored.\` });
         setTenants(prev => prev.map(t => t.id === tenant.id ? result.tenant! : t));
     } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
@@ -172,7 +175,7 @@ export default function TenantsManagement() {
   const filteredTenants = tenants.filter(tenant => tenant.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
 
 
-  if (isLoading && tenants.length === 0) { 
+  if (isLoading && tenants.length === 0) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -281,9 +284,9 @@ export default function TenantsManagement() {
           </div>
           <CardDescription>View, add, edit, and archive tenants.</CardDescription>
         </div>
-        <Dialog 
-            key={isEditing ? `edit-tenant-${selectedTenant?.id}` : 'add-tenant'}
-            open={isAddDialogOpen || isEditDialogOpen} 
+        <Dialog
+            key={isEditing ? \`edit-tenant-\${selectedTenant?.id}\` : 'add-tenant'}
+            open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
                 if (!open) {
                     setIsAddDialogOpen(false);
@@ -299,7 +302,7 @@ export default function TenantsManagement() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-            <DialogHeader><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{isEditing ? \`Edit Tenant: \${selectedTenant?.tenant_name}\` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                 <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
@@ -381,4 +384,3 @@ export default function TenantsManagement() {
     </Card>
   );
 }
-    

@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { loginUser } from "@/actions/auth";
+import { loginUser } from "@/actions/auth/loginUser"; // Updated import
 import { loginSchema } from "@/lib/schemas";
 import { useToast } from "@/hooks/use-toast";
 
@@ -29,7 +29,7 @@ export function LoginForm() {
   const router = useRouter();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -48,7 +48,7 @@ export function LoginForm() {
       localStorage.removeItem('userLastName');
       localStorage.removeItem('userTenantBranchId');
       localStorage.removeItem('userBranchName');
-      localStorage.removeItem('userId'); 
+      localStorage.removeItem('userId');
     }
   }, []);
 
@@ -61,7 +61,6 @@ export function LoginForm() {
 
     try {
       const result = await loginUser(formData);
-
 
       if (result.success && result.role) {
         toast({
@@ -94,17 +93,16 @@ export function LoginForm() {
             }
              if (result.userId && typeof result.userId === 'number' && result.userId > 0) {
                 localStorage.setItem('userId', String(result.userId));
-            } else {
             }
         }
-        
+
         setTimeout(() => {
           switch (result.role) {
             case "admin":
               router.push("/admin");
               break;
             case "sysad":
-              router.push("/sysad"); 
+              router.push("/sysad");
               break;
             case "staff":
               router.push("/staff");
@@ -166,10 +164,10 @@ export function LoginForm() {
                 <FormItem>
                   <FormLabel>Username</FormLabel>
                   <FormControl>
-                    <Input 
-                      placeholder="e.g., admin" 
-                      {...field} 
-                      className="focus:ring-2 focus:ring-accent transition-shadow duration-200 ease-in-out" 
+                    <Input
+                      placeholder="e.g., admin"
+                      {...field}
+                      className="focus:ring-2 focus:ring-accent transition-shadow duration-200 ease-in-out"
                       aria-describedby={form.formState.errors.username ? "username-error" : undefined}
                       aria-invalid={!!form.formState.errors.username}
                     />
@@ -185,11 +183,11 @@ export function LoginForm() {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input 
-                      type="password" 
-                      placeholder="••••••••" 
-                      {...field} 
-                      className="focus:ring-2 focus:ring-accent transition-shadow duration-200 ease-in-out" 
+                    <Input
+                      type="password"
+                      placeholder="••••••••"
+                      {...field}
+                      className="focus:ring-2 focus:ring-accent transition-shadow duration-200 ease-in-out"
                       aria-describedby={form.formState.errors.password ? "password-error" : undefined}
                       aria-invalid={!!form.formState.errors.password}
                     />
@@ -207,4 +205,3 @@ export function LoginForm() {
     </Card>
   );
 }
-
