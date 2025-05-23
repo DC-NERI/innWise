@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye } from 'lucide-react';
+import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Building } from 'lucide-react'; // Added Building
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -124,7 +124,7 @@ const StaffDashboardPage: NextPage = () => {
 
   useEffect(() => {
     fetchReservationCount();
-    const countInterval = setInterval(fetchReservationCount, 60000); 
+    const countInterval = setInterval(fetchReservationCount, 60000);
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
