@@ -12,14 +12,10 @@ pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 
-
 import { Pool } from 'pg';
 import type { HotelRoom } from '@/lib/types';
-import {
-  HOTEL_ENTITY_STATUS,
-  TRANSACTION_LIFECYCLE_STATUS,
-  ROOM_CLEANING_STATUS
-} from '../../../lib/constants'; // Corrected import path
+// Corrected import path assuming listRoomsForBranch.ts is in src/actions/admin/rooms/
+import { TRANSACTION_LIFECYCLE_STATUS, HOTEL_ENTITY_STATUS, ROOM_CLEANING_STATUS } from '../../../lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -31,9 +27,19 @@ pool.on('error', (err) => {
 });
 
 export async function listRoomsForBranch(branchId: number, tenantId: number): Promise<HotelRoom[]> {
+  // Debugging: Log imported constants
+  // console.log('[listRoomsForBranch] Imported TRANSACTION_LIFECYCLE_STATUS:', JSON.stringify(TRANSACTION_LIFECYCLE_STATUS));
+  // console.log('[listRoomsForBranch] Imported HOTEL_ENTITY_STATUS:', JSON.stringify(HOTEL_ENTITY_STATUS));
+
   if (!branchId || !tenantId) {
     return [];
   }
+  if (typeof TRANSACTION_LIFECYCLE_STATUS?.CHECKED_IN === 'undefined' ||
+      typeof HOTEL_ENTITY_STATUS?.ACTIVE === 'undefined') {
+    console.error('[listRoomsForBranch] CRITICAL ERROR: Constants are undefined. Check imports and constants.ts file.');
+    throw new Error('Server configuration error: Required constants are undefined.');
+  }
+
   const client = await pool.connect();
   try {
     const query = `
@@ -69,8 +75,8 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE} OR
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID} OR
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION}
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID} OR /* Added ADVANCE_PAID */
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION} /* Added ADVANCE_RESERVATION */
               )
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
@@ -86,24 +92,26 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let parsedRateIds: number[] | null = null;
       try {
         if (row.hotel_rate_id) {
-          if (Array.isArray(row.hotel_rate_id)) {
-            if (row.hotel_rate_id.every((item: any) => typeof item === 'number')) {
-                 parsedRateIds = row.hotel_rate_id as number[];
+          // Ensure it's parsed as an array of numbers, accommodating different JSON structures
+          const rawRateId = row.hotel_rate_id;
+          if (Array.isArray(rawRateId) && rawRateId.every(item => typeof item === 'number')) {
+            parsedRateIds = rawRateId;
+          } else if (typeof rawRateId === 'string') {
+            const parsed = JSON.parse(rawRateId);
+            if (Array.isArray(parsed) && parsed.every(item => typeof item === 'number')) {
+              parsedRateIds = parsed;
             }
-          } else if (typeof row.hotel_rate_id === 'string') {
-            const data = JSON.parse(row.hotel_rate_id);
-            if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
-              parsedRateIds = data;
-            }
-          } else if (typeof row.hotel_rate_id === 'object' && row.hotel_rate_id !== null) {
-            const data = Object.values(row.hotel_rate_id);
-             if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
-              parsedRateIds = data;
+          } else if (typeof rawRateId === 'object' && rawRateId !== null) {
+            // Handle cases where it might be an object like {0: id1, 1: id2}
+            const values = Object.values(rawRateId);
+            if (values.every(item => typeof item === 'number')) {
+              parsedRateIds = values as number[];
             }
           }
         }
       } catch (e) {
-        console.error(`Failed to parse hotel_rate_id JSON for room ${row.id}: ${row.hotel_rate_id}`, e);
+        // console.error(\`Failed to parse hotel_rate_id JSON for room \${row.id}: \${row.hotel_rate_id}\`, e);
+        // Keep parsedRateIds as null or empty array if parsing fails
       }
 
       const hotelRoom: HotelRoom = {
@@ -119,19 +127,20 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         bed_type: row.bed_type,
         capacity: row.capacity ? Number(row.capacity) : null,
         is_available: Number(row.is_available),
-        cleaning_status: Number(row.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS,
+        cleaning_status: Number(row.cleaning_status), // Assuming cleaning_status is numeric
         cleaning_notes: row.cleaning_notes,
-        status: row.room_definition_status,
+        status: String(row.room_definition_status), // Ensure status is string '0' or '1'
 
+        // Active transaction details are now directly from the joined t_active
         active_transaction_id: row.active_transaction_id ? Number(row.active_transaction_id) : null,
         active_transaction_client_name: row.active_transaction_client_name,
-        active_transaction_check_in_time: row.active_transaction_check_in_time,
+        active_transaction_check_in_time: row.active_transaction_check_in_time, // Already a string
         active_transaction_rate_name: row.active_transaction_rate_name,
         active_transaction_rate_hours: row.active_transaction_rate_hours ? parseInt(row.active_transaction_rate_hours, 10) : null,
         active_transaction_lifecycle_status: row.active_transaction_lifecycle_status !== null ? Number(row.active_transaction_lifecycle_status) : null,
 
-        created_at: row.created_at,
-        updated_at: row.updated_at,
+        created_at: String(row.created_at),
+        updated_at: String(row.updated_at),
       };
       return hotelRoom;
     });
@@ -142,4 +151,3 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
     client.release();
   }
 }
-    
