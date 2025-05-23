@@ -15,7 +15,12 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 
 import { Pool } from 'pg';
 import type { HotelRoom } from '@/lib/types';
-import { ROOM_AVAILABILITY_STATUS, HOTEL_ENTITY_STATUS, TRANSACTION_LIFECYCLE_STATUS, ROOM_CLEANING_STATUS } from '@/lib/constants';
+import { 
+  ROOM_AVAILABILITY_STATUS, 
+  HOTEL_ENTITY_STATUS, 
+  TRANSACTION_LIFECYCLE_STATUS, 
+  ROOM_CLEANING_STATUS 
+} from '@/lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -90,15 +95,15 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
               parsedRateIds = data;
             }
           } else if (typeof row.hotel_rate_id === 'object' && row.hotel_rate_id !== null) {
+            // Attempt to parse object values if it's an object from JSONB like {"0": 1, "1": 2}
             const data = Object.values(row.hotel_rate_id);
-            if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
+             if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
               parsedRateIds = data;
             }
           }
         }
       } catch (e) {
-        const errorMessage = "Failed to parse hotel_rate_id JSON for room " + row.id + ": " + row.hotel_rate_id;
-        console.error(errorMessage, e);
+        console.error(`Failed to parse hotel_rate_id JSON for room ${row.id}: ${row.hotel_rate_id}`, e);
       }
       
       let displayCheckInTime = null;
@@ -109,9 +114,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       }
 
       const hotelRoom: HotelRoom = {
-        id: row.id,
-        tenant_id: row.tenant_id,
-        branch_id: row.branch_id,
+        id: Number(row.id),
+        tenant_id: Number(row.tenant_id),
+        branch_id: Number(row.branch_id),
         hotel_rate_id: parsedRateIds,
         transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
         room_name: row.room_name,
@@ -123,7 +128,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         is_available: Number(row.is_available),
         cleaning_status: row.cleaning_status ? Number(row.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: row.cleaning_notes,
-        status: row.room_definition_status,
+        status: row.room_definition_status, // This is the room's own active/archived status
         
         active_transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
         active_transaction_client_name: row.active_transaction_client_name,
