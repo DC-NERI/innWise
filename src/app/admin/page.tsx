@@ -12,7 +12,7 @@ import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
 import NotificationsContent from '@/components/admin/notifications-content';
-import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails'; // Updated import
+import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
@@ -56,9 +56,22 @@ const AdminDashboardPage: NextPage = () => {
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
-      if (storedUserId) setUserId(parseInt(storedUserId, 10));
+      
+      if (storedUserId && !isNaN(parseInt(storedUserId, 10))) {
+        const parsedUserId = parseInt(storedUserId, 10);
+        if (parsedUserId > 0) {
+            setUserId(parsedUserId);
+        } else {
+            setUserId(null);
+            console.warn("[AdminDashboardPage] Invalid userId found in localStorage:", storedUserId);
+        }
+      } else {
+          setUserId(null);
+          console.warn("[AdminDashboardPage] No valid userId found in localStorage.");
+      }
 
-      if (storedRole === 'sysad') { // Though sysad will likely be redirected elsewhere
+
+      if (storedRole === 'sysad') { 
          setTenantName("System Administrator");
       } else if (storedTenantName) {
         setTenantName(storedTenantName);
@@ -215,8 +228,8 @@ const AdminDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {activeView === 'users' && userRole === 'admin' && tenantId !== null && <UsersContent tenantId={tenantId} />}
-          {activeView === 'users' && tenantId === null && <p>Loading tenant information for user management...</p>}
+          {activeView === 'users' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <UsersContent tenantId={tenantId} adminUserId={userId} />}
+          {activeView === 'users' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for user management...</p>}
 
           {activeView === 'branches' && userRole === 'admin' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
           {activeView === 'branches' && tenantId === null && <p>Loading tenant information for branch management...</p>}
@@ -227,10 +240,10 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && <RoomsContent tenantId={tenantId} />}
           {activeView === 'rooms' && tenantId === null && <p>Loading tenant information for room management...</p>}
 
-          {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId !== null && (
+          {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && (
             <NotificationsContent tenantId={tenantId} adminUserId={userId} />
           )}
-          {activeView === 'notifications' && (tenantId === null || userId === null) && (
+          {activeView === 'notifications' && (tenantId === null || !userId || userId <= 0) && (
             <p>Loading tenant or user information for notifications...</p>
           )}
 
@@ -247,3 +260,5 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
+
+    

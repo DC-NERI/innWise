@@ -13,8 +13,8 @@ pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 
 import { Pool } from 'pg';
-import type { HotelRoom, Transaction, SimpleRate } from '@/lib/types';
-import { staffBookingCreateSchema, StaffBookingCreateData } from '@/lib/schemas';
+import type { HotelRoom, Transaction, SimpleRate, StaffBookingCreateData } from '@/lib/types';
+import { staffBookingCreateSchema } from '@/lib/schemas';
 import {
   ROOM_AVAILABILITY_STATUS,
   TRANSACTION_LIFECYCLE_STATUS,
@@ -39,13 +39,19 @@ export async function createTransactionAndOccupyRoom(
   rateId: number,
   staffUserId: number
 ): Promise<{ success: boolean; message?: string; updatedRoomData?: Partial<HotelRoom> & { id: number }; transaction?: Partial<Transaction> }> {
+  
+  if (!staffUserId || typeof staffUserId !== 'number' || staffUserId <= 0) {
+    console.error("[createTransactionAndOccupyRoom] Invalid staffUserId:", staffUserId);
+    return { success: false, message: "Invalid user identifier for creating transaction." };
+  }
+
   const validatedFields = staffBookingCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
     return { success: false, message: errorMessage };
   }
 
-  if (!rateId) {
+  if (!rateId) { // Should be caught by schema, but good to double-check
     return { success: false, message: "Rate ID is required for booking." };
   }
   if (!roomId) {
@@ -56,29 +62,27 @@ export async function createTransactionAndOccupyRoom(
     client_name,
     client_payment_method,
     notes,
-    is_paid, // This is now a number from the schema (0 or 1 or 2)
+    is_paid,
     tender_amount_at_checkin,
-    // is_advance_reservation and reserved_datetime fields are not directly used here,
-    // as this action is for immediate check-in. They are part of the schema for reusability.
   } = validatedFields.data;
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Fetch rate details to set total_amount if paid upfront
-    const rateRes = await client.query('SELECT price, name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = \'1\'', [rateId, tenantId, branchId]);
+    const rateRes = await client.query('SELECT price, name, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4', [rateId, tenantId, branchId, '1']);
     if (rateRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return { success: false, message: "Selected rate not found or is not active." };
     }
-    const selectedRate = rateRes.rows[0] as SimpleRate & { name: string, hours: number };
+    const selectedRateDetails = rateRes.rows[0] as { price: number; name: string; hours: number };
 
-    const finalTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN; // '0'
+    const finalTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN;
     const finalIsPaidStatus = is_paid === TRANSACTION_PAYMENT_STATUS.PAID ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID;
-    const totalAmountForTransaction = finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.PAID ? selectedRate.price : null;
+    const totalAmountForTransaction = finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.PAID ? selectedRateDetails.price : null;
+    const tenderAmountForTransaction = finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.PAID ? tender_amount_at_checkin : null;
 
-    const transactionQuery = `
+    const transactionQueryText = `
       INSERT INTO transactions (
         tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name,
         client_payment_method, notes, check_in_time,
@@ -89,32 +93,32 @@ export async function createTransactionAndOccupyRoom(
       RETURNING id, client_name, check_in_time, hotel_rate_id, status, is_paid, total_amount, tender_amount;
     `;
     const transactionValues = [
-      tenantId,
-      branchId,
-      roomId,
-      rateId,
-      client_name,
-      client_payment_method,
-      notes,
-      staffUserId, // created_by_user_id
-      finalTransactionLifecycleStatus.toString(), // status
-      finalIsPaidStatus.toString(), // is_paid
-      finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.PAID ? tender_amount_at_checkin : null,
-      totalAmountForTransaction,
-      0, // is_admin_created (0 for false)
-      TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED.toString() // is_accepted (staff implies acceptance by branch)
+      tenantId, // $1
+      branchId, // $2
+      roomId,   // $3
+      rateId,   // $4
+      client_name, // $5
+      client_payment_method, // $6
+      notes, // $7
+      staffUserId, // $8 created_by_user_id
+      finalTransactionLifecycleStatus.toString(), // $9 status
+      finalIsPaidStatus, // $10 is_paid (integer)
+      tenderAmountForTransaction, // $11
+      totalAmountForTransaction,  // $12
+      0, // $13 is_admin_created (0 for false)
+      TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED // $14 is_accepted 
     ];
 
-    const transactionRes = await client.query(transactionQuery, transactionValues);
+    const transactionRes = await client.query(transactionQueryText, transactionValues);
     const newTransaction = transactionRes.rows[0];
 
-    const roomUpdateQuery = `
+    const roomUpdateQueryText = `
       UPDATE hotel_room
       SET is_available = $1, transaction_id = $2, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
       WHERE id = $3 AND tenant_id = $4 AND branch_id = $5;
     `;
-    await client.query(roomUpdateQuery, [
-      ROOM_AVAILABILITY_STATUS.OCCUPIED.toString(),
+    await client.query(roomUpdateQueryText, [
+      ROOM_AVAILABILITY_STATUS.OCCUPIED,
       newTransaction.id,
       roomId,
       tenantId,
@@ -129,16 +133,16 @@ export async function createTransactionAndOccupyRoom(
       updatedRoomData: {
         id: roomId,
         is_available: ROOM_AVAILABILITY_STATUS.OCCUPIED,
-        transaction_id: newTransaction.id,
-        active_transaction_id: newTransaction.id,
+        transaction_id: Number(newTransaction.id),
+        active_transaction_id: Number(newTransaction.id),
         active_transaction_client_name: client_name,
         active_transaction_check_in_time: newTransaction.check_in_time,
-        active_transaction_rate_name: selectedRate.name,
-        active_transaction_rate_hours: selectedRate.hours,
+        active_transaction_rate_name: selectedRateDetails.name,
+        active_transaction_rate_hours: selectedRateDetails.hours,
         active_transaction_lifecycle_status: Number(newTransaction.status),
       },
       transaction: {
-        id: newTransaction.id,
+        id: Number(newTransaction.id),
         client_name: client_name,
         status: Number(newTransaction.status),
         is_paid: Number(newTransaction.is_paid),
@@ -163,3 +167,5 @@ export async function createTransactionAndOccupyRoom(
     client.release();
   }
 }
+
+    

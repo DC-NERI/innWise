@@ -8,7 +8,7 @@ import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, S
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Building, Archive as LostAndFoundIcon } from 'lucide-react';
-import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails'; // Updated import
+import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
@@ -100,9 +100,11 @@ const StaffDashboardPage: NextPage = () => {
           setUserId(parsedUserId);
         } else {
           setUserId(null);
+          console.warn("[StaffDashboardPage] Invalid userId found in localStorage:", storedUserId);
         }
       } else {
         setUserId(null);
+        console.warn("[StaffDashboardPage] No valid userId found in localStorage.");
       }
     }
 
@@ -130,10 +132,12 @@ const StaffDashboardPage: NextPage = () => {
 
 
   useEffect(() => {
-    fetchReservationCount();
-    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
-    return () => clearInterval(countInterval);
-  }, [fetchReservationCount]);
+    if (tenantId && branchId) { // Only fetch if tenantId and branchId are available
+      fetchReservationCount();
+      const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
+      return () => clearInterval(countInterval);
+    }
+  }, [fetchReservationCount, tenantId, branchId]);
 
 
   const handleLogout = () => {
@@ -271,10 +275,10 @@ const StaffDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
-          {activeView === 'dashboard' && tenantId && branchId && userId && (
+          {activeView === 'dashboard' && tenantId && branchId && userId && userId > 0 && (
             <DashboardContent tenantId={tenantId} branchId={branchId} staffUserId={userId} />
           )}
-          {activeView === 'room-status' && tenantId && branchId && userId && (
+          {activeView === 'room-status' && tenantId && branchId && userId && userId > 0 && (
             <RoomStatusContent
               tenantId={tenantId}
               branchId={branchId}
@@ -283,14 +287,14 @@ const StaffDashboardPage: NextPage = () => {
               onCloseAvailableRoomsOverview={() => setIsAvailableRoomsOverviewModalOpen(false)}
             />
           )}
-          {activeView === 'walk-in' && tenantId && branchId && userId && (
+          {activeView === 'walk-in' && tenantId && branchId && userId && userId > 0 && (
             <WalkInCheckInContent
               tenantId={tenantId}
               branchId={branchId}
               staffUserId={userId}
             />
           )}
-          {activeView === 'reservations' && tenantId && branchId && userId && (
+          {activeView === 'reservations' && tenantId && branchId && userId && userId > 0 && (
             <ReservationsContent
               tenantId={tenantId}
               branchId={branchId}
@@ -298,7 +302,7 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-           {activeView === 'notifications' && tenantId && branchId && userId && (
+           {activeView === 'notifications' && tenantId && branchId && userId && userId > 0 && (
             <NotificationsContent
               tenantId={tenantId}
               branchId={branchId}
@@ -306,14 +310,14 @@ const StaffDashboardPage: NextPage = () => {
               refreshReservationCount={fetchReservationCount}
             />
           )}
-          {activeView === 'lost-and-found' && tenantId && branchId && userId && (
+          {activeView === 'lost-and-found' && tenantId && branchId && userId && userId > 0 && (
             <LostAndFoundContent
               tenantId={tenantId}
               branchId={branchId}
               staffUserId={userId}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in' || activeView === 'lost-and-found') && (!tenantId || !branchId || !userId ) && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in' || activeView === 'lost-and-found') && (!tenantId || !branchId || !userId || userId <= 0 ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
@@ -341,7 +345,7 @@ const StaffDashboardPage: NextPage = () => {
               <CardContent>
                 <p className="text-muted-foreground">
                   Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
-                  {(!userId && (activeView !== 'dashboard' && activeView !== 'walk-in' && activeView !== 'lost-and-found')) && " (Specifically, User ID is missing for this view.)"}
+                  {(!userId || userId <= 0) && (activeView !== 'dashboard' && activeView !== 'walk-in' && activeView !== 'lost-and-found') && " (Specifically, User ID is missing or invalid for this view.)"}
                 </p>
               </CardContent>
             </Card>
@@ -354,3 +358,5 @@ const StaffDashboardPage: NextPage = () => {
 
 export default StaffDashboardPage;
 
+
+    
