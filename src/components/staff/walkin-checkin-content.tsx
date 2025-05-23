@@ -8,7 +8,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox'; // Added Checkbox
+import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, Users as UsersIcon, LogIn } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -17,6 +17,7 @@ import type { HotelRoom, SimpleRate } from '@/lib/types';
 import { listAvailableRoomsForBranch, createTransactionAndOccupyRoom } from '@/actions/staff';
 import { getRatesForBranchSimple } from '@/actions/admin';
 import { useToast } from '@/hooks/use-toast';
+import { TRANSACTION_PAYMENT_STATUS } from '@/lib/constants';
 
 interface WalkInCheckInContentProps {
   tenantId: number;
@@ -32,8 +33,8 @@ const defaultWalkInFormValues: TransactionCreateData = {
   is_advance_reservation: false,
   reserved_check_in_datetime: null,
   reserved_check_out_datetime: null,
-  is_paid: false, // Added
-  tender_amount_at_checkin: null, // Added
+  is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
+  tender_amount_at_checkin: null,
 };
 
 type AvailableRoomOption = Pick<HotelRoom, 'id' | 'room_name' | 'room_code' | 'hotel_rate_id'>;
@@ -55,7 +56,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
     defaultValues: defaultWalkInFormValues,
   });
 
-  const watchIsPaid = useWatch({ control: form.control, name: 'is_paid' });
+  const watchIsPaid = form.watch("is_paid");
 
   const fetchInitialData = useCallback(async () => {
     if (!tenantId || !branchId) return;
@@ -69,7 +70,6 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
       setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
       setAllBranchRates(ratesData);
     } catch (error) {
-      console.error("Error fetching data for walk-in:", error);
       toast({ title: "Error", description: "Could not fetch available rooms or rates.", variant: "destructive" });
     } finally {
       setIsLoadingRooms(false);
@@ -115,7 +115,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
         tenantId,
         branchId,
         selectedRoomId,
-        data.selected_rate_id,
+        Number(data.selected_rate_id),
         staffUserId
       );
       if (result.success) {
@@ -254,9 +254,9 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                 <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm">
                   <FormControl>
                     <Checkbox
-                      checked={field.value}
+                      checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                       onCheckedChange={(checked) => {
-                        field.onChange(checked);
+                        field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID);
                         if (!checked) {
                           form.setValue('tender_amount_at_checkin', null);
                         }
@@ -270,7 +270,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
               )}
             />
 
-            {watchIsPaid && (
+            {(watchIsPaid === TRANSACTION_PAYMENT_STATUS.PAID || watchIsPaid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID) && (
               <FormField
                 control={form.control}
                 name="tender_amount_at_checkin"
@@ -282,7 +282,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                         type="text"
                         placeholder="0.00"
                         {...field}
-                        value={field.value === null ? "" : String(field.value)}
+                        value={field.value === null || field.value === undefined ? "" : String(field.value)}
                         onChange={(e) => {
                             const val = e.target.value;
                             if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {

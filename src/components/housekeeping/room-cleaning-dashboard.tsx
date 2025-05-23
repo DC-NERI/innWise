@@ -10,15 +10,15 @@ import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, Form
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Wrench, Edit3, CheckCircle2, XCircle, Search, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Loader2, CheckCircle2, XCircle, Search, AlertTriangle, RefreshCw, Wrench } from 'lucide-react';
 import type { HotelRoom, GroupedRooms, RoomCleaningStatusUpdateData } from '@/lib/types';
 import { listRoomsForBranch } from '@/actions/admin';
 import { updateRoomCleaningStatus } from '@/actions/staff';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import { ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS, ROOM_AVAILABILITY_STATUS_TEXT } from '@/lib/constants';
+import { ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS, ROOM_AVAILABILITY_STATUS_TEXT, HOTEL_ENTITY_STATUS, ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
 import { roomCleaningStatusAndNotesUpdateSchema } from '@/lib/schemas';
 
 interface RoomCleaningDashboardProps {
@@ -31,11 +31,11 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
   const [groupedRooms, setGroupedRooms] = useState<GroupedRooms>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [activeCleaningFilterTab, setActiveCleaningFilterTab] = useState<string>(ROOM_CLEANING_STATUS.DIRTY);
+  const [activeCleaningFilterTab, setActiveCleaningFilterTab] = useState<string>(ROOM_CLEANING_STATUS.DIRTY.toString());
 
   const [isCleaningUpdateModalOpen, setIsCleaningUpdateModalOpen] = useState(false);
   const [selectedRoomForCleaningUpdate, setSelectedRoomForCleaningUpdate] = useState<HotelRoom | null>(null);
-  const [targetCleaningStatusForModal, setTargetCleaningStatusForModal] = useState<string | null>(null);
+  const [targetCleaningStatusForModal, setTargetCleaningStatusForModal] = useState<number | null>(null);
   const [isSubmittingModal, setIsSubmittingModal] = useState(false);
 
   const { toast } = useToast();
@@ -47,6 +47,8 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
       cleaning_notes: '',
     },
   });
+  const watchCleaningStatusInModal = useWatch({ control: cleaningUpdateForm.control, name: 'cleaning_status'});
+
 
   const updateRoomInLocalState = useCallback((updatedRoomPartial: Partial<HotelRoom> & { id: number }) => {
     setRooms(prevRooms => {
@@ -106,7 +108,6 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
       setGroupedRooms(finalSortedGroupedRooms);
 
     } catch (error) {
-      console.error("Error fetching rooms for housekeeping:", error);
       toast({ title: "Error", description: "Could not fetch room data.", variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -117,15 +118,20 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
     fetchData();
   }, [fetchData]);
 
-  const getDefaultNoteForStatus = (status: string, currentNotes?: string | null): string => {
+  const getDefaultNoteForStatus = (status: number, currentNotes?: string | null): string => {
     if (status === ROOM_CLEANING_STATUS.CLEAN) return "This is ready for use.";
     if (status === ROOM_CLEANING_STATUS.DIRTY) return "Please clean the room.";
     if (status === ROOM_CLEANING_STATUS.INSPECTION) return "Please do a room inspection.";
-    if (status === ROOM_CLEANING_STATUS.OUT_OF_ORDER) return selectedRoomForCleaningUpdate?.cleaning_status === status ? (currentNotes || "") : "";
+    if (status === ROOM_CLEANING_STATUS.OUT_OF_ORDER) {
+      if (targetCleaningStatusForModal === ROOM_CLEANING_STATUS.OUT_OF_ORDER && selectedRoomForCleaningUpdate?.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER) {
+          return ""; 
+      }
+      return currentNotes || ""; 
+    }
     return currentNotes || "";
   };
 
-  const handleOpenCleaningUpdateModal = (room: HotelRoom, targetStatus: string) => {
+  const handleOpenCleaningUpdateModal = (room: HotelRoom, targetStatus: number) => {
     setSelectedRoomForCleaningUpdate(room);
     setTargetCleaningStatusForModal(targetStatus);
     cleaningUpdateForm.reset({
@@ -147,7 +153,7 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
         tenantId,
         branchId,
         data.cleaning_status,
-        data.cleaning_notes, // Pass notes to the updated action
+        data.cleaning_notes, 
         staffUserId
       );
       if (result.success && result.updatedRoom) {
@@ -168,7 +174,7 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
     }
   };
 
-  const cleaningStatusIcons: { [key: string]: React.ReactElement } = {
+  const cleaningStatusIcons: { [key: number]: React.ReactElement } = {
     [ROOM_CLEANING_STATUS.CLEAN]: <CheckCircle2 size={16} className="text-green-500" />,
     [ROOM_CLEANING_STATUS.DIRTY]: <XCircle size={16} className="text-red-500" />,
     [ROOM_CLEANING_STATUS.INSPECTION]: <Search size={16} className="text-yellow-500" />,
@@ -184,19 +190,19 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
 
   const roomCountsByCleaningStatus = useMemo(() => {
     return rooms.reduce((acc, room) => {
-      if (room.status === '1') {
+      if (room.status === HOTEL_ENTITY_STATUS.ACTIVE) {
         const statusKey = room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN;
         acc[statusKey] = (acc[statusKey] || 0) + 1;
       }
       return acc;
-    }, {} as Record<string, number>);
+    }, {} as Record<number, number>);
   }, [rooms]);
 
   const filteredGroupedRooms = useMemo(() => {
     const filtered: GroupedRooms = {};
     for (const floor in groupedRooms) {
       const floorRooms = groupedRooms[floor].filter(room =>
-        room.status === '1' && (room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN) === activeCleaningFilterTab
+        room.status === HOTEL_ENTITY_STATUS.ACTIVE && (room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN) === Number(activeCleaningFilterTab)
       );
       if (floorRooms.length > 0) {
         filtered[floor] = floorRooms;
@@ -250,7 +256,7 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
       </CardHeader>
       <CardContent>
         <div className="flex items-center space-x-4 mb-4 text-xs text-muted-foreground border p-2 rounded-md bg-muted/30">
-          <p className="font-semibold">Legend (Click icon to update status):</p>
+          <p className="font-semibold">Legend (Click icon to update status & notes):</p>
           {cleaningStatusActionButtons.map(btn => (
             <span key={`legend-${btn.status}`} className="flex items-center">
               {React.cloneElement(btn.icon, {size: 14, className: cn("mr-1", btn.className.replace(/hover:[^ ]+ /g, '').replace(/text-[^-]+-\d+/g, ''))})} {btn.label}
@@ -261,14 +267,14 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
         <Tabs value={activeCleaningFilterTab} onValueChange={setActiveCleaningFilterTab} className="w-full">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
             {ROOM_CLEANING_STATUS_OPTIONS.map(opt => (
-              <TabsTrigger key={`tab-${opt.value}`} value={opt.value}>
+              <TabsTrigger key={`tab-${opt.value}`} value={opt.value.toString()}>
                 {opt.label} ({roomCountsByCleaningStatus[opt.value] || 0})
               </TabsTrigger>
             ))}
           </TabsList>
 
           {ROOM_CLEANING_STATUS_OPTIONS.map(opt => (
-            <TabsContent key={`tab-content-${opt.value}`} value={opt.value} className="mt-4">
+            <TabsContent key={`tab-content-${opt.value}`} value={opt.value.toString()} className="mt-4">
               {Object.keys(filteredGroupedRooms).length === 0 && (
                 <p className="text-muted-foreground text-center py-6">No rooms currently in '{ROOM_CLEANING_STATUS_TEXT[opt.value as keyof typeof ROOM_CLEANING_STATUS_TEXT] || opt.value}' status.</p>
               )}
@@ -287,12 +293,12 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
                               <div>
                                 <p className="font-medium">{room.room_name} <span className="text-sm text-muted-foreground">({room.room_code})</span></p>
                                 <p className="text-xs flex items-center mb-0.5 text-muted-foreground">
-                                  Occupancy: <span className="font-medium ml-1 text-foreground">{ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</span>
+                                  Occupancy: <span className="font-medium ml-1 text-foreground">{ROOM_AVAILABILITY_STATUS_TEXT[room.is_available as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT]}</span>
                                 </p>
                                 <p className="text-xs flex items-center text-muted-foreground">
                                   Cleaning:
                                   <span className="ml-1 mr-2 flex items-center font-medium text-foreground">
-                                     {cleaningStatusIcons[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN] || <Wrench size={14} />}
+                                     {cleaningStatusIcons[room.cleaning_status as keyof typeof ROOM_CLEANING_STATUS || ROOM_CLEANING_STATUS.CLEAN] || <Wrench size={14} />}
                                      <span className="ml-1">{ROOM_CLEANING_STATUS_TEXT[room.cleaning_status as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN]}</span>
                                   </span>
                                 </p>
@@ -310,8 +316,8 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
                                     size="icon"
                                     className={cn("h-8 w-8", actionBtn.className)}
                                     onClick={() => handleOpenCleaningUpdateModal(room, actionBtn.status)}
-                                    disabled={isSubmittingModal || room.is_available === 1 /* Occupied */ || room.is_available === 2 /* Reserved */}
-                                    title={room.is_available === 1 || room.is_available === 2 ? `Cannot change cleaning status: Room is ${ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}` : actionBtn.label}
+                                    disabled={isSubmittingModal || ( room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && actionBtn.status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER) }
+                                    title={ ( room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && actionBtn.status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER) ? `Cannot change cleaning status: Room is ${ROOM_AVAILABILITY_STATUS_TEXT[room.is_available as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT]}` : actionBtn.label}
                                   >
                                     {isSubmittingModal && selectedRoomForCleaningUpdate?.id === room.id && targetCleaningStatusForModal === actionBtn.status ? <Loader2 className="h-4 w-4 animate-spin" /> : React.cloneElement(actionBtn.icon, { size: 16 }) }
                                   </Button>
@@ -330,7 +336,6 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
         </Tabs>
       </CardContent>
 
-      {/* Cleaning Status and Notes Update Modal */}
        <Dialog open={isCleaningUpdateModalOpen} onOpenChange={(isOpen) => {
             if (!isOpen) {
                 setSelectedRoomForCleaningUpdate(null);
@@ -359,15 +364,16 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
                                     <RHFFormLabel>New Cleaning Status *</RHFFormLabel>
                                     <Select
                                         onValueChange={(value) => {
-                                            field.onChange(value);
-                                            cleaningUpdateForm.setValue('cleaning_notes', getDefaultNoteForStatus(value, selectedRoomForCleaningUpdate?.cleaning_notes), {shouldValidate: value === ROOM_CLEANING_STATUS.OUT_OF_ORDER});
+                                            const newStatus = Number(value);
+                                            field.onChange(newStatus);
+                                            cleaningUpdateForm.setValue('cleaning_notes', getDefaultNoteForStatus(newStatus, selectedRoomForCleaningUpdate?.cleaning_notes), {shouldValidate: newStatus === ROOM_CLEANING_STATUS.OUT_OF_ORDER});
                                         }}
-                                        value={field.value}
+                                        value={field.value?.toString()}
                                     >
                                         <FormControl><SelectTrigger><SelectValue placeholder="Select new status" /></SelectTrigger></FormControl>
                                         <SelectContent>
                                             {ROOM_CLEANING_STATUS_OPTIONS.map(opt => (
-                                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                                <SelectItem key={opt.value} value={opt.value.toString()}>{opt.label}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -382,7 +388,7 @@ export default function RoomCleaningDashboard({ tenantId, branchId, staffUserId 
                                 <FormItem>
                                     <RHFFormLabel>
                                         Notes
-                                        {cleaningUpdateForm.getValues('cleaning_status') === ROOM_CLEANING_STATUS.OUT_OF_ORDER && ' * (Required)'}
+                                        {watchCleaningStatusInModal === ROOM_CLEANING_STATUS.OUT_OF_ORDER && ' * (Required)'}
                                     </RHFFormLabel>
                                     <FormControl><Textarea placeholder="Enter notes..." {...field} value={field.value ?? ''} rows={4} className="w-full" /></FormControl>
                                     <FormMessage />

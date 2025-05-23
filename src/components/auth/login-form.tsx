@@ -40,7 +40,6 @@ export function LoginForm() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      console.log("[login-form.tsx] Clearing localStorage on mount");
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
@@ -55,7 +54,6 @@ export function LoginForm() {
 
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true);
-    console.log("[login-form.tsx] Attempting login with data:", data);
 
     const formData = new FormData();
     formData.append("username", data.username);
@@ -63,7 +61,6 @@ export function LoginForm() {
 
     try {
       const result = await loginUser(formData);
-      console.log("[login-form.tsx] Login attempt result:", result);
 
 
       if (result.success && result.role) {
@@ -73,41 +70,31 @@ export function LoginForm() {
         });
 
         if (typeof window !== 'undefined') {
-            console.log("[login-form.tsx] Storing user info in localStorage...");
             localStorage.setItem('userRole', result.role);
             if (result.tenantId) {
                 localStorage.setItem('userTenantId', String(result.tenantId));
-                console.log("[login-form.tsx] Stored tenantId:", result.tenantId);
             }
             if (result.tenantName) {
                 localStorage.setItem('userTenantName', result.tenantName);
-                 console.log("[login-form.tsx] Stored tenantName:", result.tenantName);
             }
             if (result.username) {
                 localStorage.setItem('username', result.username);
-                console.log("[login-form.tsx] Stored username:", result.username);
             }
             if (result.firstName) {
                 localStorage.setItem('userFirstName', result.firstName);
-                 console.log("[login-form.tsx] Stored firstName:", result.firstName);
             }
             if (result.lastName) {
                 localStorage.setItem('userLastName', result.lastName);
-                 console.log("[login-form.tsx] Stored lastName:", result.lastName);
             }
             if (result.tenantBranchId) {
                 localStorage.setItem('userTenantBranchId', String(result.tenantBranchId));
-                console.log("[login-form.tsx] Stored tenantBranchId:", result.tenantBranchId);
             }
             if (result.branchName) {
                 localStorage.setItem('userBranchName', result.branchName);
-                 console.log("[login-form.tsx] Stored branchName:", result.branchName);
             }
              if (result.userId && typeof result.userId === 'number' && result.userId > 0) {
                 localStorage.setItem('userId', String(result.userId));
-                console.log("[login-form.tsx] Stored userId:", result.userId);
             } else {
-                console.warn("[login-form.tsx] userId not stored or invalid:", result.userId);
             }
         }
         
@@ -144,7 +131,6 @@ export function LoginForm() {
         setIsLoading(false);
       }
     } catch (error) {
-        console.error("[login-form.tsx] Login submit error:", error);
         let errorMessage = "An unexpected error occurred during login.";
         if (error instanceof Error) {
             errorMessage = error.message;
@@ -221,3 +207,4 @@ export function LoginForm() {
     </Card>
   );
 }
+

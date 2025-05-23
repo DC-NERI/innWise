@@ -1418,7 +1418,10 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                                 type="text"
                                                 placeholder="0.00"
                                                 {...field}
-                                                value={field.value === null || field.value === undefined ? "" : String(field.value)}
+                                                value={
+                                                  transactionDetailsForCheckout.tender_amount ? transactionDetailsForCheckout.tender_amount :
+                                                  (field.value === null || field.value === undefined ? "" : String(field.value))
+                                                }
                                                 onChange={(e) => {
                                                     const val = e.target.value;
                                                     // Regex to allow numbers, one optional decimal point, and up to two decimal places
@@ -1438,7 +1441,9 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                                  <div className="flex justify-between items-center text-md pt-1">
                                     <span className="font-semibold text-muted-foreground">Change:</span>
                                     <span className={cn("font-bold", calculatedChange < 0 ? "text-destructive" : "text-foreground")}>
-                                        ₱{calculatedChange.toFixed(2)}
+                                      {
+                                        transactionDetailsForCheckout.tender_amount ? (transactionDetailsForCheckout.tender_amount - currentBillForCheckout ) :  ("₱" + calculatedChange.toFixed(2))
+                                      }
                                     </span>
                                 </div>
                             )}

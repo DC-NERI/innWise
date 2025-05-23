@@ -18,6 +18,7 @@ import { getUsersForTenant, createUserAdmin, updateUserAdmin, archiveUserAdmin, 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type UserFormValues = UserCreateDataAdmin | UserUpdateDataAdmin;
 
@@ -50,7 +51,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
   const isEditing = !!selectedUser;
   
   const form = useForm<UserFormValues>({
-    // Resolver set dynamically
   });
   const selectedRoleInForm = useWatch({ control: form.control, name: 'role' });
   
@@ -68,7 +68,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       setUsers(fetchedUsers);
       setAvailableBranches(fetchedBranches); 
     } catch (error) { 
-      console.error("Failed to fetch user data for admin:", error);
       toast({ title: "Error", description: "Could not fetch user data for your tenant.", variant: "destructive" }); 
     }
     finally { setIsLoading(false); }
@@ -87,9 +86,9 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         last_name: selectedUser.last_name,
         password: '', 
         email: selectedUser.email || '',
-        role: selectedUser.role as 'admin' | 'staff', 
+        role: selectedUser.role as 'admin' | 'staff' | 'housekeeping', 
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
-        status: selectedUser.status || '1',
+        status: selectedUser.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
       newDefaults = defaultFormValuesCreate;
@@ -114,7 +113,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) { 
-      console.error("Add user error (admin):", e);
       toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" }); 
     }
     finally { setIsSubmitting(false); }
@@ -143,7 +141,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) { 
-      console.error("Edit user error (admin):", e);
       toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" }); 
     }
     finally { setIsSubmitting(false); }
@@ -155,11 +152,10 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       const result = await archiveUserAdmin(userId, tenantId);
       if (result.success) { 
           toast({ title: "Success", description: `User "${username}" archived.` }); 
-          setUsers(prev => prev.map(u => u.id === userId ? {...u, status: '0'} : u));
+          setUsers(prev => prev.map(u => u.id === userId ? {...u, status: HOTEL_ENTITY_STATUS.ARCHIVED} : u));
       }
       else { toast({ title: "Archive Failed", description: result.message, variant: "destructive" }); }
     } catch (e) { 
-      console.error("Archive user error (admin):", e);
       toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" }); 
     }
     finally { setIsSubmitting(false); }
@@ -171,9 +167,9 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       first_name: user.first_name,
       last_name: user.last_name,
       email: user.email || '',
-      role: user.role as 'admin' | 'staff', 
+      role: user.role as 'admin' | 'staff' | 'housekeeping', 
       tenant_branch_id: user.tenant_branch_id,
-      status: '1', 
+      status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
     try {
       const result = await updateUserAdmin(Number(user.id), payload, tenantId);
@@ -184,13 +180,12 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) { 
-      console.error("Restore user error (admin):", e);
       toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" }); 
     }
     finally { setIsSubmitting(false); }
   };
 
-  const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
+  const filteredUsers = users.filter(user => user.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
   
   const usernameField = (() => {
       if (isEditing && selectedUser) {
@@ -228,11 +223,12 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Role *</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value as 'admin' | 'staff'}>
+              <Select onValueChange={field.onChange} value={field.value as 'admin' | 'staff' | 'housekeeping'}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
                 <SelectContent>
                   <SelectItem value="staff">Staff</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="housekeeping">Housekeeping</SelectItem>
                 </SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -241,13 +237,13 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         <FormField control={form.control} name="tenant_branch_id"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Branch {selectedRoleInForm === 'staff' ? '*' : '(Optional)'}</FormLabel>
+              <FormLabel>Branch {selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? '*' : '(Optional)'}</FormLabel>
               <Select
                 onValueChange={(v) => field.onChange(v ? parseInt(v) : undefined)}
                 value={field.value?.toString()}
                 disabled={isLoadingBranches || availableBranches.length === 0}
               >
-                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : (selectedRoleInForm === 'staff' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : (selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
                 <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -260,7 +256,10 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                 <FormLabel>Status *</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value?.toString()}>
                   <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                  <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                  </SelectContent>
                 </Select><FormMessage />
               </FormItem>
             )}
@@ -301,11 +300,11 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                 <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                   {renderFormFields()}
                 </div>
-                <DialogFooter className="bg-card py-4 border-t px-3">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create User")}</Button>
                 </DialogFooter>
@@ -356,4 +355,3 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     </Card>
   );
 }
-    

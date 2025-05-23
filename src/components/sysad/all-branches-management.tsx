@@ -19,11 +19,12 @@ import { createBranchForTenant, listAllBranches, listTenants, updateBranchSysAd,
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type BranchFormValues = BranchCreateData | BranchUpdateDataSysAd;
 
 const defaultFormValuesCreate: BranchCreateData = {
-  tenant_id: undefined as unknown as number, // Ensure this is treated as undefined initially
+  tenant_id: undefined as unknown as number, 
   branch_name: '',
   branch_code: '', 
   branch_address: '',
@@ -48,7 +49,7 @@ export default function AllBranchesManagement() {
     resolver: zodResolver(isEditing ? branchUpdateSchemaSysAd : branchCreateSchema),
     defaultValues: {
       ...defaultFormValuesCreate,
-      status: '1', 
+      status: HOTEL_ENTITY_STATUS.ACTIVE, 
     },
   });
 
@@ -57,9 +58,8 @@ export default function AllBranchesManagement() {
     try {
       const [fetchedBranches, fetchedTenants] = await Promise.all([listAllBranches(), listTenants()]);
       setBranches(fetchedBranches);
-      setTenants(fetchedTenants.filter(t => t.status === '1')); 
+      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE)); 
     } catch (error) {
-      console.error("Fetch data error in AllBranchesManagement:", error);
       toast({ title: "Error", description: "Could not fetch data. Check console for details.", variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -82,12 +82,12 @@ export default function AllBranchesManagement() {
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
-        status: selectedBranch.status || '1', 
+        status: selectedBranch.status || HOTEL_ENTITY_STATUS.ACTIVE, 
       } as BranchUpdateDataSysAd; 
     } else {
       newDefaults = { 
         ...defaultFormValuesCreate,
-        status: '1',
+        status: HOTEL_ENTITY_STATUS.ACTIVE,
       } as BranchCreateData;
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -132,7 +132,7 @@ export default function AllBranchesManagement() {
     const result = await archiveBranch(branchId); 
     if (result.success) {
         toast({ title: "Success", description: `Branch "${branchName}" archived.` });
-        setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: '0'} : b));
+        setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: HOTEL_ENTITY_STATUS.ARCHIVED} : b));
     } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
     }
@@ -147,7 +147,7 @@ export default function AllBranchesManagement() {
         branch_address: branch.branch_address,
         contact_number: branch.contact_number,
         email_address: branch.email_address,
-        status: '1', 
+        status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
     const result = await updateBranchSysAd(branch.id, payload);
     if (result.success && result.branch) {
@@ -159,7 +159,8 @@ export default function AllBranchesManagement() {
     setIsSubmitting(false);
   };
 
-  const filteredBranches = branches.filter(branch => activeTab === "active" ? branch.status === '1' : branch.status === '0');
+  const filteredBranches = branches.filter(branch => branch.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+
 
   if (isLoading && branches.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading branches...</p></div>;
@@ -191,7 +192,10 @@ export default function AllBranchesManagement() {
               <FormLabel>Status *</FormLabel>
               <Select onValueChange={field.onChange} value={field.value?.toString()}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
+                <SelectContent>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                </SelectContent>
               </Select><FormMessage />
             </FormItem>
           )}
@@ -212,19 +216,19 @@ export default function AllBranchesManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedBranch(null); 
-                    form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(branchCreateSchema) } as any);
+                    form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(branchCreateSchema) } as any);
                 }
             }}
         >
-          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
+          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
-                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                   <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                     {renderFormFields(isEditing)}
                   </div>
-                  <DialogFooter className="bg-card py-4 border-t px-3">
+                  <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                     <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                     <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Branch")}</Button>
                   </DialogFooter>
@@ -275,4 +279,3 @@ export default function AllBranchesManagement() {
     </Card>
   );
 }
-    

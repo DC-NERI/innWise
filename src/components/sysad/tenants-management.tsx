@@ -18,7 +18,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; 
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants'; 
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -27,8 +28,8 @@ const defaultFormValuesCreate: TenantCreateData = {
   tenant_address: '',
   tenant_email: '',
   tenant_contact_info: '',
-  max_branch_count: 5, // Default value
-  max_user_count: 10,  // Default value
+  max_branch_count: 5, 
+  max_user_count: 10,  
 };
 
 export default function TenantsManagement() {
@@ -47,7 +48,7 @@ export default function TenantsManagement() {
     resolver: zodResolver(isEditing ? tenantUpdateSchema : tenantCreateSchema),
     defaultValues: {
       ...defaultFormValuesCreate,
-      status: '1',
+      status: HOTEL_ENTITY_STATUS.ACTIVE,
     },
   });
 
@@ -57,7 +58,6 @@ export default function TenantsManagement() {
       const fetchedTenants = await listTenants();
       setTenants(fetchedTenants);
     } catch (error) {
-      console.error("Failed to fetch tenants:", error);
       toast({
         title: "Error",
         description: "Could not fetch tenants. Please try again.",
@@ -85,10 +85,10 @@ export default function TenantsManagement() {
         tenant_contact_info: selectedTenant.tenant_contact_info || '',
         max_branch_count: selectedTenant.max_branch_count ?? 0,
         max_user_count: selectedTenant.max_user_count ?? 0,
-        status: selectedTenant.status || '1',
+        status: selectedTenant.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
-      newDefaults = { ...defaultFormValuesCreate, status: '1' };
+      newDefaults = { ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
   }, [selectedTenant, form, isEditDialogOpen, isAddDialogOpen]);
@@ -137,7 +137,7 @@ export default function TenantsManagement() {
       const result = await archiveTenant(tenantId);
       if (result.success) {
         toast({ title: "Success", description: `Tenant "${tenantName}" archived.` });
-        setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: '0'} : t));
+        setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: HOTEL_ENTITY_STATUS.ARCHIVED} : t));
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
       }
@@ -157,7 +157,7 @@ export default function TenantsManagement() {
         tenant_contact_info: tenant.tenant_contact_info,
         max_branch_count: tenant.max_branch_count,
         max_user_count: tenant.max_user_count,
-        status: '1', 
+        status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
     const result = await updateTenant(tenant.id, payload);
     if (result.success && result.tenant) {
@@ -169,7 +169,8 @@ export default function TenantsManagement() {
     setIsSubmitting(false);
   };
 
-  const filteredTenants = tenants.filter(tenant => activeTab === "active" ? tenant.status === '1' : tenant.status === '0');
+  const filteredTenants = tenants.filter(tenant => tenant.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+
 
   if (isLoading && tenants.length === 0) { 
     return (
@@ -255,11 +256,11 @@ export default function TenantsManagement() {
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status *</FormLabel>
-               <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
+               <Select onValueChange={field.onChange} value={field.value?.toString() ?? HOTEL_ENTITY_STATUS.ACTIVE}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
-                  <SelectItem value="1">Active</SelectItem>
-                  <SelectItem value="0">Archived</SelectItem>
+                  <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                  <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -288,23 +289,23 @@ export default function TenantsManagement() {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedTenant(null);
-                    form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(tenantCreateSchema) } as any);
+                    form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(tenantCreateSchema) } as any);
                 }
             }}
         >
           <DialogTrigger asChild>
-            <Button onClick={() => {setSelectedTenant(null); form.reset({ ...defaultFormValuesCreate, status: '1' }, { resolver: zodResolver(tenantCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}>
+            <Button onClick={() => {setSelectedTenant(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(tenantCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add Tenant
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                 <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                   {renderFormFields()}
                 </div>
-                <DialogFooter className="bg-card py-4 border-t px-3">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                   <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Tenant")}</Button>
                 </DialogFooter>

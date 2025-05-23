@@ -6,10 +6,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { LogOut, PanelLeft, Wrench } from 'lucide-react'; // Using Wrench for cleaning
+import { LogOut, PanelLeft, Wrench } from 'lucide-react';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'; // For placeholder content
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import RoomCleaningDashboard from '@/components/housekeeping/room-cleaning-dashboard';
 
 
@@ -45,11 +45,11 @@ const HousekeepingDashboardPage: NextPage = () => {
       if (storedRole) {
         setUserRole(storedRole);
         if (storedRole !== 'housekeeping') {
-            router.push('/'); // Redirect if not housekeeping
+            router.push('/'); 
             return;
         }
       } else {
-        router.push('/'); // Redirect if no role
+        router.push('/'); 
         return;
       }
 
@@ -126,11 +126,9 @@ const HousekeepingDashboardPage: NextPage = () => {
                 <span>Cleaning Status</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            {/* Add more housekeeping-specific links here */}
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
-          {/* Potentially add a settings button if needed for housekeeping */}
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>

@@ -17,7 +17,7 @@ import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'settings'>('branches');
+  const [activeView, setActiveView] = useState<'branches' | 'users' | 'rates' | 'rooms' | 'notifications' | 'settings'>('branches');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -73,7 +73,6 @@ const AdminDashboardPage: NextPage = () => {
             setTenantName("Tenant Not Found");
           }
         }).catch(error => {
-          console.error("Failed to fetch tenant details on mount:", error);
           setTenantName("Error Fetching Tenant Info");
         });
       } else {
@@ -247,4 +246,3 @@ const AdminDashboardPage: NextPage = () => {
 
 export default AdminDashboardPage;
 
-    

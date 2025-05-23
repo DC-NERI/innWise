@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { LogOut, BedDouble, Building, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye } from 'lucide-react';
+import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -18,16 +18,9 @@ import DashboardContent from '@/components/staff/dashboard-content';
 import { listUnassignedReservations } from '@/actions/staff';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-const StaffSettingsContent = () => (
-  <div>
-    <h2 className="text-2xl font-semibold">Settings</h2>
-    <p className="text-muted-foreground">Staff-specific settings will be managed here.</p>
-  </div>
-);
-
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'dashboard' | 'room-status' | 'reservations' | 'notifications' | 'walk-in' | 'settings'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'room-status' | 'reservations' | 'notifications' | 'walk-in'>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -47,7 +40,6 @@ const StaffDashboardPage: NextPage = () => {
   const manilaTimeZone = 'Asia/Manila';
 
   useEffect(() => {
-    console.log("[staff/page.tsx] useEffect running to retrieve localStorage data");
     if (typeof window !== 'undefined') {
       const storedRole = localStorage.getItem('userRole') as UserRole | null;
       const storedTenantId = localStorage.getItem('userTenantId');
@@ -59,19 +51,13 @@ const StaffDashboardPage: NextPage = () => {
       const storedBranchName = localStorage.getItem('userBranchName');
       const storedUserId = localStorage.getItem('userId');
 
-      console.log("[staff/page.tsx] Retrieved from localStorage:", {
-        storedRole, storedTenantId, storedTenantName, storedUsername, storedFirstName, storedLastName, storedBranchId, storedBranchName, storedUserId
-      });
-
       if (storedRole) {
         setUserRole(storedRole);
         if (storedRole !== 'staff') {
-            console.warn("[staff/page.tsx] Role is not staff, redirecting to /");
             router.push('/');
             return;
         }
       } else {
-        console.warn("[staff/page.tsx] No role found, redirecting to /");
         router.push('/');
         return;
       }
@@ -87,13 +73,10 @@ const StaffDashboardPage: NextPage = () => {
         const parsedUserId = parseInt(storedUserId, 10);
         if (parsedUserId > 0) {
           setUserId(parsedUserId);
-          console.log("[staff/page.tsx] Set userId from localStorage:", parsedUserId);
         } else {
-          console.warn("[staff/page.tsx] Parsed userId from localStorage is not a positive number:", parsedUserId);
           setUserId(null);
         }
       } else {
-        console.warn("[staff/page.tsx] userId not found or invalid in localStorage:", storedUserId);
         setUserId(null);
       }
 
@@ -110,7 +93,6 @@ const StaffDashboardPage: NextPage = () => {
             setTenantName("Tenant Not Found");
           }
         }).catch(error => {
-          console.error("Failed to fetch tenant details on mount:", error);
           setTenantName("Error Fetching Tenant Info");
         });
       } else {
@@ -132,7 +114,6 @@ const StaffDashboardPage: NextPage = () => {
         const reservations = await listUnassignedReservations(tenantId, branchId);
         setUnassignedReservationsCount(reservations.length);
       } catch (error) {
-        console.error("Failed to fetch unassigned reservations count:", error);
         setUnassignedReservationsCount(0);
       }
     } else {
@@ -143,14 +124,13 @@ const StaffDashboardPage: NextPage = () => {
 
   useEffect(() => {
     fetchReservationCount();
-    const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
+    const countInterval = setInterval(fetchReservationCount, 60000); 
     return () => clearInterval(countInterval);
   }, [fetchReservationCount]);
 
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
-      console.log("[staff/page.tsx] Logging out, clearing localStorage");
       localStorage.removeItem('userRole');
       localStorage.removeItem('userTenantId');
       localStorage.removeItem('userTenantName');
@@ -244,7 +224,6 @@ const StaffDashboardPage: NextPage = () => {
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
-          {/* Settings button removed from here */}
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
@@ -340,7 +319,6 @@ const StaffDashboardPage: NextPage = () => {
               </CardContent>
             </Card>
           )}
-          {/* Settings view rendering removed */}
         </main>
       </SidebarInset>
     </SidebarProvider>

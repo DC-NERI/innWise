@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form'; // Renamed to avoid conflict
-import { Label } from "@/components/ui/label"; // Import base Label
+import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form'; 
+import { Label } from "@/components/ui/label"; 
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, Edit, Trash2, ArchiveRestore, Tags, Building } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -20,6 +20,7 @@ import { getBranchesForTenantSimple, listRatesForBranch, createRate, updateRate,
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type RateFormValues = HotelRateCreateData | HotelRateUpdateData;
 
@@ -51,7 +52,6 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
   const isEditing = !!selectedRate;
 
   const form = useForm<RateFormValues>({
-    resolver: zodResolver(isEditing ? hotelRateUpdateSchema : hotelRateCreateSchema),
   });
 
   const fetchBranches = useCallback(async () => {
@@ -61,7 +61,6 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
       setBranches(fetchedBranches);
       if (fetchedBranches.length > 0 && !selectedBranchId) {
-         // Optionally auto-select first branch or wait for user selection
       }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
@@ -92,7 +91,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
     if (selectedBranchId) {
       fetchRates(selectedBranchId);
     } else {
-      setRates([]); // Clear rates if no branch is selected
+      setRates([]); 
     }
   }, [selectedBranchId, fetchRates]);
   
@@ -108,10 +107,10 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
         hours: selectedRate.hours,
         excess_hour_price: selectedRate.excess_hour_price,
         description: selectedRate.description || '',
-        status: selectedRate.status || '1',
+        status: selectedRate.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
-      newDefaults = { ...defaultFormValuesCreate, status: '1' };
+      newDefaults = { ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
   }, [selectedRate, form, isEditDialogOpen, isAddDialogOpen]);
@@ -159,7 +158,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
       const result = await archiveRate(rate.id, tenantId, rate.branch_id);
       if (result.success) {
         toast({ title: "Success", description: `Rate "${rate.name}" archived.` });
-        setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: '0' } : r));
+        setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
       }
@@ -176,7 +175,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
         hours: rate.hours,
         excess_hour_price: rate.excess_hour_price,
         description: rate.description,
-        status: '1',
+        status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
       const result = await updateRate(rate.id, payload, tenantId, rate.branch_id);
@@ -190,7 +189,8 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
     finally { setIsSubmitting(false); }
   };
 
-  const filteredRates = rates.filter(rate => activeTab === "active" ? rate.status === '1' : rate.status === '0');
+  const filteredRates = rates.filter(rate => rate.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -204,9 +204,12 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
           render={({ field }) => (
             <FormItem>
               <RHFFormLabel>Status *</RHFFormLabel>
-              <Select onValueChange={field.onChange} value={field.value?.toString() ?? '1'}>
+              <Select onValueChange={field.onChange} value={field.value?.toString() ?? HOTEL_ENTITY_STATUS.ACTIVE}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
+                <SelectContent>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                    <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                </SelectContent>
               </Select><FormMessage />
             </FormItem>
           )}
@@ -251,23 +254,23 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
                         setIsAddDialogOpen(false);
                         setIsEditDialogOpen(false);
                         setSelectedRate(null); 
-                        form.reset({ ...defaultFormValuesCreate, status: '1' });
+                        form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE });
                     }
                 }}
             >
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRate(null); form.reset({ ...defaultFormValuesCreate, status: '1' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingRates}>
+                <Button onClick={() => { setSelectedRate(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingRates}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Rate
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
                 <DialogHeader><DialogTitle>{isEditing ? `Edit Rate: ${selectedRate?.name}` : 'Add New Rate'}</DialogTitle></DialogHeader>
                 <Form {...form}>
-                  <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRateUpdateData)) : (d => handleAddSubmit(d as HotelRateCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
+                  <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRateUpdateData)) : (d => handleAddSubmit(d as HotelRateCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                     <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                       {renderFormFields()}
                     </div>
-                    <DialogFooter className="bg-card py-4 border-t px-3">
+                    <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                       <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
                       <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Rate")}</Button>
                     </DialogFooter>
@@ -339,4 +342,3 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
     </Card>
   );
 }
-

@@ -26,12 +26,12 @@ import {
   createNotification,
   deleteNotification
 } from '@/actions/admin';
-import { createUnassignedReservation } from '@/actions/staff'; // Re-using staff action
+import { createUnassignedReservation } from '@/actions/staff';
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
-  NOTIFICATION_TRANSACTION_STATUS,
-  NOTIFICATION_TRANSACTION_STATUS_TEXT,
+  NOTIFICATION_TRANSACTION_LINK_STATUS,
+  NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS_TEXT
 } from '@/lib/constants';
 import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
@@ -74,6 +74,8 @@ const defaultNotificationFormValues: NotificationCreateData = {
     reservation_is_advance: false,
     reservation_check_in_datetime: null,
     reservation_check_out_datetime: null,
+    reservation_is_paid: 0,
+    reservation_tender_amount_at_checkin: null,
 };
 
 export default function NotificationsContent({ tenantId, adminUserId }: NotificationsContentProps) {
@@ -96,15 +98,19 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     resolver: zodResolver(transactionCreateSchema),
     defaultValues: {
         client_name: '',
-        selected_rate_id: undefined, // Optional for admin creating notif with reservation
+        selected_rate_id: undefined,
         client_payment_method: undefined,
         notes: '',
         is_advance_reservation: false,
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
+        is_paid: 0,
+        tender_amount_at_checkin: null,
     }
   });
   const watchIsAdvanceReservationCreate = createReservationForm.watch("is_advance_reservation");
+  const watchIsPaidCreateReservation = createReservationForm.watch("is_paid");
+
 
   const addNotificationForm = useForm<NotificationCreateData>({
     resolver: zodResolver(notificationCreateSchema),
@@ -114,6 +120,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const watchTargetBranchForNotif = addNotificationForm.watch("target_branch_id");
   const watchDoReservationForNotif = addNotificationForm.watch("do_reservation");
   const watchIsAdvanceForNotifSubForm = addNotificationForm.watch("reservation_is_advance");
+  const watchIsPaidForNotifSubForm = addNotificationForm.watch("reservation_is_paid");
+
 
   const fetchNotificationsAndBranches = useCallback(async () => {
     if (!tenantId) return;
@@ -191,12 +199,14 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     setSelectedNotification(notification);
     createReservationForm.reset({
         client_name: `For: ${notification.message.substring(0, 30)}${notification.message.length > 30 ? '...' : ''}`,
-        selected_rate_id: undefined, // Optional for admin
+        selected_rate_id: undefined, 
         client_payment_method: undefined,
         notes: `Ref: Notification #${notification.id}`,
         is_advance_reservation: false,
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
+        is_paid: 0,
+        tender_amount_at_checkin: null,
     });
     setIsLoading(true);
     try {
@@ -218,20 +228,19 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     }
     setIsSubmitting(true);
     try {
-      // When admin creates reservation via notification, it's admin_created
       const result = await createUnassignedReservation(
         data,
         selectedNotification.tenant_id, 
         selectedNotification.target_branch_id,
         adminUserId,
-        true // is_admin_created_flag
+        true 
       );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
 
         const updateNotifResult = await updateNotificationTransactionStatus(
             selectedNotification.id,
-            NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED,
+            NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED,
             result.transaction.id,
             tenantId 
         );
@@ -289,10 +298,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     }
   };
 
-  const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean) => (
+  const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean, isPaidState: any) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
         <FormField control={formInstance.control} name={`${prefix}_client_name`} render={({ field }) => (
-            <FormItem><FormLabel>Client Name for Reservation *</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Client Name for Reservation {isRateOptional ? '' : '*'}</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_selected_rate_id`} render={({ field }) => (
             <FormItem>
@@ -311,6 +320,55 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 </Select><FormMessage />
             </FormItem>
         )} />
+        <FormField
+          control={formInstance.control}
+          name={`${prefix}_is_paid`}
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%] bg-background">
+              <FormControl>
+                <Checkbox
+                  checked={field.value === 1 || field.value === 2} // 1 for Paid, 2 for Advance Paid
+                  onCheckedChange={(checked) => {
+                    field.onChange(checked ? 1 : 0); // Set to Paid (1) or Unpaid (0)
+                    if (!checked) {
+                        formInstance.setValue(`${prefix}_tender_amount_at_checkin`, null, { shouldValidate: true });
+                    }
+                  }}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel>Mark as Paid?</FormLabel>
+              </div>
+            </FormItem>
+          )}
+        />
+        {isPaidState && (
+          <FormField
+            control={formInstance.control}
+            name={`${prefix}_tender_amount_at_checkin`}
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Tender Amount *</FormLabel>
+                <FormControl>
+                   <Input
+                    type="text"
+                    placeholder="0.00"
+                    {...field}
+                    value={field.value === null || field.value === undefined ? "" : String(field.value)}
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
+                          field.onChange(val === "" ? null : val);
+                        }
+                    }}
+                    className="w-[90%]"
+                    />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
         <FormField control={formInstance.control} name={`${prefix}_notes`} render={({ field }) => (
             <FormItem><FormLabel>Notes for Reservation (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )} />
@@ -365,8 +423,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                         <DialogTitle>Create New Notification</DialogTitle>
                     </DialogHeader>
                     <Form {...addNotificationForm}>
-                        <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                            <div className="flex-grow overflow-y-auto p-3 space-y-3">
+                        <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
+                            <div className="flex-grow overflow-y-auto p-1 space-y-3">
                                 <FormField control={addNotificationForm.control} name="message" render={({ field }) => (
                                     <FormItem><FormLabel>Message *</FormLabel><FormControl><Textarea placeholder="Enter notification message..." {...field} className="w-full" rows={3} /></FormControl><FormMessage /></FormItem>
                                 )} />
@@ -388,7 +446,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                                         </FormItem>
                                     )} />
                                 )}
-                                {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation', true)} {/* isRateOptional = true for Admin */}
+                                {watchTargetBranchForNotif && watchDoReservationForNotif && renderReservationSubFormFields(addNotificationForm, ratesForAddNotificationSubForm, 'reservation', true, watchIsPaidForNotifSubForm)}
                             </div>
                             <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -426,16 +484,16 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                   <TableCell>{notif.creator_username || 'System'}</TableCell>
                   <TableCell>{notif.target_branch_name || 'N/A'}</TableCell>
                   <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status]}</TableCell>
-                  <TableCell>{NOTIFICATION_TRANSACTION_STATUS_TEXT[notif.transaction_status]}</TableCell>
+                  <TableCell>{NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT[notif.transaction_status]}</TableCell>
                   <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
-                  <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</TableCell>
+                  <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.PENDING_ACTION && (
+                    {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION && (
                       <Button variant="default" size="sm" onClick={() => handleOpenCreateReservationDialog(notif)} disabled={isSubmitting}>
                         <CalendarPlus className="mr-1 h-3 w-3" /> Create Reservation
                       </Button>
                     )}
-                     {notif.transaction_status === NOTIFICATION_TRANSACTION_STATUS.RESERVATION_CREATED && (
+                     {notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED && (
                         <span className="text-xs text-green-600">Processed (Tx ID: {notif.transaction_id || 'N/A'})</span>
                     )}
                     <AlertDialog open={notificationToDelete?.id === notif.id} onOpenChange={(open) => { if (!open) setNotificationToDelete(null); }}>
@@ -469,13 +527,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         )}
       </CardContent>
 
-      {/* Dialog for Creating Reservation from Existing Notification */}
       <Dialog open={isCreateReservationDialogOpen} onOpenChange={(open) => {
           if (!open) {
             setSelectedNotification(null);
             createReservationForm.reset({
                 client_name: '', selected_rate_id: undefined, client_payment_method: undefined, notes: '',
                 is_advance_reservation: false, reserved_check_in_datetime: null, reserved_check_out_datetime: null,
+                is_paid: 0, tender_amount_at_checkin: null,
             });
             setRatesForCreateReservationDialog([]);
           }
@@ -487,9 +545,9 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 <CardDescription>For Branch: {selectedNotification?.target_branch_name || 'N/A'}</CardDescription>
             </DialogHeader>
             <Form {...createReservationForm}>
-                <form onSubmit={createReservationForm.handleSubmit(handleCreateReservationFromNotificationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                    <div className="flex-grow overflow-y-auto p-3 space-y-3">
-                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '', true)} {/* isRateOptional = true for Admin */}
+                <form onSubmit={createReservationForm.handleSubmit(handleCreateReservationFromNotificationSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
+                    <div className="flex-grow overflow-y-auto p-1">
+                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '', true, watchIsPaidCreateReservation)} 
                     </div>
                     <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                         <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -504,5 +562,3 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     </Card>
   );
 }
-
-    

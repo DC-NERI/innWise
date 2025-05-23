@@ -47,7 +47,6 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
         const fetchedBranches = await getBranchesForTenant(tenantId);
         setBranches(fetchedBranches);
       } catch (error) {
-        console.error("Failed to fetch branches:", error);
         toast({
           title: "Error",
           description: "Could not fetch branches. Please try again.",
@@ -85,7 +84,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
       const result = await updateBranchDetails(selectedBranch.id, data);
       if (result.success && result.updatedBranch) {
         setBranches(branches.map(b => b.id === result.updatedBranch!.id ? result.updatedBranch! : b));
-        setSelectedBranch(result.updatedBranch); // Update selected branch with new data
+        setSelectedBranch(result.updatedBranch); 
         toast({
           title: "Success",
           description: "Branch details updated successfully.",
@@ -98,7 +97,6 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
         });
       }
     } catch (error) {
-      console.error("Failed to update branch:", error);
       toast({
         title: "Error",
         description: "An unexpected error occurred. Please try again.",
@@ -167,7 +165,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     <FormItem>
                       <FormLabel>Branch Name</FormLabel>
                       <FormControl>
-                        <Input placeholder="Main Branch" {...field} />
+                        <Input placeholder="Main Branch" {...field} className="w-[90%]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -180,7 +178,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     <FormItem>
                       <FormLabel>Branch Code</FormLabel>
                       <FormControl>
-                        <Input placeholder="BRANCH-001" {...field} />
+                        <Input placeholder="BRANCH-001" {...field} className="w-[90%]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -193,7 +191,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     <FormItem>
                       <FormLabel>Branch Address</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="123 Hotel St, City" {...field} />
+                        <Textarea placeholder="123 Hotel St, City" {...field} className="w-[90%]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -206,7 +204,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     <FormItem>
                       <FormLabel>Contact Number</FormLabel>
                       <FormControl>
-                        <Input placeholder="+1-555-1234" {...field} />
+                        <Input placeholder="+1-555-1234" {...field} className="w-[90%]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -219,7 +217,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     <FormItem>
                       <FormLabel>Email Address</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="branch@example.com" {...field} />
+                        <Input type="email" placeholder="branch@example.com" {...field} className="w-[90%]" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>

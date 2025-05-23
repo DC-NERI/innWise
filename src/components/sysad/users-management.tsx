@@ -18,6 +18,7 @@ import { createUserSysAd, listAllUsers, listTenants, getBranchesForTenantSimple,
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type UserFormValues = UserCreateData | UserUpdateDataSysAd;
 
@@ -48,7 +49,6 @@ export default function UsersManagement() {
   const isEditing = !!selectedUser;
 
   const form = useForm<UserFormValues>({
-    // Resolver is set dynamically in useEffect below
   });
 
   const selectedTenantIdInForm = useWatch({ control: form.control, name: 'tenant_id' });
@@ -59,9 +59,8 @@ export default function UsersManagement() {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([listAllUsers(), listTenants()]);
       setUsers(fetchedUsers);
-      setTenants(fetchedTenants.filter(t => t.status === '1'));
+      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
-      console.error("Failed to fetch user data:", error);
       toast({ title: "Error", description: "Could not fetch user data.", variant: "destructive" });
     }
     finally { setIsLoading(false); }
@@ -83,7 +82,7 @@ export default function UsersManagement() {
         role: selectedUser.role,
         tenant_id: selectedUser.tenant_id || undefined,
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
-        status: selectedUser.status || '1',
+        status: selectedUser.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
       if (selectedUser.tenant_id) {
         setIsLoadingBranches(true);
@@ -116,7 +115,7 @@ export default function UsersManagement() {
             .then(branches => {
                 setAvailableBranches(branches);
                 const currentBranchIsValid = branches.some(b => b.id === currentBranchId);
-                if (currentBranchId && !currentBranchIsValid && (isDirtyTenant || !isEditing) ) { // Reset branch if not valid for new tenant or if tenant changed
+                if (currentBranchId && !currentBranchIsValid && (isDirtyTenant || !isEditing) ) { 
                     form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
                 }
             })
@@ -148,7 +147,6 @@ export default function UsersManagement() {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) {
-      console.error("Add user error:", e);
       toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
@@ -179,7 +177,6 @@ export default function UsersManagement() {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) {
-      console.error("Edit user error:", e);
       toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
@@ -191,11 +188,10 @@ export default function UsersManagement() {
       const result = await archiveUser(userId);
       if (result.success) {
         toast({ title: "Success", description: `User "${username}" archived.` });
-        setUsers(prev => prev.map(u => u.id === userId ? {...u, status: '0'} : u));
+        setUsers(prev => prev.map(u => u.id === userId ? {...u, status: HOTEL_ENTITY_STATUS.ARCHIVED} : u));
       }
       else { toast({ title: "Archive Failed", description: result.message, variant: "destructive" }); }
     } catch (e) {
-      console.error("Archive user error:", e);
       toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
@@ -210,7 +206,7 @@ export default function UsersManagement() {
       role: user.role,
       tenant_id: user.tenant_id,
       tenant_branch_id: user.tenant_branch_id,
-      status: '1', 
+      status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
     try {
       const result = await updateUserSysAd(Number(user.id), payload);
@@ -221,13 +217,13 @@ export default function UsersManagement() {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) {
-      console.error("Restore user error:", e);
       toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
 
-  const filteredUsers = users.filter(user => activeTab === "active" ? user.status === '1' : user.status === '0');
+  const filteredUsers = users.filter(user => user.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+
 
   if (isLoading && users.length === 0) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading users...</p></div>;
@@ -366,7 +362,10 @@ export default function UsersManagement() {
                   <FormLabel>Status *</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value?.toString()}>
                     <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                    <SelectContent><SelectItem value="1">Active</SelectItem><SelectItem value="0">Archived</SelectItem></SelectContent>
+                    <SelectContent>
+                        <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                        <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                    </SelectContent>
                   </Select>
                   <FormMessage />
                 </FormItem>
@@ -406,8 +405,8 @@ export default function UsersManagement() {
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
-                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+              <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataSysAd)) : (d => handleAddSubmit(d as UserCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
+                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
                   {renderFormFields()}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
