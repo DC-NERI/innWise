@@ -2,7 +2,7 @@
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2, 
+  RESERVED: 2, // This is still relevant for hotel_room.is_available
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -12,8 +12,8 @@ export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const HOTEL_ENTITY_STATUS = {
-  ARCHIVED: '0', 
-  ACTIVE: '1',   
+  ARCHIVED: '0',
+  ACTIVE: '1',
 } as const;
 
 export const ROOM_CLEANING_STATUS = {
@@ -31,10 +31,9 @@ export const ROOM_CLEANING_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).map(value => ({
-  value: value, 
-  label: ROOM_CLEANING_STATUS_TEXT[value]
+  value: value,
+  label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT] // Ensure value is treated as a key
 }));
-
 
 export const NOTIFICATION_STATUS = {
   UNREAD: 0,
@@ -61,19 +60,19 @@ export const TRANSACTION_LIFECYCLE_STATUS = {
   CHECKED_OUT: 1,
   RESERVATION_WITH_ROOM: 2,
   RESERVATION_NO_ROOM: 3,
-  RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE: 4,
-  RESERVATION_DECLINED_BY_BRANCH: 5, 
+  RESERVATION_ADMIN_CREATED: 4, // "reservation transaction made by admin" (pending branch acceptance)
+  RESERVATION_DECLINED: 5,      // "declined reservation from admin"
   VOIDED_CANCELLED: 6,
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN]: 'Checked-In',
   [TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT]: 'Checked-Out',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM]: 'Reserved (Room Assigned)',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room)',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_DECLINED_BY_BRANCH]: 'Declined by Branch',
-  [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Cancelled/Voided',
+  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM]: 'Reservation (Room Assigned)',
+  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room Yet)',
+  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED]: 'Pending Branch Acceptance',
+  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_DECLINED]: 'Reservation Declined',
+  [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
 };
 
 export const TRANSACTION_PAYMENT_STATUS = {
@@ -116,5 +115,5 @@ export const LOST_AND_FOUND_STATUS_TEXT: { [key: number]: string } = {
 
 export const LOST_AND_FOUND_STATUS_OPTIONS = Object.values(LOST_AND_FOUND_STATUS).map(value => ({
   value: value,
-  label: LOST_AND_FOUND_STATUS_TEXT[value]
+  label: LOST_AND_FOUND_STATUS_TEXT[value as keyof typeof LOST_AND_FOUND_STATUS_TEXT]
 }));

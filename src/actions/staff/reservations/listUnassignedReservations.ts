@@ -2,10 +2,15 @@
 "use server";
 
 import pg from 'pg';
+// Configure pg to return numeric types as numbers instead of strings
+pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8
+pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2
+pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4
+pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
+
+// Configure pg to return timestamp without timezone as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
-pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10));
-pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
 
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
@@ -34,10 +39,7 @@ export async function listUnassignedReservations(tenantId: number, branchId: num
       WHERE t.tenant_id = $1
         AND t.branch_id = $2
         AND t.hotel_room_id IS NULL
-        AND (
-          t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID}
-          OR t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION}
-        )
+        AND t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} -- Status '3'
       ORDER BY t.reserved_check_in_datetime ASC, t.created_at ASC;
     `;
     const res = await client.query(query, [tenantId, branchId]);
@@ -57,4 +59,3 @@ export async function listUnassignedReservations(tenantId: number, branchId: num
     client.release();
   }
 }
-    
