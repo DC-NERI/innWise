@@ -5,11 +5,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UsersIcon, CalendarClock, CheckCircle2, Wrench, AlertTriangle } from 'lucide-react';
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction } from '@/lib/types';
-import { listNotificationsForBranch, listUnassignedReservations } from '@/actions/staff';
-import { listRoomsForBranch } from '@/actions/admin';
+// Updated imports for actions:
+import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch';
+import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
+import { listRoomsForBranch } from '@/actions/admin/rooms/listRoomsForBranch';
 import {
     NOTIFICATION_STATUS, NOTIFICATION_STATUS_TEXT,
     TRANSACTION_IS_ACCEPTED_STATUS, TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
@@ -45,12 +47,12 @@ const NotificationTable = ({ notifications }: { notifications: Notification[] })
         </TableHeader>
         <TableBody>
           {notifications.map(notif => (
-            <TableRow key={notif.id} className={cn(notif.status === NOTIFICATION_STATUS.UNREAD && (!notif.transaction_id || notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING) ? "bg-primary/5 dark:bg-primary/10 font-medium" : "")}>
+            <TableRow key={notif.id} className={cn(notif.status === NOTIFICATION_STATUS.UNREAD && (!notif.transaction_id || (notif.transaction_is_accepted !== null && notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING)) ? "bg-primary/5 dark:bg-primary/10 font-medium" : "")}>
               <TableCell className="truncate max-w-[150px] sm:max-w-xs" title={notif.message}>{notif.message.substring(0, 50)}{notif.message.length > 50 ? '...' : ''}</TableCell>
               <TableCell>{notif.creator_username || 'System'}</TableCell>
               <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status] || 'Unknown'}</TableCell>
-              <TableCell>{notif.transaction_id ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
-              <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
+              <TableCell>{notif.transaction_id && notif.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
+              <TableCell>{notif.transaction_id && notif.transaction_is_accepted !== null ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted]) : 'N/A'}</TableCell>
               <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
             </TableRow>
           ))}
@@ -142,7 +144,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     const upcoming: Transaction[] = [];
 
     unassignedReservations.forEach(res => {
-        if (res.status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING) { // Skip admin pending ones
+        // Skip reservations that are pending branch acceptance, as they are handled in notifications
+        if (res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE) {
             return;
         }
         if (res.reserved_check_in_datetime) {
@@ -153,12 +156,12 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                 } else if (isFuture(checkInDate)) {
                     upcoming.push(res);
                 }
-            } catch (e) {
+            } catch (e) { // Fallback for invalid date strings, or if no reserved time
                 if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
-                    today.push(res);
+                    today.push(res); // Consider it for today if created today and no valid future date
                 }
             }
-        } else {
+        } else { // No specific reserved check-in time, assume for today if created today
              if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
                 today.push(res);
             }
@@ -178,17 +181,19 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     }
     if (activeNotificationTab === "general") {
       return !notif.transaction_id ||
-             (notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING &&
+             (notif.transaction_is_accepted !== null &&
+              notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING &&
               notif.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED);
     }
     return false;
   });
 
-  const availableCleanRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status === ROOM_CLEANING_STATUS.CLEAN && room.status === HOTEL_ENTITY_STATUS.ACTIVE);
-  const availableNotCleanRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER && room.status === HOTEL_ENTITY_STATUS.ACTIVE);
-  const occupiedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED && room.status === HOTEL_ENTITY_STATUS.ACTIVE);
-  const reservedRooms = rooms.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED && room.status === HOTEL_ENTITY_STATUS.ACTIVE);
-  const outOfOrderRooms = rooms.filter(room => room.cleaning_status === ROOM_CLEANING_STATUS.OUT_OF_ORDER && room.status === HOTEL_ENTITY_STATUS.ACTIVE);
+  const activeRoomsForDashboard = rooms.filter(room => room.status === HOTEL_ENTITY_STATUS.ACTIVE);
+  const availableCleanRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status === ROOM_CLEANING_STATUS.CLEAN);
+  const availableNotCleanRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER);
+  const occupiedRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED);
+  const reservedRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.RESERVED);
+  const outOfOrderRooms = activeRoomsForDashboard.filter(room => room.cleaning_status === ROOM_CLEANING_STATUS.OUT_OF_ORDER);
 
 
   const isLoading = isLoadingNotifications || isLoadingRooms || isLoadingReservations;
@@ -218,7 +223,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
             <TabsList className="grid w-full grid-cols-3 mb-4">
               <TabsTrigger value="pending">Pending ({notifications.filter(n => n.transaction_id && n.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING).length})</TabsTrigger>
               <TabsTrigger value="accepted">Accepted Tx ({notifications.filter(n => n.transaction_id && n.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED).length})</TabsTrigger>
-              <TabsTrigger value="general">General ({notifications.filter(n => !n.transaction_id || (n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING && n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED)).length})</TabsTrigger>
+              <TabsTrigger value="general">General ({notifications.filter(n => !n.transaction_id || (n.transaction_is_accepted !== null && n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.PENDING && n.transaction_is_accepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED)).length})</TabsTrigger>
             </TabsList>
             <TabsContent value="pending">
               <NotificationTable notifications={filteredNotifications} />
@@ -237,10 +242,10 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
       <Card>
         <CardHeader>
           <div className="flex items-center space-x-2">
-            <UsersIcon className="h-5 w-5 text-primary" />
-            <CardTitle>Unassigned Reservations</CardTitle>
+            <CalendarClock className="h-5 w-5 text-primary" />
+            <CardTitle>Reservations Summary</CardTitle>
           </div>
-          <ShadCardDescription>Reservations awaiting room assignment.</ShadCardDescription>
+          <ShadCardDescription>Unassigned reservations awaiting room assignment.</ShadCardDescription>
         </CardHeader>
         <CardContent>
           {isLoadingReservations ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
@@ -269,11 +274,11 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
         <CardContent>
             {isLoadingRooms ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
             <Tabs value={activeRoomTab} onValueChange={setActiveRoomTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-4"> 
+              <TabsList className="grid w-full grid-cols-4 mb-4">
                 <TabsTrigger value="available">Available ({availableCleanRooms.length + availableNotCleanRooms.length})</TabsTrigger>
                 <TabsTrigger value="occupied">Occupied ({occupiedRooms.length})</TabsTrigger>
                 <TabsTrigger value="reserved">Reserved ({reservedRooms.length})</TabsTrigger>
-                <TabsTrigger value="out-of-order">Out of Order ({outOfOrderRooms.length})</TabsTrigger> 
+                <TabsTrigger value="out-of-order">Out of Order ({outOfOrderRooms.length})</TabsTrigger>
               </TabsList>
               <TabsContent value="available">
                 {[...availableCleanRooms, ...availableNotCleanRooms].length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
@@ -316,10 +321,11 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                       let estCheckoutDisplay = 'N/A';
                       if (room.active_transaction_check_in_time && room.active_transaction_rate_hours) {
                           try {
-                              const checkInDate = parseISO(room.active_transaction_check_in_time.replace(' ', 'T'));
+                              const checkInDate = parseISO(String(room.active_transaction_check_in_time).replace(' ', 'T'));
                               const estCheckoutDate = addHours(checkInDate, room.active_transaction_rate_hours);
                               estCheckoutDisplay = format(estCheckoutDate, 'yyyy-MM-dd hh:mm aa');
                           } catch (e) {
+                              // Error parsing date or calculating
                           }
                       }
                       return (
@@ -327,8 +333,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                           <CardHeader className="p-2">
                             <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
                             <ShadCardDescription className="text-xs text-orange-600 dark:text-orange-300 space-y-0.5">
-                              <div className="flex items-center"><UsersIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
-                              <div>In: {room.active_transaction_check_in_time ? format(parseISO(room.active_transaction_check_in_time.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
+                              <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name || 'N/A'}</div>
+                              <div>In: {room.active_transaction_check_in_time ? format(parseISO(String(room.active_transaction_check_in_time).replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</div>
                               <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                               <div>Est. Out: {estCheckoutDisplay}</div>
                               <div className="flex items-center">
@@ -351,7 +357,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                         <CardHeader className="p-2">
                            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
                            <ShadCardDescription className="text-xs text-blue-600 dark:text-blue-300 space-y-0.5">
-                             {room.active_transaction_client_name && <div className="flex items-center"><UsersIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
+                             {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
                              <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                              <div className="flex items-center">
@@ -365,17 +371,17 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="out-of-order"> 
+              <TabsContent value="out-of-order">
                 {outOfOrderRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently out of order.</p> : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
                     {outOfOrderRooms.map(room => (
-                      <Card key={`ooo-dash-${room.id}`} className="shadow-sm bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700">
+                      <Card key={`ooo-dash-${room.id}`} className="shadow-sm bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700">
                         <CardHeader className="p-2">
-                          <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
-                          <ShadCardDescription className="text-xs text-amber-600 dark:text-amber-300 space-y-0.5">
+                          <CardTitle className="text-sm font-medium text-yellow-700 dark:text-yellow-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
+                          <ShadCardDescription className="text-xs text-yellow-600 dark:text-yellow-300 space-y-0.5">
                             <div>Floor: {room.floor ?? 'N/A'}</div>
                             <div className="flex items-center">
-                              <AlertTriangle size={12} className="inline mr-1 text-amber-500" />
+                              <Wrench size={12} className="inline mr-1 text-yellow-500" />
                               {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.OUT_OF_ORDER]}
                             </div>
                             {room.cleaning_notes && (
