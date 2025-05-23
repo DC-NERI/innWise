@@ -73,10 +73,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
           AND (
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} OR
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE} OR
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID} OR /* Added ADVANCE_PAID */
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION} /* Added ADVANCE_RESERVATION */
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM}
               )
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
