@@ -4,8 +4,9 @@
 import pg from 'pg';
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
-pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10));
-pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
+pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10)); // BIGINT
+pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue)); // NUMERIC
+
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
@@ -21,7 +22,7 @@ import {
   notificationCreateSchema, NotificationCreateData
 } from '@/lib/schemas';
 import type { z } from 'zod';
-import { ROOM_AVAILABILITY_STATUS, HOTEL_ENTITY_STATUS, TRANSACTION_LIFECYCLE_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_LINK_STATUS, ROOM_CLEANING_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, HOTEL_ENTITY_STATUS, TRANSACTION_LIFECYCLE_STATUS, NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_LINK_STATUS, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT } from '@/lib/constants';
 import { createUnassignedReservation } from '@/actions/staff';
 import type { TransactionCreateData } from '@/lib/schemas';
 
@@ -42,7 +43,7 @@ export async function listTenants(): Promise<Tenant[]> {
     const res = await client.query('SELECT id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status FROM tenants ORDER BY tenant_name ASC');
     return res.rows.map(row => ({
       ...row,
-      status: String(row.status) as '0' | '1',
+      status: String(row.status),
       max_branch_count: row.max_branch_count === null ? null : Number(row.max_branch_count),
       max_user_count: row.max_user_count === null ? null : Number(row.max_user_count),
     })) as Tenant[];
@@ -78,7 +79,7 @@ export async function createTenant(data: TenantCreateData): Promise<{ success: b
         message: "Tenant created successfully.",
         tenant: {
           ...newTenant,
-          status: String(newTenant.status) as '0' | '1',
+          status: String(newTenant.status),
           max_branch_count: newTenant.max_branch_count === null ? null : Number(newTenant.max_branch_count),
           max_user_count: newTenant.max_user_count === null ? null : Number(newTenant.max_user_count),
         } as Tenant
@@ -124,7 +125,7 @@ export async function updateTenant(tenantId: number, data: TenantUpdateData): Pr
         message: "Tenant updated successfully.",
         tenant: {
             ...updatedTenant,
-            status: String(updatedTenant.status) as '0' | '1',
+            status: String(updatedTenant.status),
             max_branch_count: updatedTenant.max_branch_count === null ? null : Number(updatedTenant.max_branch_count),
             max_user_count: updatedTenant.max_user_count === null ? null : Number(updatedTenant.max_user_count),
         } as Tenant
@@ -175,7 +176,7 @@ export async function getTenantDetails(tenantId: number): Promise<Tenant | null>
       const tenant = res.rows[0];
       return {
         ...tenant,
-        status: String(tenant.status) as '0' | '1',
+        status: String(tenant.status),
         max_branch_count: tenant.max_branch_count === null ? null : Number(tenant.max_branch_count),
         max_user_count: tenant.max_user_count === null ? null : Number(tenant.max_user_count),
       } as Tenant;
@@ -202,7 +203,7 @@ export async function getBranchesForTenant(tenantId: number): Promise<Branch[]> 
     );
     return res.rows.map(row => ({
         ...row,
-        status: String(row.status) as '0' | '1',
+        status: String(row.status),
     })) as Branch[];
   } catch (error) {
     console.error(`[getBranchesForTenant DB Error] Failed to fetch branches for tenant ${tenantId}:`, error);
@@ -267,7 +268,7 @@ export async function updateBranchDetails(
         message: "Branch updated successfully.",
         updatedBranch: {
             ...updatedBranch,
-            status: String(updatedBranch.status) as '0' | '1',
+            status: String(updatedBranch.status),
         } as Branch,
       };
     } else {
@@ -343,7 +344,7 @@ export async function updateBranchSysAd(branchId: number, data: BranchUpdateData
         branch: {
             ...updatedRow,
             tenant_name,
-            status: String(updatedRow.status) as '0' | '1',
+            status: String(updatedRow.status),
         } as Branch
       };
     }
@@ -436,7 +437,7 @@ export async function createBranchForTenant(data: BranchCreateData): Promise<{ s
         branch: {
             ...newRow,
             tenant_name,
-            status: String(newRow.status) as '0' | '1',
+            status: String(newRow.status),
         } as Branch
       };
     }
@@ -472,7 +473,7 @@ export async function listAllBranches(): Promise<Branch[]> {
     `);
     return res.rows.map(row => ({
         ...row,
-        status: String(row.status) as '0' | '1',
+        status: String(row.status),
     })) as Branch[];
   } catch (error) {
     console.error('[listAllBranches DB Error]', error);
@@ -498,7 +499,7 @@ export async function listAllUsers(): Promise<User[]> {
     `);
     return res.rows.map(row => ({
         ...row,
-        status: String(row.status) as '0' | '1',
+        status: String(row.status),
     })) as User[];
   } catch (error) {
     console.error('[listAllUsers DB Error]', error);
@@ -562,7 +563,7 @@ export async function createUserSysAd(data: UserCreateData): Promise<{ success: 
           ...newUser,
           tenant_name,
           branch_name,
-          status: String(newUser.status) as '0' | '1',
+          status: String(newUser.status),
         } as User
       };
     }
@@ -657,7 +658,7 @@ export async function updateUserSysAd(userId: number, data: UserUpdateDataSysAd)
             ...updatedUser,
             tenant_name,
             branch_name,
-            status: String(updatedUser.status) as '0' | '1',
+            status: String(updatedUser.status),
         } as User
       };
     }
@@ -715,7 +716,7 @@ export async function getUsersForTenant(tenantId: number): Promise<User[]> {
     );
     return res.rows.map(row => ({
         ...row,
-        status: String(row.status) as '0' | '1',
+        status: String(row.status),
     })) as User[];
   } catch (error) {
     console.error(`[getUsersForTenant DB Error] Failed to fetch users for tenant ${tenantId}:`, error);
@@ -785,7 +786,7 @@ export async function createUserAdmin(data: UserCreateDataAdmin, callingTenantId
           ...newUser,
           tenant_name,
           branch_name,
-          status: String(newUser.status) as '0' | '1',
+          status: String(newUser.status),
         } as User
       };
     }
@@ -881,7 +882,7 @@ export async function updateUserAdmin(userId: number, data: UserUpdateDataAdmin,
           ...updatedUser,
           tenant_name,
           branch_name,
-          status: String(updatedUser.status) as '0' | '1',
+          status: String(updatedUser.status),
         } as User
       };
     }
@@ -947,7 +948,7 @@ export async function listRatesForBranch(branchId: number, tenantId: number): Pr
       ...row,
       price: parseFloat(row.price),
       excess_hour_price: row.excess_hour_price ? parseFloat(row.excess_hour_price) : null,
-      status: String(row.status) as '0' | '1',
+      status: String(row.status),
     })) as HotelRate[];
   } catch (error) {
     console.error(`[listRatesForBranch DB Error] Failed to fetch rates for branch ${branchId}:`, error);
@@ -990,7 +991,7 @@ export async function createRate(
           branch_name,
           price: parseFloat(newRow.price),
           excess_hour_price: newRow.excess_hour_price ? parseFloat(newRow.excess_hour_price) : null,
-          status: String(newRow.status) as '0' | '1',
+          status: String(newRow.status),
         } as HotelRate
       };
     }
@@ -1038,7 +1039,7 @@ export async function updateRate(
           branch_name,
           price: parseFloat(updatedRow.price),
           excess_hour_price: updatedRow.excess_hour_price ? parseFloat(updatedRow.excess_hour_price) : null,
-          status: String(updatedRow.status) as '0' | '1',
+          status: String(updatedRow.status),
         } as HotelRate
       };
     }
@@ -1117,16 +1118,24 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          AND (t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} OR t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_PENDING})
+          AND t_active.status IN ($3, $4, $5) -- Check-in, Advance Paid, Pending Branch Acceptance
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
           AND hrt_active.branch_id = hr.branch_id
-          AND hrt_active.status = '${HOTEL_ENTITY_STATUS.ACTIVE}'
-      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '${HOTEL_ENTITY_STATUS.ACTIVE}' -- Only active room definitions
+          AND hrt_active.status = $6
+      WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = $7 -- Only active room definitions
       ORDER BY hr.floor ASC, hr.room_code ASC;
     `;
 
-    const res = await client.query(query, [branchId, tenantId]);
+    const res = await client.query(query, [
+        branchId, 
+        tenantId,
+        TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN.toString(),
+        TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM.toString(), // This was advance paid
+        TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE.toString(),
+        HOTEL_ENTITY_STATUS.ACTIVE,
+        HOTEL_ENTITY_STATUS.ACTIVE
+    ]);
 
     return res.rows.map(row => {
       let parsedRateIds: number[] | null = null;
@@ -1137,7 +1146,6 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
             parsedRateIds = [];
           }
         } catch (parseError) {
-          console.error(`[listRoomsForBranch DB Error] Error parsing hotel_rate_id JSON for room ${row.id}:`, row.hotel_rate_id, parseError);
           parsedRateIds = [];
         }
       } else {
@@ -1159,7 +1167,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         is_available: Number(row.is_available),
         cleaning_status: Number(row.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
         cleaning_notes: row.cleaning_notes,
-        status: String(row.status) as '0' | '1',
+        status: String(row.status),
         created_at: row.created_at,
         updated_at: row.updated_at,
         active_transaction_id: row.active_transaction_id ? Number(row.active_transaction_id) : (row.transaction_id ? Number(row.transaction_id) : null),
@@ -1229,7 +1237,7 @@ export async function createRoom(
           is_available: Number(newRow.is_available),
           cleaning_status: Number(newRow.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
           cleaning_notes: newRow.cleaning_notes,
-          status: String(newRow.status) as '0' | '1',
+          status: String(newRow.status),
         } as HotelRoom
       };
     }
@@ -1300,7 +1308,7 @@ export async function updateRoom(roomId: number, data: HotelRoomUpdateData, tena
           is_available: Number(updatedRow.is_available),
           cleaning_status: Number(updatedRow.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
           cleaning_notes: updatedRow.cleaning_notes,
-          status: String(updatedRow.status) as '0' | '1',
+          status: String(updatedRow.status),
         } as HotelRoom
       };
     }
@@ -1356,7 +1364,7 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
         n.target_branch_id, tb.branch_name as target_branch_name,
         n.creator_user_id, u.username as creator_username,
         n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
-        n.created_at, n.read_at, n.transaction_status
+        n.created_at, n.read_at, n.transaction_status as notification_transaction_link_status
        FROM notification n
        LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
        LEFT JOIN users u ON n.creator_user_id = u.id
@@ -1368,10 +1376,10 @@ export async function listNotificationsForTenant(tenantId: number): Promise<Noti
     return res.rows.map(row => ({
         ...row,
         id: Number(row.id),
-        status: Number(row.status),
-        transaction_status: Number(row.transaction_status),
+        status: Number(row.status), // notification status (read/unread)
+        notification_transaction_link_status: Number(row.notification_transaction_link_status), // notification.transaction_status (0 or 1)
         transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
-        linked_transaction_status: row.linked_transaction_status ? Number(row.linked_transaction_status) : null,
+        linked_transaction_status: row.linked_transaction_status ? Number(row.linked_transaction_status) : null, // actual transaction.status
     })) as Notification[];
   } catch (error) {
     console.error(`[listNotificationsForTenant DB Error] Failed to fetch notifications for tenant ${tenantId}:`, error);
@@ -1398,7 +1406,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
-          n.created_at, n.read_at, n.transaction_status
+          n.created_at, n.read_at, n.transaction_status as notification_transaction_link_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
@@ -1413,7 +1421,7 @@ export async function markNotificationAsRead(notificationId: number, tenantId: n
             ...fullNotif,
             id: Number(fullNotif.id),
             status: Number(fullNotif.status),
-            transaction_status: Number(fullNotif.transaction_status),
+            notification_transaction_link_status: Number(fullNotif.notification_transaction_link_status),
             transaction_is_accepted: fullNotif.transaction_is_accepted !== null ? Number(fullNotif.transaction_is_accepted) : null,
             linked_transaction_status: fullNotif.linked_transaction_status ? Number(fullNotif.linked_transaction_status) : null,
         } as Notification
@@ -1450,7 +1458,7 @@ export async function updateNotificationTransactionStatus(
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
-          n.created_at, n.read_at, n.transaction_status
+          n.created_at, n.read_at, n.transaction_status as notification_transaction_link_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
@@ -1465,7 +1473,7 @@ export async function updateNotificationTransactionStatus(
             ...fullNotif,
             id: Number(fullNotif.id),
             status: Number(fullNotif.status),
-            transaction_status: Number(fullNotif.transaction_status),
+            notification_transaction_link_status: Number(fullNotif.notification_transaction_link_status),
             transaction_is_accepted: fullNotif.transaction_is_accepted !== null ? Number(fullNotif.transaction_is_accepted) : null,
             linked_transaction_status: fullNotif.linked_transaction_status ? Number(fullNotif.linked_transaction_status) : null,
         } as Notification
@@ -1493,7 +1501,7 @@ export async function createNotification(
   const { message, target_branch_id, do_reservation, ...reservationFields } = validatedFields.data;
   const client = await pool.connect();
   let createdReservationId: number | null = null;
-  let finalTransactionLinkStatus = NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION;
+  let finalTransactionLinkStatus = NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION_LINK;
 
   try {
     await client.query('BEGIN');
@@ -1543,7 +1551,7 @@ export async function createNotification(
           n.target_branch_id, tb.branch_name as target_branch_name,
           n.creator_user_id, u.username as creator_username,
           n.transaction_id, t.is_accepted as transaction_is_accepted, t.status as linked_transaction_status,
-          n.created_at, n.read_at, n.transaction_status
+          n.created_at, n.read_at, n.transaction_status as notification_transaction_link_status
          FROM notification n
          LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND tb.tenant_id = n.tenant_id
          LEFT JOIN users u ON n.creator_user_id = u.id
@@ -1559,7 +1567,7 @@ export async function createNotification(
             ...fullNotif,
             id: Number(fullNotif.id),
             status: Number(fullNotif.status),
-            transaction_status: Number(fullNotif.transaction_status),
+            notification_transaction_link_status: Number(fullNotif.notification_transaction_link_status),
             transaction_is_accepted: fullNotif.transaction_is_accepted !== null ? Number(fullNotif.transaction_is_accepted) : null,
             linked_transaction_status: fullNotif.linked_transaction_status ? Number(fullNotif.linked_transaction_status) : null,
         } as Notification,
@@ -1602,4 +1610,4 @@ export async function deleteNotification(notificationId: number, tenantId: numbe
   }
 }
 
-
+    
