@@ -14,7 +14,6 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { transactionCreateSchema, TransactionCreateData } from '@/lib/schemas';
 import type { HotelRoom, SimpleRate } from '@/lib/types';
-// Updated imports for actions:
 import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
 import { createTransactionAndOccupyRoom } from '@/actions/staff/transactions/createTransactionAndOccupyRoom';
 import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
@@ -59,26 +58,49 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
   });
 
   const watchIsPaid = form.watch("is_paid");
-  const watchedSelectedRoomIdFromForm = useWatch({ control: form.control, name: "selected_room_id_placeholder_for_walkin" });
+  const watchedSelectedRoomIdFromForm = form.watch("selected_room_id_placeholder_for_walkin" as any);
 
 
   const fetchInitialData = useCallback(async () => {
-    if (!tenantId || !branchId) return;
-    setIsLoadingRooms(true);
-    setIsLoadingRates(true);
-    try {
-      const [roomsData, ratesData] = await Promise.all([
-        listAvailableRoomsForBranch(tenantId, branchId),
-        getRatesForBranchSimple(tenantId, branchId)
-      ]);
-      setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
-      setAllBranchRates(ratesData);
-    } catch (error) {
-      toast({ title: "Error", description: "Could not fetch available rooms or rates.", variant: "destructive" });
-    } finally {
+    if (!tenantId || !branchId) {
+      toast({ title: "Configuration Error", description: "Tenant or Branch ID not available. Cannot load Walk-in Check-in.", variant: "destructive" });
       setIsLoadingRooms(false);
       setIsLoadingRates(false);
+      return;
     }
+    
+    let roomsDataSuccess = false;
+    let ratesDataSuccess = false;
+
+    setIsLoadingRooms(true);
+    try {
+      const roomsData = await listAvailableRoomsForBranch(tenantId, branchId);
+      setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
+      roomsDataSuccess = true;
+    } catch (error) {
+      console.error("WalkInCheckInContent: Failed to fetch available rooms", error);
+      toast({ title: "Error Fetching Rooms", description: `Could not fetch available rooms. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+    } finally {
+      setIsLoadingRooms(false);
+    }
+
+    setIsLoadingRates(true);
+    try {
+      const ratesData = await getRatesForBranchSimple(tenantId, branchId);
+      setAllBranchRates(ratesData);
+      ratesDataSuccess = true;
+    } catch (error) {
+      console.error("WalkInCheckInContent: Failed to fetch branch rates", error);
+      toast({ title: "Error Fetching Rates", description: `Could not fetch branch rates. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+    } finally {
+      setIsLoadingRates(false);
+    }
+
+    if (!roomsDataSuccess && !ratesDataSuccess) {
+        // This specific toast message might not be needed if individual errors are caught above
+        // toast({ title: "Error", description: "Could not fetch available rooms or rates.", variant: "destructive" });
+    }
+
   }, [tenantId, branchId, toast]);
 
   useEffect(() => {
@@ -92,17 +114,17 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
         const filteredRates = allBranchRates.filter(rate => room.hotel_rate_id!.includes(rate.id));
         setApplicableRates(filteredRates);
         if (filteredRates.length > 0) {
-            form.setValue('selected_rate_id', filteredRates[0].id);
+            form.setValue('selected_rate_id', filteredRates[0].id, { shouldValidate: true });
         } else {
-            form.setValue('selected_rate_id', undefined);
+            form.setValue('selected_rate_id', undefined, { shouldValidate: true });
         }
       } else {
         setApplicableRates([]);
-        form.setValue('selected_rate_id', undefined);
+        form.setValue('selected_rate_id', undefined, { shouldValidate: true });
       }
     } else {
       setApplicableRates([]);
-      form.setValue('selected_rate_id', undefined);
+      form.setValue('selected_rate_id', undefined, { shouldValidate: true });
     }
   }, [selectedRoomId, availableRooms, allBranchRates, form]);
 
@@ -127,7 +149,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
         form.reset(defaultWalkInFormValues);
         setSelectedRoomId(null); 
         setApplicableRates([]); 
-        fetchInitialData(); 
+        await fetchInitialData(); // Refresh data after successful check-in
       } else {
         toast({ title: "Check-in Failed", description: result.message, variant: "destructive" });
       }
@@ -154,7 +176,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
           <form onSubmit={form.handleSubmit(handleWalkInSubmit)} className="space-y-6">
             <FormField
               control={form.control}
-              name="selected_room_id_placeholder_for_walkin" 
+              name="selected_room_id_placeholder_for_walkin" // This is a placeholder for the form to track room selection
               render={({ field }) => ( 
                 <FormItem>
                   <FormLabel>Select Available Room *</FormLabel>
@@ -162,9 +184,9 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                     onValueChange={(value) => {
                         const roomId = value ? parseInt(value) : null;
                         setSelectedRoomId(roomId);
-                        field.onChange(roomId); 
+                        field.onChange(roomId); // Update react-hook-form state if needed for validation purposes, though not directly used for data submission
                     }}
-                    value={selectedRoomId?.toString()}
+                    value={selectedRoomId?.toString()} // Bind to selectedRoomId state
                     disabled={isDataLoading || availableRooms.length === 0}
                   >
                     <FormControl>
@@ -183,6 +205,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                       ))}
                     </SelectContent>
                   </Select>
+                  {/* No FormMessage here as this field isn't directly validated by the schema for now */}
                 </FormItem>
               )}
             />
@@ -262,7 +285,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                       onCheckedChange={(checked) => {
                         field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID);
                         if (!checked) {
-                          form.setValue('tender_amount_at_checkin', null);
+                          form.setValue('tender_amount_at_checkin', null, { shouldValidate: true });
                         }
                       }}
                     />
@@ -290,7 +313,7 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
                         onChange={(e) => {
                             const val = e.target.value;
                             if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
-                              field.onChange(val === "" ? null : val);
+                              field.onChange(val === "" ? null : parseFloat(val));
                             }
                         }}
                         />

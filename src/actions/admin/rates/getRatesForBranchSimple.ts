@@ -2,14 +2,19 @@
 "use server";
 
 import pg from 'pg';
-pg.types.setTypeParser(1114, (stringValue) => stringValue);
-pg.types.setTypeParser(1184, (stringValue) => stringValue);
-pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10));
-pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
+// Configure pg to return numeric types as numbers instead of strings
+pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8/bigint
+pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
+pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
+pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
+
+// Configure pg to return timestamp without timezone as strings
+pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
+pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
 
 import { Pool } from 'pg';
 import type { SimpleRate } from '@/lib/types';
-import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { HOTEL_ENTITY_STATUS } from '../../../lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -21,6 +26,10 @@ pool.on('error', (err) => {
 });
 
 export async function getRatesForBranchSimple(tenantId: number, branchId: number): Promise<SimpleRate[]> {
+   if (typeof HOTEL_ENTITY_STATUS?.ACTIVE === 'undefined') {
+    console.error('[getRatesForBranchSimple] CRITICAL ERROR: HOTEL_ENTITY_STATUS constant is undefined. Check imports and constants.ts file.');
+    throw new Error('Server configuration error: Required constants for rate fetching are undefined.');
+  }
   const client = await pool.connect();
   try {
     const query = `
@@ -31,7 +40,7 @@ export async function getRatesForBranchSimple(tenantId: number, branchId: number
     `;
     const res = await client.query(query, [tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]);
     return res.rows.map(row => ({
-      id: row.id,
+      id: Number(row.id),
       name: row.name,
       price: parseFloat(row.price),
       hours: parseInt(row.hours, 10),
