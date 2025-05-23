@@ -4,8 +4,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescription } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionAliased, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,23 +18,24 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Transaction, SimpleRate, HotelRoom } from '@/lib/types';
 import { transactionCreateSchema, TransactionCreateData, assignRoomAndCheckInSchema, AssignRoomAndCheckInData, transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
-import { getRatesForBranchSimple } from '@/actions/admin';
-import {
-  listUnassignedReservations,
-  createUnassignedReservation,
-  updateUnassignedReservation,
-  listAvailableRoomsForBranch,
-  assignRoomAndCheckIn,
-  cancelReservation
-} from '@/actions/staff';
-import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT } from '@/lib/constants';
+
+// Updated imports for actions:
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
+import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
+import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
+import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
+import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
+import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
+import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
+
+import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS } from '@/lib/constants';
 import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO } from 'date-fns';
 
 interface ReservationsContentProps {
   tenantId: number;
   branchId: number;
   staffUserId: number;
-  refreshReservationCount?: () => void; 
+  refreshReservationCount?: () => void;
 }
 
 const getDefaultCheckInDateTimeString = (): string => {
@@ -50,10 +51,8 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
         const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
-        } else {
         }
-    } catch (e) {
-    }
+    } catch (e) { /* ignore */ }
   } else {
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
@@ -69,15 +68,13 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
   is_advance_reservation: false,
   reserved_check_in_datetime: null,
   reserved_check_out_datetime: null,
-  is_paid: false,
+  is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
   tender_amount_at_checkin: null,
 };
-
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
   selected_room_id: undefined as unknown as number,
 };
-
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
   const [unassignedReservations, setUnassignedReservations] = useState<Transaction[]>([]);
@@ -94,7 +91,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const [isCancelReservationConfirmOpen, setIsCancelReservationConfirmOpen] = useState(false);
   const [transactionToCancel, setTransactionToCancel] = useState<Transaction | null>(null);
 
-
   const [isAssignRoomDialogOpen, setIsAssignRoomDialogOpen] = useState(false);
   const [selectedReservationForAssignment, setSelectedReservationForAssignment] = useState<Transaction | null>(null);
 
@@ -104,17 +100,14 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     resolver: zodResolver(transactionCreateSchema),
     defaultValues: defaultUnassignedReservationFormValues,
   });
-  const watchIsAdvanceReservationAdd = addReservationForm.watch("is_advance_reservation");
-  const watchIsPaidAdd = addReservationForm.watch("is_paid");
-
+  const watchIsAdvanceReservationAdd = useWatch({ control: addReservationForm.control, name: 'is_advance_reservation' });
+  const watchIsPaidAdd = useWatch({ control: addReservationForm.control, name: 'is_paid' });
 
   const editReservationForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
   });
-  const watchIsAdvanceReservationEdit = editReservationForm.watch("is_advance_reservation");
-  const watchIsPaidEdit = editReservationForm.watch("is_paid");
-
-
+  const watchIsAdvanceReservationEdit = useWatch({ control: editReservationForm.control, name: 'is_advance_reservation' });
+  const watchIsPaidEdit = useWatch({ control: editReservationForm.control, name: 'is_paid' });
 
   const assignRoomForm = useForm<AssignRoomAndCheckInData>({
     resolver: zodResolver(assignRoomAndCheckInSchema),
@@ -155,7 +148,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
   }, [watchIsAdvanceReservationEdit, editReservationForm, isEditReservationDialogOpen, selectedReservationForEdit]);
 
-
   const fetchInitialData = useCallback(async () => {
     if (!tenantId || !branchId) return;
     setIsLoading(true);
@@ -184,7 +176,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId);
+      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId, false); // false for is_admin_created
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
@@ -196,7 +188,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         }));
         setIsAddReservationDialogOpen(false);
         addReservationForm.reset(defaultUnassignedReservationFormValues);
-        refreshReservationCount?.(); 
+        refreshReservationCount?.();
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -209,20 +201,20 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const handleOpenEditReservationDialog = (reservation: Transaction) => {
     setSelectedReservationForEdit(reservation);
-    const isAdvance = reservation.status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADVANCE_NO_ROOM;
+    const isAdvance = reservation.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION;
 
     let checkInDateTimeFormatted = null;
     if (reservation.reserved_check_in_datetime) {
         try {
             checkInDateTimeFormatted = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
-        } catch (e) {  }
+        } catch (e) {  /* ignore */ }
     }
 
     let checkOutDateTimeFormatted = null;
     if (reservation.reserved_check_out_datetime) {
         try {
             checkOutDateTimeFormatted = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
-        } catch (e) {  }
+        } catch (e) {  /* ignore */ }
     }
 
     editReservationForm.reset({
@@ -233,8 +225,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         is_advance_reservation: isAdvance || !!reservation.reserved_check_in_datetime,
         reserved_check_in_datetime: checkInDateTimeFormatted,
         reserved_check_out_datetime: checkOutDateTimeFormatted,
-        is_paid: reservation.is_paid === 1 || reservation.is_paid === 2,
-        tender_amount_at_checkin: reservation.tender_amount,
+        is_paid: reservation.is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID,
+        tender_amount_at_checkin: reservation.tender_amount ?? null,
     });
     setIsEditReservationDialogOpen(true);
   };
@@ -260,7 +252,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             );
             setIsEditReservationDialogOpen(false);
             setSelectedReservationForEdit(null);
-            refreshReservationCount?.(); 
+            refreshReservationCount?.();
         } else {
             toast({ title: "Update Failed", description: result.message, variant: "destructive" });
         }
@@ -289,7 +281,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
         setIsCancelReservationConfirmOpen(false);
         setTransactionToCancel(null);
-        refreshReservationCount?.(); 
+        refreshReservationCount?.();
       } else {
         toast({ title: "Cancellation Failed", description: result.message, variant: "destructive" });
       }
@@ -300,17 +292,16 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
   };
 
-
   const handleOpenAssignRoomDialog = async (reservation: Transaction) => {
     if (!tenantId || !branchId) return;
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true);
+    setIsLoading(true); 
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
-      setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
+      setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code })));
       if (rooms.length === 0) {
-        toast({ title: "No Rooms Available", description: "There are no currently available rooms in this branch to assign.", variant: "default"});
+        toast({ title: "No Rooms Available", description: "There are no currently available and clean rooms in this branch to assign.", variant: "default"});
       }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch available rooms.", variant: "destructive" });
@@ -340,7 +331,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        refreshReservationCount?.(); 
+        refreshReservationCount?.();
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -354,7 +345,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const renderReservationFormFields = (
     formInstance: typeof addReservationForm | typeof editReservationForm,
     isAdvance: boolean | undefined,
-    isPaid: boolean | undefined
+    isPaid: TRANSACTION_PAYMENT_STATUS | undefined
   ) => {
     const formValues = formInstance.getValues();
     return (
@@ -374,7 +365,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
               <SelectContent>
                 {allBranchRates.map(rate => (
                   <SelectItem key={rate.id} value={rate.id.toString()}>
-                    {rate.name} (₱{Number(rate.price).toFixed(2)})
+                    {rate.name} (₱{rate.price.toFixed(2)} for {rate.hours}hr/s)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -393,16 +384,16 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             </Select><FormMessage />
           </FormItem>
         )} />
-         <FormField
+        <FormField
           control={formInstance.control}
           name="is_paid"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
               <FormControl>
                 <Checkbox
-                  checked={field.value}
+                  checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                   onCheckedChange={(checked) => {
-                    field.onChange(checked);
+                    field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.UNPAID); 
                     if (!checked) {
                       formInstance.setValue('tender_amount_at_checkin', null, { shouldValidate: true });
                     }
@@ -415,7 +406,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             </FormItem>
           )}
         />
-        {isPaid && (
+        {(isPaid === TRANSACTION_PAYMENT_STATUS.PAID || isPaid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID) && (
           <FormField
             control={formInstance.control}
             name="tender_amount_at_checkin"
@@ -507,7 +498,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         }}>
           <DialogTrigger asChild>
             <Button onClick={() => {
-                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues });
+                 addReservationForm.reset({ ...defaultUnassignedReservationFormValues, selected_rate_id: undefined, client_payment_method: undefined });
                  setIsAddReservationDialogOpen(true);
             }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add New Reservation
@@ -539,62 +530,64 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         ) : unassignedReservations.length === 0 ? (
           <p className="text-muted-foreground text-center py-8">No unassigned reservations found for this branch.</p>
         ) : (
-          <Table>
-            <TableHeader><TableRow><TableHead>Client Name</TableHead><TableHead>Rate</TableHead><TableHead>Status</TableHead><TableHead>Reserved On / For</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {unassignedReservations.map(res => (
-                <TableRow key={res.id}>
-                  <TableCell className="font-medium">{res.client_name}</TableCell>
-                  <TableCell>{res.rate_name || 'N/A'}</TableCell>
-                  <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
-                  <TableCell>
-                    {res.status === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADVANCE_NO_ROOM && res.reserved_check_in_datetime
-                      ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
-                      : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end items-center space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
-                            <Edit className="mr-1 h-3 w-3" /> Edit
-                        </Button>
-                        <AlertDialog
-                            open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id}
-                            onOpenChange={(open) => {
-                                if (!open && transactionToCancel?.id === res.id) {
-                                    setIsCancelReservationConfirmOpen(false);
-                                    setTransactionToCancel(null);
-                                }
-                            }}
-                        >
-                            <AlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
-                                    <Ban className="mr-1 h-3 w-3" /> Cancel
-                                </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                                <AlertDialogHeader>
-                                    <AlertDialogTitle>Confirm Cancellation</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                        Are you sure you want to cancel this reservation for "{transactionToCancel?.client_name}"? This action cannot be undone.
-                                    </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                    <AlertDialogCancel onClick={() => { setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
-                                    <AlertDialogAction onClick={handleConfirmCancelUnassignedReservation} disabled={isSubmitting}>
-                                        {isSubmitting ? <Loader2 className="animate-spin" /> : "Yes, Cancel Reservation"}
-                                    </AlertDialogAction>
-                                </AlertDialogFooter>
-                            </AlertDialogContent>
-                        </AlertDialog>
-                        <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
-                            <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
-                        </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="max-h-[60vh] overflow-y-auto">
+            <Table>
+                <TableHeader><TableRow><TableHead>Client Name</TableHead><TableHead>Rate</TableHead><TableHead>Status</TableHead><TableHead>Reserved On / For</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableBody>
+                {unassignedReservations.map(res => (
+                    <TableRow key={res.id}>
+                    <TableCell className="font-medium">{res.client_name}</TableCell>
+                    <TableCell>{res.rate_name || 'N/A'}</TableCell>
+                    <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
+                    <TableCell>
+                        {(res.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION || res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE) && res.reserved_check_in_datetime
+                        ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
+                        : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
+                    </TableCell>
+                    <TableCell className="text-right">
+                        <div className="flex justify-end items-center space-x-2">
+                            <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
+                                <Edit className="mr-1 h-3 w-3" /> Edit
+                            </Button>
+                            <AlertDialog
+                                open={isCancelReservationConfirmOpen && transactionToCancel?.id === res.id}
+                                onOpenChange={(open) => {
+                                    if (!open && transactionToCancel?.id === res.id) {
+                                        setIsCancelReservationConfirmOpen(false);
+                                        setTransactionToCancel(null);
+                                    }
+                                }}
+                            >
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
+                                        <Ban className="mr-1 h-3 w-3" /> Cancel
+                                    </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <ShadAlertDialogTitle>Confirm Cancellation</ShadAlertDialogTitle>
+                                        <ShadAlertDialogDescriptionAliased>
+                                            Are you sure you want to cancel this reservation for "{transactionToCancel?.client_name}"? This action cannot be undone.
+                                        </ShadAlertDialogDescriptionAliased>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel onClick={() => { setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
+                                        <AlertDialogAction onClick={handleConfirmCancelUnassignedReservation} disabled={isSubmitting}>
+                                            {isSubmitting ? <Loader2 className="animate-spin" /> : "Yes, Cancel Reservation"}
+                                        </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                            <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
+                                <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
+                            </Button>
+                        </div>
+                    </TableCell>
+                    </TableRow>
+                ))}
+                </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 
@@ -608,7 +601,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
           <DialogHeader className="p-2 border-b">
             <DialogTitle>Edit Unassigned Reservation</DialogTitle>
-            <CardDescription>Client: {selectedReservationForEdit?.client_name}</CardDescription>
+            <ShadDialogDescription>Client: {selectedReservationForEdit?.client_name}</ShadDialogDescription>
           </DialogHeader>
           <Form {...editReservationForm}>
             <form onSubmit={editReservationForm.handleSubmit(handleEditReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
@@ -635,13 +628,13 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setIsAssignRoomDialogOpen(open);
       }}>
         <DialogContent className="sm:max-w-md p-3">
-          <DialogHeader>
+          <DialogHeader className="border-b pb-2 mb-2">
             <DialogTitle>Assign Room & Check-in</DialogTitle>
             {selectedReservationForAssignment && (
-              <CardDescription>
+              <ShadDialogDescription className="text-sm">
                 Client: {selectedReservationForAssignment.client_name} <br/>
                 Rate: {selectedReservationForAssignment.rate_name || 'N/A'}
-              </CardDescription>
+              </ShadDialogDescription>
             )}
           </DialogHeader>
           <Form {...assignRoomForm}>
@@ -679,3 +672,5 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     </Card>
   );
 }
+
+    
