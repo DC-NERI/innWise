@@ -2,7 +2,7 @@
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2, // This is still relevant for hotel_room.is_available
+  RESERVED: 2,
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -32,8 +32,9 @@ export const ROOM_CLEANING_STATUS_TEXT: { [key: number]: string } = {
 
 export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).map(value => ({
   value: value,
-  label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT] // Ensure value is treated as a key
+  label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT]
 }));
+
 
 export const NOTIFICATION_STATUS = {
   UNREAD: 0,
@@ -56,13 +57,16 @@ export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string 
 };
 
 export const TRANSACTION_LIFECYCLE_STATUS = {
-  CHECKED_IN: 0,
-  CHECKED_OUT: 1,
-  RESERVATION_WITH_ROOM: 2,
-  RESERVATION_NO_ROOM: 3,
-  RESERVATION_ADMIN_CREATED: 4, // "reservation transaction made by admin" (pending branch acceptance)
-  RESERVATION_DECLINED: 5,      // "declined reservation from admin"
+  CHECKED_IN: 0, // Occupied, initial bill possibly paid or unpaid
+  CHECKED_OUT: 1, // Stay completed and fully paid
+  RESERVATION_WITH_ROOM: 2, // Room assigned, paid in advance, awaiting check-in
+  RESERVATION_NO_ROOM: 3, // No room assigned, paid in advance or for future, awaiting room assignment
+  PENDING_BRANCH_ACCEPTANCE: 4, // Admin created, needs branch action
+  // RESERVATION_DECLINED: 5, // This state can be achieved by setting is_accepted to NOT_ACCEPTED and status to VOIDED_CANCELLED
   VOIDED_CANCELLED: 6,
+  // Re-using 2 and 3 for specific types of reservations:
+  ADVANCE_PAID: 2, // Alias for RESERVATION_WITH_ROOM when is_paid=2 implies full rate paid
+  ADVANCE_RESERVATION: 3, // Alias for RESERVATION_NO_ROOM when it's a future booking, possibly not paid
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
@@ -70,15 +74,15 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT]: 'Checked-Out',
   [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM]: 'Reservation (Room Assigned)',
   [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room Yet)',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED]: 'Pending Branch Acceptance',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_DECLINED]: 'Reservation Declined',
+  [TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
 };
 
+
 export const TRANSACTION_PAYMENT_STATUS = {
   UNPAID: 0,
-  PAID: 1,
-  ADVANCE_PAID: 2,
+  PAID: 1, // Fully paid for the stay (usually at checkout, or if check-in covers full rate initially)
+  ADVANCE_PAID: 2, // An advance payment was made (e.g., for a reservation)
 } as const;
 
 export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
