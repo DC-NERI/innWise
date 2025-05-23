@@ -4,8 +4,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle as ShadDialogTitle, DialogFooter, DialogClose, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionAliased, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle as ShadDialogTitle,
+  DialogFooter,
+  DialogClose,
+  DialogDescription as ShadDialogDescriptionAliased
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription as ShadAlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle as ShadAlertDialogTitle,
+  AlertDialogTrigger
+} from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -29,8 +47,8 @@ import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMillise
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
-  TRANSACTION_STATUS,
-  TRANSACTION_STATUS_TEXT,
+  TRANSACTION_LIFECYCLE_STATUS,
+  TRANSACTION_LIFECYCLE_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS,
   TRANSACTION_IS_ACCEPTED_STATUS_TEXT
 } from '@/lib/constants';
@@ -49,7 +67,6 @@ const formatDateTimeForInput = (dateString?: string | null): string => {
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
-    console.warn("Error formatting date string for input:", dateString, e);
     return "";
   }
 };
@@ -93,8 +110,21 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
 
   const acceptManageForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
+    defaultValues: {
+        client_name: '',
+        selected_rate_id: undefined,
+        client_payment_method: undefined,
+        notes: '',
+        is_advance_reservation: false,
+        reserved_check_in_datetime: null,
+        reserved_check_out_datetime: null,
+        is_paid: false,
+        tender_amount_at_checkin: null,
+    }
   });
   const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
+  const watchIsPaidAcceptManageForm = acceptManageForm.watch("is_paid");
+
 
   const fetchNotifications = useCallback(async () => {
     if (!tenantId || !branchId) return;
@@ -144,7 +174,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
       } catch (error) {
-        console.error("Failed to mark notification as read:", error);
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
@@ -157,7 +186,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     try {
       const [transaction, rates] = await Promise.all([
         getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, branchId),
-        getRatesForBranchSimple(branchId, tenantId) // Swapped tenantId and branchId here
+        getRatesForBranchSimple(tenantId, branchId)
       ]);
 
       if (!transaction) {
@@ -173,9 +202,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         selected_rate_id: transaction.hotel_rate_id ?? undefined,
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
-        is_advance_reservation: transaction.status === TRANSACTION_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
+        is_advance_reservation: transaction.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
         reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
+        is_paid: transaction.is_paid === TRANSACTION_PAYMENT_STATUS.PAID || transaction.is_paid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID,
+        tender_amount_at_checkin: transaction.tender_amount ?? null,
       });
 
       setIsDetailsModalOpen(false);
@@ -283,7 +314,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-600 border-red-700"; // Using bg-red-600 for non-blinking red
+                  cardBgClass = "bg-red-500 border-red-700";
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
@@ -292,7 +323,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardAcceptanceTextClass = "font-semibold text-white";
                 }
               }
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100') && !cardBgClass.includes('bg-red-600') ) {
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100')) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -313,7 +344,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   <CardContent className={cn("text-xs", cardContentTextClass)}>
                     <p>Status: <span className={cardStatusTextClass}>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
                     {notif.transaction_id && (
-                      <p>Linked Reservation: Status <span className={cardLinkedStatusTextClass}>{TRANSACTION_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className={cardAcceptanceTextClass}>{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
+                      <p>Linked Reservation: Status <span className={cardLinkedStatusTextClass}>{TRANSACTION_LIFECYCLE_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className={cardAcceptanceTextClass}>{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
                     )}
                   </CardContent>
                 </Card>
@@ -341,7 +372,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               {selectedNotification.transaction_id && (
                 <>
                   <p><strong>Linked Transaction ID:</strong> {selectedNotification.transaction_id}</p>
-                  <p><strong>Linked Reservation Status:</strong> {TRANSACTION_STATUS_TEXT[selectedNotification.linked_transaction_status as keyof typeof TRANSACTION_STATUS_TEXT] || 'N/A'}</p>
+                  <p><strong>Linked Reservation Status:</strong> {TRANSACTION_LIFECYCLE_STATUS_TEXT[selectedNotification.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</p>
                   <p><strong>Acceptance by Branch:</strong> {TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotification.transaction_is_accepted ?? 0]}</p>
                 </>
               )}
@@ -349,7 +380,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
           )}
           <DialogFooter className="sm:justify-between">
             {selectedNotification?.transaction_id &&
-             selectedNotification?.linked_transaction_status === TRANSACTION_STATUS.PENDING_BRANCH_ACCEPTANCE &&
+             selectedNotification?.linked_transaction_status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE.toString() && // Ensure string comparison if linked_transaction_status is string
              (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) && (
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
                 {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -398,6 +429,55 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   <FormField control={acceptManageForm.control} name="notes" render={({ field }) => (
                     <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                   )} />
+                   <FormField
+                      control={acceptManageForm.control}
+                      name="is_paid"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={(checked) => {
+                                field.onChange(checked);
+                                if (!checked) {
+                                  acceptManageForm.setValue('tender_amount_at_checkin', null, { shouldValidate: true });
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel>Mark as Paid?</FormLabel>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                    {watchIsPaidAcceptManageForm && (
+                      <FormField
+                        control={acceptManageForm.control}
+                        name="tender_amount_at_checkin"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Tender Amount *</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                placeholder="0.00"
+                                {...field}
+                                value={field.value === null || field.value === undefined ? "" : String(field.value)}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
+                                    field.onChange(val === "" ? null : val);
+                                  }
+                                }}
+                                className="w-[90%]"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
                   <FormField control={acceptManageForm.control} name="is_advance_reservation" render={({ field }) => (
                     <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                       <div className="space-y-1 leading-none"><FormLabel>Advance Future Reservation?</FormLabel></div>
@@ -423,7 +503,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                             <AlertDialogHeader><ShadAlertDialogTitle>Confirm Decline</ShadAlertDialogTitle>
-                                <ShadAlertDialogDescriptionAliased>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescriptionAliased>
+                                <ShadAlertDialogDescription>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                                 <AlertDialogCancel onClick={() => setTransactionToDecline(null)}>No</AlertDialogCancel>
@@ -451,5 +531,3 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     </Card>
   );
 }
-
-    
