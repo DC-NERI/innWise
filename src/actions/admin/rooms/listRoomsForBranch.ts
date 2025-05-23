@@ -20,7 +20,7 @@ import {
   HOTEL_ENTITY_STATUS, 
   TRANSACTION_LIFECYCLE_STATUS, 
   ROOM_CLEANING_STATUS 
-} from '@/lib/constants';
+} from '@/lib/constants'; // Ensured all necessary constants are imported
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -42,39 +42,40 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         hr.id,
         hr.tenant_id,
         hr.branch_id,
-        hr.hotel_rate_id, -- This is JSONB
-        hr.transaction_id, -- This is the FK from hotel_room to transactions
+        hr.hotel_rate_id, 
+        hr.transaction_id, 
         hr.room_name,
         hr.room_code,
         hr.floor,
         hr.room_type,
         hr.bed_type,
         hr.capacity,
-        hr.is_available, -- This is now integer: 0=Available, 1=Occupied, 2=Reserved
+        hr.is_available, 
         hr.cleaning_status,
         hr.cleaning_notes,
-        hr.status AS room_definition_status, -- Renamed to avoid conflict with transaction.status
+        hr.status AS room_definition_status,
         t_active.client_name AS active_transaction_client_name,
         t_active.check_in_time AS active_transaction_check_in_time,
-        t_active.reserved_check_in_datetime AS active_transaction_reserved_check_in_time, -- for reservations
+        t_active.reserved_check_in_datetime AS active_transaction_reserved_check_in_time,
         hrt_active.name AS active_transaction_rate_name,
         hrt_active.hours AS active_transaction_rate_hours,
-        t_active.status AS active_transaction_lifecycle_status -- lifecycle status of the active transaction
+        t_active.status AS active_transaction_lifecycle_status
       FROM hotel_room hr
       LEFT JOIN transactions t_active ON hr.transaction_id = t_active.id
           AND t_active.tenant_id = hr.tenant_id
           AND t_active.branch_id = hr.branch_id
-          -- Fetch details if transaction is Unpaid, Advance Paid, Advance Reservation, or Pending Branch Acceptance
           AND (
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN} OR
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM} OR 
                 t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM} OR 
-                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.RESERVATION_ADMIN_CREATED_PENDING_BRANCH_ACCEPTANCE}
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE} OR
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID} OR 
+                t_active.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION} 
               )
       LEFT JOIN hotel_rates hrt_active ON t_active.hotel_rate_id = hrt_active.id
           AND hrt_active.tenant_id = hr.tenant_id
           AND hrt_active.branch_id = hr.branch_id
-          AND hrt_active.status = '${HOTEL_ENTITY_STATUS.ACTIVE}' -- Only consider active rates for transaction details
+          AND hrt_active.status = '${HOTEL_ENTITY_STATUS.ACTIVE}'
       WHERE hr.branch_id = $1 AND hr.tenant_id = $2 AND hr.status = '${HOTEL_ENTITY_STATUS.ACTIVE}'
       ORDER BY hr.floor, hr.room_code;
     `;
@@ -86,16 +87,18 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       try {
         if (row.hotel_rate_id) {
           if (Array.isArray(row.hotel_rate_id)) {
+             // If it's already an array of numbers (e.g., from a direct JSONB array in DB)
             if (row.hotel_rate_id.every((item: any) => typeof item === 'number')) {
                  parsedRateIds = row.hotel_rate_id as number[];
             }
           } else if (typeof row.hotel_rate_id === 'string') {
+            // If it's a JSON string like "[1,2,3]"
             const data = JSON.parse(row.hotel_rate_id);
             if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
               parsedRateIds = data;
             }
           } else if (typeof row.hotel_rate_id === 'object' && row.hotel_rate_id !== null) {
-            // Attempt to parse object values if it's an object from JSONB like {"0": 1, "1": 2}
+            // If it's an object from JSONB like {"0": 1, "1": 2} due to how to_jsonb might work on single integers
             const data = Object.values(row.hotel_rate_id);
              if (Array.isArray(data) && data.every(item => typeof item === 'number')) {
               parsedRateIds = data;
@@ -109,7 +112,7 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
       let displayCheckInTime = null;
       if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.OCCUPIED && row.active_transaction_check_in_time) {
           displayCheckInTime = row.active_transaction_check_in_time;
-      } else if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVATION_WITH_ROOM && row.active_transaction_reserved_check_in_time) {
+      } else if (Number(row.is_available) === ROOM_AVAILABILITY_STATUS.RESERVED && row.active_transaction_reserved_check_in_time) {
           displayCheckInTime = row.active_transaction_reserved_check_in_time;
       }
 
@@ -126,9 +129,9 @@ export async function listRoomsForBranch(branchId: number, tenantId: number): Pr
         bed_type: row.bed_type,
         capacity: row.capacity ? Number(row.capacity) : null,
         is_available: Number(row.is_available),
-        cleaning_status: row.cleaning_status ? Number(row.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
+        cleaning_status: row.cleaning_status !== null ? Number(row.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: row.cleaning_notes,
-        status: row.room_definition_status, // This is the room's own active/archived status
+        status: row.room_definition_status, 
         
         active_transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
         active_transaction_client_name: row.active_transaction_client_name,
