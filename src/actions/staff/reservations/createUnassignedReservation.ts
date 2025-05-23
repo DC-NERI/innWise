@@ -18,8 +18,7 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_PAYMENT_STATUS,
   TRANSACTION_IS_ACCEPTED_STATUS
-} from '../../../lib/constants'; // Adjusted import path
-
+} from '../../../lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -37,8 +36,9 @@ export async function createUnassignedReservation(
   staffUserId: number,
   is_admin_created_flag: boolean = false
 ): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
+
   if (!staffUserId || typeof staffUserId !== 'number' || staffUserId <= 0) {
-    console.error("[createUnassignedReservation] Invalid staffUserId:", staffUserId);
+    console.error("[createUnassignedReservation] Invalid staffUserId received:", staffUserId, "Data:", data);
     return { success: false, message: "Invalid user identifier for creating reservation." };
   }
 
@@ -55,9 +55,21 @@ export async function createUnassignedReservation(
     (!is_admin_created_flag && typeof TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED === 'undefined')
   ) {
     const errorMessage = "Server configuration error: Critical status constants are missing or undefined in createUnassignedReservation.";
+    // console.error('[createUnassignedReservation] CRITICAL ERROR:', errorMessage, {
+    //     TRANSACTION_LIFECYCLE_STATUS_defined: !!TRANSACTION_LIFECYCLE_STATUS,
+    //     PENDING_BRANCH_ACCEPTANCE_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE,
+    //     ADVANCE_RESERVATION_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_RESERVATION,
+    //     ADVANCE_PAID_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_PAID,
+    //     TRANSACTION_PAYMENT_STATUS_defined: !!TRANSACTION_PAYMENT_STATUS,
+    //     PAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.PAID,
+    //     UNPAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.UNPAID,
+    //     TRANSACTION_IS_ACCEPTED_STATUS_defined: !!TRANSACTION_IS_ACCEPTED_STATUS,
+    //     PENDING_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.PENDING,
+    //     ACCEPTED_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.ACCEPTED,
+    //     is_admin_created_flag,
+    // });
     return { success: false, message: errorMessage };
   }
-
 
   const validatedFields = transactionCreateSchema.safeParse(data);
   if (!validatedFields.success) {
@@ -91,7 +103,7 @@ export async function createUnassignedReservation(
     } else { // Staff creating for their own branch
       transactionLifecycleStatusValue = is_advance_reservation
         ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION // 3
-        : (is_paid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID : TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION); // 2 or 3
+        : (is_paid === TRANSACTION_PAYMENT_STATUS.PAID ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID : TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION); // 2 or 3
       finalIsAcceptedStatusValue = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // 2
     }
     
@@ -122,7 +134,7 @@ export async function createUnassignedReservation(
       is_admin_created_flag ? 1 : 0, // $11 is_admin_created (SMALLINT)
       finalIsAcceptedStatusValue, // $12 is_accepted (SMALLINT)
       finalIsPaidDbValue, // $13 is_paid (INTEGER)
-      finalIsPaidDbValue === TRANSACTION_PAYMENT_STATUS.UNPAID ? null : tender_amount_at_checkin ?? null, // $14 tender_amount
+      (finalIsPaidDbValue === TRANSACTION_PAYMENT_STATUS.UNPAID || finalIsPaidDbValue === null) ? null : tender_amount_at_checkin ?? null, // $14 tender_amount
     ];
 
     const res = await client.query(queryText, transactionValues);
@@ -173,14 +185,18 @@ export async function createUnassignedReservation(
         transaction: newTransaction
       };
     }
-    return { success: false, message: "Reservation creation failed after commit." }; // Should ideally not happen if RETURNING * worked.
+    // This part should ideally not be reached if RETURNING * worked and transaction was committed
+    return { success: false, message: "Reservation creation failed after commit." };
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('[createUnassignedReservation DB Error]', error);
-    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
+    const dbError = error as any; // Cast to any to access potential code/constraint
+    let detailedMessage = `Database error: ${dbError.message || String(dbError)}`;
+    if (dbError.code === '23502' && dbError.column === 'created_by_user_id') { // 23502 is not_null_violation
+        detailedMessage = "Database error: User ID for creation is missing or invalid.";
+    }
+    return { success: false, message: detailedMessage };
   } finally {
     client.release();
   }
 }
-
-    
