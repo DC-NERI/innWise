@@ -5,10 +5,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench } from 'lucide-react';
+import { Loader2, Bell, Bed, Users as UserIcon, CalendarClock, CheckCircle2, Wrench, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, HotelRoom, Transaction } from '@/lib/types';
-// Updated imports for actions:
 import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch';
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
 import { listRoomsForBranch } from '@/actions/admin/rooms/listRoomsForBranch';
@@ -23,9 +22,9 @@ import { format, parseISO, isToday, isFuture, addHours } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 interface DashboardContentProps {
-  tenantId: number;
-  branchId: number;
-  staffUserId: number;
+  tenantId: number | null;
+  branchId: number | null;
+  staffUserId: number | null;
 }
 
 const NotificationTable = ({ notifications }: { notifications: Notification[] }) => {
@@ -51,7 +50,7 @@ const NotificationTable = ({ notifications }: { notifications: Notification[] })
               <TableCell className="truncate max-w-[150px] sm:max-w-xs" title={notif.message}>{notif.message.substring(0, 50)}{notif.message.length > 50 ? '...' : ''}</TableCell>
               <TableCell>{notif.creator_username || 'System'}</TableCell>
               <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status] || 'Unknown'}</TableCell>
-              <TableCell>{notif.transaction_id && notif.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
+              <TableCell>{notif.transaction_id && notif.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
               <TableCell>{notif.transaction_id && notif.transaction_is_accepted !== null ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted]) : 'N/A'}</TableCell>
               <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
             </TableRow>
@@ -113,39 +112,70 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
   const { toast } = useToast();
 
   const fetchData = useCallback(async () => {
-    if (!tenantId || !branchId) return;
-    setIsLoadingNotifications(true);
-    setIsLoadingRooms(true);
-    setIsLoadingReservations(true);
-    try {
-      const [notifData, roomsData, unassignedResData] = await Promise.all([
-        listNotificationsForBranch(tenantId, branchId),
-        listRoomsForBranch(branchId, tenantId),
-        listUnassignedReservations(tenantId, branchId)
-      ]);
-      setNotifications(notifData.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-      setRooms(roomsData);
-      setUnassignedReservations(unassignedResData);
-    } catch (error) {
-      toast({ title: "Error", description: "Could not fetch dashboard data.", variant: "destructive" });
-    } finally {
+    if (typeof tenantId !== 'number' || typeof branchId !== 'number') {
+      toast({ title: "Info", description: "Tenant or Branch ID missing or invalid. Cannot fetch dashboard data.", variant: "default" });
       setIsLoadingNotifications(false);
       setIsLoadingRooms(false);
       setIsLoadingReservations(false);
+      return;
     }
+
+    // console.log(`[DashboardContent] Fetching data for tenantId: ${tenantId}, branchId: ${branchId}`);
+
+    setIsLoadingNotifications(true);
+    try {
+      const notifData = await listNotificationsForBranch(tenantId, branchId);
+      setNotifications(notifData.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+    } catch (error) {
+      console.error("[DashboardContent] Failed to fetch notifications:", error);
+      toast({ title: "Notification Data Error", description: `Could not fetch notifications. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+    } finally {
+      setIsLoadingNotifications(false);
+    }
+
+    setIsLoadingRooms(true);
+    try {
+      const roomsData = await listRoomsForBranch(branchId, tenantId);
+      setRooms(roomsData);
+    } catch (error) {
+      console.error("[DashboardContent] Failed to fetch rooms:", error);
+      toast({ title: "Room Data Error", description: `Could not fetch rooms. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+    } finally {
+      setIsLoadingRooms(false);
+    }
+
+    setIsLoadingReservations(true);
+    try {
+      const unassignedResData = await listUnassignedReservations(tenantId, branchId);
+      setUnassignedReservations(unassignedResData);
+    } catch (error) {
+      console.error("[DashboardContent] Failed to fetch unassigned reservations:", error);
+      toast({ title: "Reservation Data Error", description: `Could not fetch unassigned reservations. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+    } finally {
+      setIsLoadingReservations(false);
+    }
+
   }, [tenantId, branchId, toast]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    if (tenantId && branchId) {
+        fetchData();
+    } else {
+        // Set loading states to false if essential IDs are missing to prevent infinite loading indicators
+        setIsLoadingNotifications(false);
+        setIsLoadingRooms(false);
+        setIsLoadingReservations(false);
+    }
+  }, [fetchData, tenantId, branchId]); // Added tenantId and branchId to ensure fetchData is called if they change from null to a value
 
   useEffect(() => {
     const today: Transaction[] = [];
     const upcoming: Transaction[] = [];
 
     unassignedReservations.forEach(res => {
-        // Skip reservations that are pending branch acceptance, as they are handled in notifications
-        if (res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE) {
+        // Ensure status is a number before comparing
+        const statusNum = Number(res.status);
+        if (statusNum === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE) {
             return;
         }
         if (res.reserved_check_in_datetime) {
@@ -156,12 +186,12 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                 } else if (isFuture(checkInDate)) {
                     upcoming.push(res);
                 }
-            } catch (e) { // Fallback for invalid date strings, or if no reserved time
+            } catch (e) {
                 if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
-                    today.push(res); // Consider it for today if created today and no valid future date
+                    today.push(res);
                 }
             }
-        } else { // No specific reserved check-in time, assume for today if created today
+        } else {
              if(res.created_at && isToday(parseISO(res.created_at.replace(' ','T')))) {
                 today.push(res);
             }
@@ -189,6 +219,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
   });
 
   const activeRoomsForDashboard = rooms.filter(room => room.status === HOTEL_ENTITY_STATUS.ACTIVE);
+  
   const availableCleanRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status === ROOM_CLEANING_STATUS.CLEAN);
   const availableNotCleanRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.AVAILABLE && room.cleaning_status !== ROOM_CLEANING_STATUS.CLEAN && room.cleaning_status !== ROOM_CLEANING_STATUS.OUT_OF_ORDER);
   const occupiedRooms = activeRoomsForDashboard.filter(room => room.is_available === ROOM_AVAILABILITY_STATUS.OCCUPIED);
@@ -197,6 +228,16 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
 
 
   const isLoading = isLoadingNotifications || isLoadingRooms || isLoadingReservations;
+
+  if (!tenantId || !branchId) {
+    return (
+        <Card>
+            <CardHeader><CardTitle>Dashboard Unavailable</CardTitle></CardHeader>
+            <CardContent><p className="text-muted-foreground">Tenant or Branch information is not available. Please ensure you are assigned correctly.</p></CardContent>
+        </Card>
+    );
+  }
+
 
   if (isLoading && notifications.length === 0 && rooms.length === 0 && unassignedReservations.length === 0) {
     return (
@@ -274,15 +315,15 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
         <CardContent>
             {isLoadingRooms ? <div className="flex justify-center py-4"><Loader2 className="animate-spin text-primary"/></div> :
             <Tabs value={activeRoomTab} onValueChange={setActiveRoomTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-4 mb-4">
+              <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-4">
                 <TabsTrigger value="available">Available ({availableCleanRooms.length + availableNotCleanRooms.length})</TabsTrigger>
                 <TabsTrigger value="occupied">Occupied ({occupiedRooms.length})</TabsTrigger>
                 <TabsTrigger value="reserved">Reserved ({reservedRooms.length})</TabsTrigger>
                 <TabsTrigger value="out-of-order">Out of Order ({outOfOrderRooms.length})</TabsTrigger>
               </TabsList>
-              <TabsContent value="available">
-                {[...availableCleanRooms, ...availableNotCleanRooms].length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-3 max-h-72 overflow-y-auto">
+              <TabsContent value="available" className="max-h-72 overflow-y-auto">
+                {(availableCleanRooms.length + availableNotCleanRooms.length) === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently available.</p> : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {availableCleanRooms.map(room => (
                       <Card key={`avail-dash-clean-${room.id}`} className="shadow-sm bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700">
                         <CardHeader className="p-2">
@@ -291,7 +332,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                             Room #: {room.room_code} <br/>
                             <div className="flex items-center">
                                 <Wrench size={12} className="inline mr-1" />
-                                {ROOM_CLEANING_STATUS_TEXT[ROOM_CLEANING_STATUS.CLEAN]}
+                                {ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT]}
                             </div>
                           </ShadCardDescription>
                         </CardHeader>
@@ -305,7 +346,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                             Room #: {room.room_code} <br/>
                             <div className="flex items-center">
                                 <Wrench size={12} className="inline mr-1" />
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
+                                {ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT]}
                             </div>
                           </ShadCardDescription>
                         </CardHeader>
@@ -314,9 +355,9 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="occupied">
+              <TabsContent value="occupied" className="max-h-72 overflow-y-auto">
                 {occupiedRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently occupied.</p> : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {occupiedRooms.map(room => {
                       let estCheckoutDisplay = 'N/A';
                       if (room.active_transaction_check_in_time && room.active_transaction_rate_hours) {
@@ -324,9 +365,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                               const checkInDate = parseISO(String(room.active_transaction_check_in_time).replace(' ', 'T'));
                               const estCheckoutDate = addHours(checkInDate, room.active_transaction_rate_hours);
                               estCheckoutDisplay = format(estCheckoutDate, 'yyyy-MM-dd hh:mm aa');
-                          } catch (e) {
-                              // Error parsing date or calculating
-                          }
+                          } catch (e) { /* ignore */ }
                       }
                       return (
                         <Card key={`occ-dash-${room.id}`} className="shadow-sm bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700">
@@ -339,7 +378,7 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                               <div>Est. Out: {estCheckoutDisplay}</div>
                               <div className="flex items-center">
                                 <Wrench size={12} className="inline mr-1" />
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
+                                {ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT]}
                                </div>
                             </ShadCardDescription>
                           </CardHeader>
@@ -349,20 +388,20 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="reserved">
+              <TabsContent value="reserved" className="max-h-72 overflow-y-auto">
                 {reservedRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently reserved.</p> : (
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {reservedRooms.map(room => (
                       <Card key={`res-dash-${room.id}`} className="shadow-sm bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700">
                         <CardHeader className="p-2">
                            <CardTitle className="text-sm font-medium text-blue-700 dark:text-blue-200 truncate">{room.room_name} <span className="text-xs">({room.room_code})</span></CardTitle>
                            <ShadCardDescription className="text-xs text-blue-600 dark:text-blue-300 space-y-0.5">
                              {room.active_transaction_client_name && <div className="flex items-center"><UserIcon size={12} className="mr-1"/>{room.active_transaction_client_name}</div>}
-                             <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[room.is_available]}</div>
+                             <div>Status: {ROOM_AVAILABILITY_STATUS_TEXT[Number(room.is_available)]}</div>
                              <div>Rate: {room.active_transaction_rate_name || 'N/A'}</div>
                              <div className="flex items-center">
                                 <Wrench size={12} className="inline mr-1" />
-                                {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN]}
+                                {ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT]}
                               </div>
                            </ShadCardDescription>
                         </CardHeader>
@@ -371,9 +410,9 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                   </div>
                 )}
               </TabsContent>
-              <TabsContent value="out-of-order">
+               <TabsContent value="out-of-order" className="max-h-72 overflow-y-auto">
                 {outOfOrderRooms.length === 0 ? <p className="text-muted-foreground text-center py-4">No rooms currently out of order.</p> : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-72 overflow-y-auto">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                     {outOfOrderRooms.map(room => (
                       <Card key={`ooo-dash-${room.id}`} className="shadow-sm bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700">
                         <CardHeader className="p-2">
@@ -381,8 +420,8 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
                           <ShadCardDescription className="text-xs text-yellow-600 dark:text-yellow-300 space-y-0.5">
                             <div>Floor: {room.floor ?? 'N/A'}</div>
                             <div className="flex items-center">
-                              <Wrench size={12} className="inline mr-1 text-yellow-500" />
-                              {ROOM_CLEANING_STATUS_TEXT[room.cleaning_status || ROOM_CLEANING_STATUS.OUT_OF_ORDER]}
+                              <AlertTriangle size={12} className="inline mr-1 text-yellow-500" />
+                              {ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT]}
                             </div>
                             {room.cleaning_notes && (
                               <p className="mt-1 text-xs italic truncate" title={room.cleaning_notes}>
@@ -403,3 +442,5 @@ export default function DashboardContent({ tenantId, branchId, staffUserId }: Da
     </div>
   );
 }
+
+    

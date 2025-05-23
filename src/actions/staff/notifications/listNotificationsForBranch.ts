@@ -27,12 +27,13 @@ pool.on('error', (err) => {
 });
 
 export async function listNotificationsForBranch(tenantId: number, branchId: number): Promise<Notification[]> {
-  if (!tenantId || !branchId) {
-    console.warn('[listNotificationsForBranch] tenantId or branchId is missing.');
+  if (typeof tenantId !== 'number' || typeof branchId !== 'number' || isNaN(tenantId) || isNaN(branchId)) {
+    console.warn(`[listNotificationsForBranch] Invalid tenantId (${tenantId}) or branchId (${branchId}). Aborting fetch.`);
     return [];
   }
   const client = await pool.connect();
   try {
+    // console.log(`[listNotificationsForBranch Server] Fetching for tenantId: ${tenantId}, branchId: ${branchId}`);
     const query = `
       SELECT
         n.id,
@@ -86,12 +87,14 @@ export async function listNotificationsForBranch(tenantId: number, branchId: num
       return notification;
     });
   } catch (dbError: any) {
-    console.error('[listNotificationsForBranch DB Error Raw]', dbError);
+    console.error('[listNotificationsForBranch DB Error Raw]', dbError); // Log the raw error
+    // console.error(`Query was: ${query} with params: [${tenantId}, ${branchId}]`); // Be careful logging queries with sensitive data
     const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred while fetching notifications.';
-    console.error('[listNotificationsForBranch DB Error Parsed Msg]', errorMessage);
-    throw new Error(`Database error: ${errorMessage}`);
+    throw new Error(`Database error in listNotificationsForBranch: ${errorMessage}`);
   } finally {
     client.release();
   }
 }
+    
+
     
