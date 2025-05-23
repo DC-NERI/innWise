@@ -2,14 +2,20 @@
 "use server";
 
 import pg from 'pg';
+// Configure pg to return numeric types as numbers instead of strings
+pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8/bigint
+pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
+pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
+pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
+
+// Configure pg to return timestamp without timezone as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
-pg.types.setTypeParser(20, (stringValue) => parseInt(stringValue, 10));
-pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
+
 
 import { Pool } from 'pg';
 import type { Notification } from '@/lib/types';
-import { NOTIFICATION_STATUS, TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
+// Constants are not directly used in this query's WHERE clause, but are for understanding the data.
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -21,6 +27,10 @@ pool.on('error', (err) => {
 });
 
 export async function listNotificationsForBranch(tenantId: number, branchId: number): Promise<Notification[]> {
+  if (!tenantId || !branchId) {
+    console.warn('[listNotificationsForBranch] tenantId or branchId is missing.');
+    return [];
+  }
   const client = await pool.connect();
   try {
     const query = `
@@ -28,39 +38,60 @@ export async function listNotificationsForBranch(tenantId: number, branchId: num
         n.id,
         n.tenant_id,
         n.message,
-        n.status,
+        n.status AS notification_read_status,        -- Notification read/unread status (VARCHAR in DB, e.g. '0', '1')
         n.target_branch_id,
+        tb.branch_name AS target_branch_name,
         n.creator_user_id,
         u.username AS creator_username,
         n.transaction_id,
+        n.transaction_status AS notification_link_status, -- Notification link status (INTEGER in DB)
         n.created_at,
         n.read_at,
-        n.transaction_status AS transaction_link_status, -- Renamed in previous refactor
-        t.is_accepted AS transaction_is_accepted,
-        t.status AS linked_transaction_status,
+        t.is_accepted AS transaction_is_accepted,      -- Transaction acceptance status (SMALLINT in DB)
+        t.status AS linked_transaction_lifecycle_status, -- Transaction lifecycle status (VARCHAR in DB, e.g. '0'-'6')
         n.notification_type,
         n.priority,
         n.acknowledged_at,
         n.acknowledged_by_user_id
       FROM notification n
       LEFT JOIN users u ON n.creator_user_id = u.id
-      LEFT JOIN transactions t ON n.transaction_id = t.id
+      LEFT JOIN tenant_branch tb ON n.target_branch_id = tb.id AND n.tenant_id = tb.tenant_id
+      LEFT JOIN transactions t ON n.transaction_id = t.id AND n.tenant_id = t.tenant_id AND (n.target_branch_id = t.branch_id OR n.target_branch_id IS NULL) -- Ensure transaction matches tenant and branch if specified
       WHERE n.tenant_id = $1 AND (n.target_branch_id = $2 OR n.target_branch_id IS NULL)
       ORDER BY n.created_at DESC;
     `;
     const res = await client.query(query, [tenantId, branchId]);
-    return res.rows.map(row => ({
-      ...row,
-      status: Number(row.status),
-      transaction_link_status: Number(row.transaction_link_status),
-      transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
-      linked_transaction_status: row.linked_transaction_status !== null ? Number(row.linked_transaction_status) : null,
-      priority: row.priority !== null ? Number(row.priority) : null,
-    }));
-  } catch (error) {
-    console.error('[listNotificationsForBranch DB Error]', error);
-    throw new Error(`Database error: ${error instanceof Error ? error.message : String(error)}`);
+
+    return res.rows.map(row => {
+      const notification: Notification = {
+        id: Number(row.id),
+        tenant_id: Number(row.tenant_id),
+        message: row.message,
+        status: Number(row.notification_read_status), // Read/unread status
+        target_branch_id: row.target_branch_id ? Number(row.target_branch_id) : null,
+        target_branch_name: row.target_branch_name,
+        creator_user_id: row.creator_user_id ? Number(row.creator_user_id) : null,
+        creator_username: row.creator_username,
+        transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
+        created_at: row.created_at,
+        read_at: row.read_at,
+        transaction_status: Number(row.notification_link_status), // Link status
+        transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
+        linked_transaction_status: row.linked_transaction_lifecycle_status !== null ? Number(row.linked_transaction_lifecycle_status) : null,
+        notification_type: row.notification_type,
+        priority: row.priority !== null ? Number(row.priority) : null,
+        acknowledged_at: row.acknowledged_at,
+        acknowledged_by_user_id: row.acknowledged_by_user_id ? Number(row.acknowledged_by_user_id) : null,
+      };
+      return notification;
+    });
+  } catch (dbError: any) {
+    console.error('[listNotificationsForBranch DB Error Raw]', dbError);
+    const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred while fetching notifications.';
+    console.error('[listNotificationsForBranch DB Error Parsed Msg]', errorMessage);
+    throw new Error(`Database error: ${errorMessage}`);
   } finally {
     client.release();
   }
 }
+    
