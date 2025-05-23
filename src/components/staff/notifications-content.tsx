@@ -31,14 +31,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { MessageSquare, Loader2, RefreshCw, CalendarCheck, XCircle, Edit3, CheckCircle2, User, CalendarClock, Ban } from "lucide-react";
 import type { Notification, Transaction, SimpleRate } from '@/lib/types';
-import {
-  listNotificationsForBranch,
-  markStaffNotificationAsRead,
-  acceptReservationByStaff,
-  declineReservationByStaff,
-  getActiveTransactionForRoom
-} from '@/actions/staff';
-import { getRatesForBranchSimple } from '@/actions/admin';
+
+// Updated imports:
+import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch';
+import { markStaffNotificationAsRead } from '@/actions/staff/notifications/markStaffNotificationAsRead';
+import { acceptReservationByStaff } from '@/actions/staff/reservations/acceptReservationByStaff';
+import { declineReservationByStaff } from '@/actions/staff/reservations/declineReservationByStaff';
+import { getActiveTransactionForRoom } from '@/actions/staff/transactions/getActiveTransactionForRoom';
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple'; // Assuming this was correctly refactored to admin/rates
+
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -50,7 +51,8 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_LIFECYCLE_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS,
-  TRANSACTION_IS_ACCEPTED_STATUS_TEXT
+  TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
+  TRANSACTION_PAYMENT_STATUS
 } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
@@ -81,7 +83,8 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
+        const parsableDateString = checkInDateString.includes('T') ? checkInDateString : checkInDateString.replace(' ', 'T');
+        const parsedCheckIn = parseISO(parsableDateString);
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
@@ -118,7 +121,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         is_advance_reservation: false,
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
-        is_paid: false,
+        is_paid: false, 
         tender_amount_at_checkin: null,
     }
   });
@@ -202,7 +205,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         selected_rate_id: transaction.hotel_rate_id ?? undefined,
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
-        is_advance_reservation: transaction.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION || (transaction.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime),
+        is_advance_reservation: transaction.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION || transaction.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE && !!transaction.reserved_check_in_datetime,
         reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
         is_paid: transaction.is_paid === TRANSACTION_PAYMENT_STATUS.PAID || transaction.is_paid === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID,
@@ -254,7 +257,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         setIsAcceptManageModalOpen(false);
         setIsDetailsModalOpen(false);
         fetchNotifications();
-        refreshReservationCount?.();
+        refreshReservationCount?.(); 
       } else {
         toast({ title: "Decline Failed", description: result.message, variant: "destructive" });
       }
@@ -297,7 +300,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               let cardAcceptanceTextClass = "font-semibold";
 
               if (notif.transaction_id) {
-                if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
+                 if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
                   cardBgClass = "bg-red-500 border-red-700 animate-pulse-opacity-gentle";
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
@@ -344,7 +347,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   <CardContent className={cn("text-xs", cardContentTextClass)}>
                     <p>Status: <span className={cardStatusTextClass}>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
                     {notif.transaction_id && (
-                      <p>Linked Reservation: Status <span className={cardLinkedStatusTextClass}>{TRANSACTION_LIFECYCLE_STATUS_TEXT[notif.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className={cardAcceptanceTextClass}>{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
+                      <p>Linked Reservation: Status <span className="font-semibold">{TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</span> | Acceptance <span className="font-semibold">{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
                     )}
                   </CardContent>
                 </Card>
@@ -366,13 +369,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                 <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1 text-foreground">{selectedNotification.message}</pre>
               </div>
               <p><strong>From:</strong> {selectedNotification.creator_username || "System"}</p>
-              <p><strong>Target Branch:</strong> {selectedNotification.target_branch_name || "Tenant-wide"}</p>
               <p><strong>Date:</strong> {selectedNotification.created_at ? format(parseISO(selectedNotification.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</p>
               <p><strong>Status:</strong> {NOTIFICATION_STATUS_TEXT[selectedNotification.status]}</p>
               {selectedNotification.transaction_id && (
                 <>
                   <p><strong>Linked Transaction ID:</strong> {selectedNotification.transaction_id}</p>
-                  <p><strong>Linked Reservation Status:</strong> {TRANSACTION_LIFECYCLE_STATUS_TEXT[selectedNotification.linked_transaction_status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</p>
+                  <p><strong>Linked Reservation Status:</strong> {TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(selectedNotification.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</p>
                   <p><strong>Acceptance by Branch:</strong> {TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotification.transaction_is_accepted ?? 0]}</p>
                 </>
               )}
@@ -380,7 +382,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
           )}
           <DialogFooter className="sm:justify-between">
             {selectedNotification?.transaction_id &&
-             selectedNotification?.linked_transaction_status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE.toString() && // Ensure string comparison if linked_transaction_status is string
+             Number(selectedNotification?.linked_transaction_status) === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE &&
              (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) && (
               <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction}>
                 {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -393,7 +395,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         </DialogContent>
       </Dialog>
 
-      {/* Accept/Manage Reservation Modal */}
       <Dialog open={isAcceptManageModalOpen} onOpenChange={(open) => {
           if (!open) { setTransactionToManage(null); setRatesForAcceptModal([]); acceptManageForm.reset(); }
           setIsAcceptManageModalOpen(open);
@@ -438,7 +439,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                             <Checkbox
                               checked={field.value}
                               onCheckedChange={(checked) => {
-                                field.onChange(checked);
+                                field.onChange(checked ? true : false);
                                 if (!checked) {
                                   acceptManageForm.setValue('tender_amount_at_checkin', null, { shouldValidate: true });
                                 }
@@ -518,7 +519,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                         <Button type="button" variant="outline" className="flex-1">Cancel</Button>
                     </DialogClose>
 
-                    <Button type="button" className="flex-1" onClick={acceptManageForm.handleSubmit(handleAcceptReservationSubmit)} disabled={isSubmittingAction}>
+                    <Button type="button" className="flex-1" onClick={acceptManageForm.handleSubmit(handleAcceptReservationSubmit)} disabled={isSubmittingAction || !acceptManageForm.formState.isValid}>
                         {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" /> }
                         <CalendarCheck className="mr-2 h-4 w-4"/> Accept
                     </Button>
@@ -531,3 +532,6 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     </Card>
   );
 }
+
+
+    

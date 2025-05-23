@@ -17,7 +17,9 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { LostAndFoundLog } from '@/lib/types';
 import { lostAndFoundCreateSchema, LostAndFoundCreateData, lostAndFoundUpdateStatusSchema, LostAndFoundUpdateStatusData } from '@/lib/schemas';
-import { listLostAndFoundItems, addLostAndFoundItem, updateLostAndFoundItemStatus } from '@/actions/staff';
+import { listLostAndFoundItems } from '@/actions/staff/lostandfound/listLostAndFoundItems';
+import { addLostAndFoundItem } from '@/actions/staff/lostandfound/addLostAndFoundItem';
+import { updateLostAndFoundItemStatus } from '@/actions/staff/lostandfound/updateLostAndFoundItemStatus';
 import { LOST_AND_FOUND_STATUS, LOST_AND_FOUND_STATUS_TEXT, LOST_AND_FOUND_STATUS_OPTIONS } from '@/lib/constants';
 import { format as formatDateTime, parseISO } from 'date-fns';
 
