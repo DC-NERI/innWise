@@ -10,7 +10,7 @@ import { Loader2, BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getDetailedSalesReport } from '@/actions/admin/reports/getDetailedSalesReport';
 import type { AdminDashboardSummary } from '@/lib/types';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, parseISO } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, parseISO, isValid } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 
@@ -68,10 +68,25 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   };
   
   const chartData = useMemo(() => {
-    return reportData?.dailySales?.map(item => ({
-      name: format(parseISO(item.sale_date), 'MMM dd'),
-      Sales: item.total_sales,
-    })) || [];
+    return reportData?.dailySales
+      ?.filter(item => item.sale_date && typeof item.sale_date === 'string') // Ensure sale_date is a valid string
+      .map(item => {
+        try {
+          const date = parseISO(item.sale_date); // 'YYYY-MM-DD' should be parsed correctly by parseISO
+          if (!isValid(date)) {
+            console.warn(`Invalid date string encountered: ${item.sale_date}`);
+            return null; // Or handle as an error, or skip
+          }
+          return {
+            name: format(date, 'MMM dd'),
+            Sales: item.total_sales,
+          };
+        } catch (e) {
+          console.error(`Error parsing date string: ${item.sale_date}`, e);
+          return null;
+        }
+      })
+      .filter(item => item !== null) || []; // Filter out any nulls from failed parsing
   }, [reportData?.dailySales]);
 
 

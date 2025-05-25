@@ -8,9 +8,10 @@ pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2
 pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4
 pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
 
-// Configure pg to return timestamp without timezone as strings
+// Configure pg to return timestamp and date types as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+pg.types.setTypeParser(1082, (stringValue) => stringValue); // DATE
 
 import { Pool } from 'pg';
 import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary } from '@/lib/types';
@@ -45,13 +46,13 @@ export async function getDetailedSalesReport(
     let dateParamIndex = queryParams.length + 1;
 
     if (startDate && endDate) {
-      dateFilterClause = `AND DATE(t.check_out_time) BETWEEN $${dateParamIndex} AND $${dateParamIndex + 1}`;
+      dateFilterClause = `AND DATE(t.check_out_time AT TIME ZONE 'Asia/Manila') BETWEEN $${dateParamIndex} AND $${dateParamIndex + 1}`;
       queryParams.push(startDate, endDate);
     } else if (startDate) {
-      dateFilterClause = `AND DATE(t.check_out_time) >= $${dateParamIndex}`;
+      dateFilterClause = `AND DATE(t.check_out_time AT TIME ZONE 'Asia/Manila') >= $${dateParamIndex}`;
       queryParams.push(startDate);
     } else if (endDate) {
-      dateFilterClause = `AND DATE(t.check_out_time) <= $${dateParamIndex}`;
+      dateFilterClause = `AND DATE(t.check_out_time AT TIME ZONE 'Asia/Manila') <= $${dateParamIndex}`;
       queryParams.push(endDate);
     }
 
@@ -116,7 +117,7 @@ export async function getDetailedSalesReport(
     `;
     const dailySalesRes = await client.query(dailySalesQuery, queryParams);
     const dailySales: DailySaleSummary[] = dailySalesRes.rows.map(row => ({
-        sale_date: String(row.sale_date),
+        sale_date: String(row.sale_date), // Ensure sale_date is treated as a string
         total_sales: parseFloat(row.total_sales || '0'),
         transaction_count: Number(row.transaction_count || 0),
     }));
