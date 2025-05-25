@@ -6,18 +6,20 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell, PanelLeft } from 'lucide-react';
+import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell, PanelLeft, Archive as LostAndFoundIcon, LayoutDashboard } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
 import RoomsContent from '@/components/admin/rooms-content';
 import NotificationsContent from '@/components/admin/notifications-content';
+import LostAndFoundAdminContent from '@/components/admin/lost-and-found-admin-content';
+import DashboardAdminContent from '@/components/admin/dashboard-admin-content';
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'branches' | 'users' | 'rates' | 'rooms' | 'notifications' | 'settings'>('branches');
+  const [activeView, setActiveView] = useState<'dashboard' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found' | 'settings'>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -52,7 +54,41 @@ const AdminDashboardPage: NextPage = () => {
         return;
       }
 
-      if (storedTenantId) setTenantId(parseInt(storedTenantId, 10));
+      if (storedTenantId) {
+        const parsedTenantId = parseInt(storedTenantId, 10);
+         if (isNaN(parsedTenantId) || parsedTenantId <= 0) {
+          console.error("[AdminDashboardPage] Invalid tenantId found in localStorage:", storedTenantId);
+          setTenantId(null);
+          setTenantName("Tenant Info Error");
+        } else {
+          setTenantId(parsedTenantId);
+           if (storedTenantName) {
+            setTenantName(storedTenantName);
+          } else {
+            const fetchDetails = async () => {
+              try {
+                const tenant = await getTenantDetails(parsedTenantId);
+                if (tenant) {
+                  setTenantName(tenant.tenant_name);
+                  if (typeof window !== 'undefined') {
+                      localStorage.setItem('userTenantName', tenant.tenant_name);
+                  }
+                } else {
+                  setTenantName("Tenant Not Found");
+                }
+              } catch (error) {
+                 console.error("[AdminDashboardPage] Error fetching tenant details:", error);
+                 setTenantName("Error Fetching Tenant Info");
+              }
+            };
+            fetchDetails();
+          }
+        }
+      } else {
+         setTenantId(null);
+         setTenantName("Tenant Information Unavailable");
+      }
+
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
       if (storedLastName) setLastName(storedLastName);
@@ -68,30 +104,6 @@ const AdminDashboardPage: NextPage = () => {
       } else {
           setUserId(null);
           console.warn("[AdminDashboardPage] No valid userId found in localStorage.");
-      }
-
-
-      if (storedRole === 'sysad') { 
-         setTenantName("System Administrator");
-      } else if (storedTenantName) {
-        setTenantName(storedTenantName);
-      } else if (storedTenantId) {
-        const fetchDetails = async () => {
-          const tenant = await getTenantDetails(parseInt(storedTenantId, 10));
-          if (tenant) {
-            setTenantName(tenant.tenant_name);
-            if (typeof window !== 'undefined') {
-                localStorage.setItem('userTenantName', tenant.tenant_name);
-            }
-          } else {
-            setTenantName("Tenant Not Found");
-          }
-        };
-        fetchDetails().catch(error => {
-           setTenantName("Error Fetching Tenant Info");
-        });
-      } else {
-        setTenantName("Tenant Information Unavailable");
       }
     }
 
@@ -143,6 +155,16 @@ const AdminDashboardPage: NextPage = () => {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
+                onClick={() => setActiveView('dashboard')}
+                isActive={activeView === 'dashboard'}
+                tooltip="Dashboard"
+              >
+                <LayoutDashboard />
+                <span>Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
                 onClick={() => setActiveView('users')}
                 isActive={activeView === 'users'}
                 tooltip="Users"
@@ -191,6 +213,16 @@ const AdminDashboardPage: NextPage = () => {
                 <span>Notifications</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('lost-and-found')}
+                isActive={activeView === 'lost-and-found'}
+                tooltip="Lost & Found"
+              >
+                <LostAndFoundIcon />
+                <span>Lost & Found</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -216,7 +248,7 @@ const AdminDashboardPage: NextPage = () => {
             <SidebarTrigger className="md:hidden" aria-label="Toggle Sidebar">
               <PanelLeft />
             </SidebarTrigger>
-            <SidebarTrigger className="hidden md:flex" aria-label="Toggle Sidebar">
+             <SidebarTrigger className="hidden md:flex" aria-label="Toggle Sidebar">
               <PanelLeft />
             </SidebarTrigger>
             <div className="text-sm font-bold text-foreground">
@@ -228,6 +260,9 @@ const AdminDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
+          {activeView === 'dashboard' && userRole === 'admin' && tenantId !== null && <DashboardAdminContent tenantId={tenantId} />}
+          {activeView === 'dashboard' && tenantId === null && <p>Loading tenant information for dashboard...</p>}
+
           {activeView === 'users' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <UsersContent tenantId={tenantId} adminUserId={userId} />}
           {activeView === 'users' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for user management...</p>}
 
@@ -247,6 +282,9 @@ const AdminDashboardPage: NextPage = () => {
             <p>Loading tenant or user information for notifications...</p>
           )}
 
+          {activeView === 'lost-and-found' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <LostAndFoundAdminContent tenantId={tenantId} adminUserId={userId} />}
+          {activeView === 'lost-and-found' && (tenantId === null || !userId || userId <=0) && <p>Loading information for Lost & Found...</p>}
+
           {activeView === 'settings' && userRole === 'admin' && (
             <div>
               <h2 className="text-2xl font-semibold">Settings</h2>
@@ -260,5 +298,4 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-
     

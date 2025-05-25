@@ -25,7 +25,7 @@ import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranch
 import { createRoom } from '@/actions/admin/rooms/createRoom';
 import { updateRoom } from '@/actions/admin/rooms/updateRoom';
 import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
-import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS, HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -85,10 +85,11 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   const fetchBranchData = useCallback(async (branchId: number) => {
     if (!tenantId) return;
     setIsLoadingData(true);
+    setAvailableRates([]); // Clear previous rates
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
-        getRatesForBranchSimple(tenantId, branchId) // tenantId is first param for this action
+        getRatesForBranchSimple(tenantId, branchId) 
       ]);
       setRooms(fetchedRooms);
       setAvailableRates(fetchedRates.filter(rate => rate.status === HOTEL_ENTITY_STATUS.ACTIVE));
@@ -117,15 +118,15 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 
     if (currentIsEditing && selectedRoom) {
       newDefaults = {
-        hotel_rate_ids: Array.isArray(selectedRoom.hotel_rate_id) ? selectedRoom.hotel_rate_id : [],
+        hotel_rate_ids: Array.isArray(selectedRoom.hotel_rate_id) ? selectedRoom.hotel_rate_id.map(id => Number(id)) : [],
         room_name: selectedRoom.room_name,
         room_code: selectedRoom.room_code,
         floor: selectedRoom.floor ?? undefined,
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: selectedRoom.is_available,
-        cleaning_status: selectedRoom.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+        is_available: Number(selectedRoom.is_available),
+        cleaning_status: Number(selectedRoom.cleaning_status) || ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: selectedRoom.cleaning_notes || '',
         status: selectedRoom.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
@@ -203,8 +204,8 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       room_type: room.room_type,
       bed_type: room.bed_type,
       capacity: room.capacity,
-      is_available: room.is_available,
-      cleaning_status: room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+      is_available: Number(room.is_available),
+      cleaning_status: Number(room.cleaning_status) || ROOM_CLEANING_STATUS.CLEAN,
       cleaning_notes: room.cleaning_notes || '',
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
@@ -364,7 +365,9 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                     if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); }
                 }}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No active rates available for this branch. Add rates first." : ""}>
+                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); }} 
+                        disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} 
+                        title={!selectedBranchId ? "Select a branch first" : (availableRates.length === 0 ? "No active rates for this branch. Add rates first." : "Add new room")}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                 </Button>
               </DialogTrigger>
@@ -395,8 +398,8 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
-                      <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[r.is_available as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
-                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[r.cleaning_status as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
+                      <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
+                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
                       <TableCell className="text-right space-x-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
@@ -417,7 +420,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                   <TableBody>{filteredRooms.map(r => (
                     <TableRow key={r.id}>
                       <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell>
-                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[r.cleaning_status as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
+                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                       </TableCell>
@@ -443,5 +446,3 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     </Card>
   );
 }
-
-    

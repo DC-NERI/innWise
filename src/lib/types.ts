@@ -1,4 +1,5 @@
 
+
 import type { z } from 'zod';
 import type { transactionObjectSchema, roomCleaningStatusAndNotesUpdateSchema, checkoutFormSchema } from '@/lib/schemas';
 
@@ -16,7 +17,7 @@ export interface User {
   username: string;
   email?: string | null;
   role: UserRole;
-  status: string; // '0' or '1' from HOTEL_ENTITY_STATUS
+  status: string; 
   created_at: string;
   updated_at: string;
   last_log_in?: string | null;
@@ -40,7 +41,7 @@ export interface Tenant {
   max_user_count?: number | null;
   created_at: string;
   updated_at: string;
-  status: string; // '0' or '1' from HOTEL_ENTITY_STATUS
+  status: string; 
 }
 
 export interface Branch {
@@ -52,7 +53,7 @@ export interface Branch {
   branch_address?: string | null;
   contact_number?: string | null;
   email_address?: string | null;
-  status: string; // '0' or '1' from HOTEL_ENTITY_STATUS
+  status: string; 
   created_at: string;
   updated_at: string;
 }
@@ -61,6 +62,7 @@ export interface Branch {
 export interface SimpleBranch {
   id: number;
   branch_name: string;
+  status?: string; 
 }
 
 export interface HotelRate {
@@ -73,7 +75,7 @@ export interface HotelRate {
   hours: number;
   excess_hour_price?: number | null;
   description?: string | null;
-  status: string; // '0' or '1' from HOTEL_ENTITY_STATUS
+  status: string; 
   created_at: string;
   updated_at: string;
 }
@@ -83,7 +85,7 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null;
+  hotel_rate_id: number[] | null; 
   rate_names?: string[];
   room_name: string;
   room_code: string;
@@ -91,11 +93,11 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // From ROOM_AVAILABILITY_STATUS
-  cleaning_status: number; // From ROOM_CLEANING_STATUS
+  is_available: number; 
+  cleaning_status: number; 
   cleaning_notes?: string | null;
-  status: string; // '0' or '1' from HOTEL_ENTITY_STATUS (for room definition itself)
-  transaction_id?: number | null;
+  status: string; 
+  transaction_id?: number | null; 
   created_at: string;
   updated_at: string;
 
@@ -103,8 +105,8 @@ export interface HotelRoom {
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
-  active_transaction_status?: number | null; // from TRANSACTION_LIFECYCLE_STATUS
   active_transaction_rate_hours?: number | null;
+  active_transaction_lifecycle_status?: number | null; 
 }
 
 
@@ -113,6 +115,7 @@ export interface SimpleRate {
   name: string;
   price: number;
   hours: number;
+  status?: string;
 }
 
 export interface Transaction {
@@ -124,23 +127,23 @@ export interface Transaction {
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string | null;
+    check_in_time: string | null; 
     check_out_time?: string | null;
     hours_used?: number | null;
     total_amount?: number | null;
     tender_amount?: number | null;
-    is_paid?: number | null; // From TRANSACTION_PAYMENT_STATUS
+    is_paid?: number | null; 
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
-    status: number; // From TRANSACTION_LIFECYCLE_STATUS
+    status: number; 
     created_at: string;
     updated_at: string;
     reserved_check_in_datetime?: string | null;
     reserved_check_out_datetime?: string | null;
-    is_admin_created?: number | null; // 0 or 1
-    is_accepted?: number | null; // From TRANSACTION_IS_ACCEPTED_STATUS
+    is_admin_created?: number | null; 
+    is_accepted?: number | null; 
 
     room_name?: string | null;
     rate_name?: string | null;
@@ -162,7 +165,7 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; // From NOTIFICATION_STATUS
+  status: number; 
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
@@ -170,12 +173,12 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number; // From NOTIFICATION_TRANSACTION_LINK_STATUS
-  transaction_is_accepted?: number | null; // From TRANSACTION_IS_ACCEPTED_STATUS
-  linked_transaction_status?: number | null; // From TRANSACTION_LIFECYCLE_STATUS
+  transaction_status: number; 
+  transaction_is_accepted?: number | null; 
+  linked_transaction_status?: number | null; 
 
-  notification_type?: string | null; // E.g., 'General', 'Reservation Request'
-  priority?: number | null; // E.g., 0 for Normal, 1 for High
+  notification_type?: string | null; 
+  priority?: number | null; 
   acknowledged_at?: string | null;
   acknowledged_by_user_id?: number | null;
 }
@@ -186,9 +189,11 @@ export type CheckoutFormData = z.infer<typeof checkoutFormSchema>;
 export interface RoomCleaningLog {
     id: number;
     room_id: number;
-    room_cleaning_status: number; // From ROOM_CLEANING_STATUS
+    tenant_id: number;
+    branch_id: number;
+    room_cleaning_status: number; 
     notes?: string | null;
-    user_id?: number | null; // ID of the user who made the log entry
+    user_id?: number | null; 
     created_at: string;
 }
 
@@ -198,15 +203,25 @@ export interface LostAndFoundLog {
   id: number;
   tenant_id: number;
   branch_id: number;
-  item_name: string; // Assuming 'item' column from DDL is this
+  item_name: string; 
   description?: string | null;
   found_location?: string | null;
   reported_by_user_id?: number | null;
-  reported_by_username?: string | null; // For display
-  status: number; // From LOST_AND_FOUND_STATUS
-  found_at: string; // from DDL
-  updated_at: string; // from DDL
-  claimed_at?: string | null; // from DDL
+  reported_by_username?: string | null; 
+  status: number; 
+  found_at: string; 
+  updated_at: string; 
+  claimed_at?: string | null; 
   claimed_by_details?: string | null;
   disposed_details?: string | null;
+}
+
+export interface AdminDashboardSummary {
+  totalSales: number;
+  branchPerformance: Array<{
+    branch_id: number;
+    branch_name: string;
+    transaction_count: number;
+    total_sales: number;
+  }>;
 }
