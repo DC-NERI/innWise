@@ -63,6 +63,8 @@ export const TRANSACTION_LIFECYCLE_STATUS = {
   PENDING_BRANCH_ACCEPTANCE: 4,  // Admin created reservation
   ADMIN_RESERVATION_DECLINED: 5, // Admin created reservation, declined by branch
   VOIDED_CANCELLED: 6,
+  ADVANCE_PAID: 7,
+  ADVANCE_RESERVATION: 8
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
@@ -73,6 +75,8 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
   [TRANSACTION_LIFECYCLE_STATUS.ADMIN_RESERVATION_DECLINED]: 'Admin Reservation Declined',
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
+  [TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID]: 'Advanced Paid',
+  [TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION]: 'Advance Reservation',
 };
 
 export const TRANSACTION_PAYMENT_STATUS = {

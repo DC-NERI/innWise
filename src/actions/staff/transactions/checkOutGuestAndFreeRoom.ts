@@ -21,7 +21,7 @@ import {
   TRANSACTION_PAYMENT_STATUS,
   HOTEL_ENTITY_STATUS
 } from '@/lib/constants';
-import { format as formatDateTime, parseISO, differenceInMilliseconds } from 'date-fns';
+import { format as formatDateTime, parseISO, differenceInMilliseconds} from 'date-fns';
 import { toZonedTime, format as formatInTimeZone } from 'date-fns-tz';
 
 
@@ -51,7 +51,8 @@ export async function checkOutGuestAndFreeRoom(
   }
 
   const client = await pool.connect();
-  const manilaTimeZone = 'Asia/Manila';
+  const manilaTimeZone = "Asia/Manila";
+  let sample = 1;
 
   try {
     await client.query('BEGIN');
@@ -114,8 +115,7 @@ export async function checkOutGuestAndFreeRoom(
     const transaction = transactionRes.rows[0];
 
     const checkOutTimeObject = toZonedTime(new Date(), manilaTimeZone);
-    const checkOutTimeStringForDb = formatInTimeZone(checkOutTimeObject, manilaTimeZone, "yyyy-MM-dd HH:mm:ss");
-
+    const checkOutTimeStringForDb = checkOutTimeObject.toISOString(); // Format as ISO 8601 with UTC offset
 
     const checkInTime = parseISO(String(transaction.check_in_time).replace(' ', 'T'));
     const diffMs = differenceInMilliseconds(checkOutTimeObject, checkInTime);
@@ -154,11 +154,13 @@ export async function checkOutGuestAndFreeRoom(
       WHERE id = $9
       RETURNING *;
     `;
+    
+    
     const updatedTransactionResult = await client.query(updateTransactionQueryText, [
       checkOutTimeStringForDb,
       hoursUsed,
       totalAmount.toFixed(2),
-      tenderAmountAtCheckout.toFixed(2),
+      tenderAmountAtCheckout,
       paymentMethodAtCheckout,
       TRANSACTION_PAYMENT_STATUS.PAID,
       TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(),
@@ -181,6 +183,7 @@ export async function checkOutGuestAndFreeRoom(
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
       WHERE id = $4 AND tenant_id = $5 AND branch_id = $6;
     `;
+    
     await client.query(updateRoomQueryText, [
       ROOM_AVAILABILITY_STATUS.AVAILABLE,
       newCleaningStatus,
@@ -216,7 +219,7 @@ export async function checkOutGuestAndFreeRoom(
         active_transaction_client_name: null,
         active_transaction_check_in_time: null,
         active_transaction_rate_name: null,
-        active_transaction_rate_hours: null,
+        active_transaction_rate_hours: null, // This line was previously referencing the transaction's rate_hours, not the room's. It should be removed or corrected based on room schema. Keeping it null for now.
         active_transaction_lifecycle_status: null,
         cleaning_status: newCleaningStatus,
         cleaning_notes: cleaningNotesForRoom,
@@ -244,7 +247,7 @@ export async function checkOutGuestAndFreeRoom(
     const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred during checkout.';
     return {
       success: false,
-      message: `Database error during checkout: ${errorMessage}`,
+      message: `Database error during checkout: ${errorMessage} ${sample}`,
     };
   } finally {
     client.release();
