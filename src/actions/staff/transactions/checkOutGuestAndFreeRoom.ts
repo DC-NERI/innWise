@@ -171,7 +171,17 @@ export async function checkOutGuestAndFreeRoom(
     const updatedTransactionRow = updatedTransactionResult.rows[0];
 
     const newCleaningStatus = ROOM_CLEANING_STATUS.INSPECTION;
-    const cleaningNotesForRoom = `Needs inspection after checkout by user ID ${staffUserId}. Guest: ${transaction.client_name}.`;
+
+    const getUserNameById = `
+      SELECT first_name,last_name
+      FROM users
+      WHERE id = $1;
+    `;
+    const userNameResult = await client.query(getUserNameById, [staffUserId]);
+    const userNameRow = userNameResult.rows[0]  || {};
+    const staffUserName = `${userNameRow.first_name || ''} ${userNameRow.last_name || ''}`;
+
+    const cleaningNotesForRoom = `Needs inspection after checkout by user: ${staffUserName}. Guest: ${transaction.client_name}.`;
 
     const updateRoomQueryText = `
       UPDATE hotel_room

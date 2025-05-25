@@ -5,8 +5,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { getBranchesForTenant } from '@/actions/admin/branches/getBranchesForTenant'; // Updated import
-import { updateBranchDetails } from '@/actions/admin/branches/updateBranchDetails'; // Updated import
+import { getBranchesForTenant } from '@/actions/admin/branches/getBranchesForTenant'; 
+import { updateBranchDetails } from '@/actions/admin/branches/updateBranchDetails'; 
 import type { Branch } from '@/lib/types';
 import { branchUpdateSchema } from '@/lib/schemas';
 import { Button } from '@/components/ui/button';
@@ -74,6 +74,14 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
       });
+    } else {
+      form.reset({ // Reset form if no branch is selected
+        branch_name: '',
+        branch_code: '',
+        branch_address: '',
+        contact_number: '',
+        email_address: '',
+      });
     }
   }, [selectedBranch, form]);
 
@@ -88,7 +96,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
       const result = await updateBranchDetails(selectedBranch.id, data);
       if (result.success && result.updatedBranch) {
         setBranches(branches.map(b => b.id === result.updatedBranch!.id ? result.updatedBranch! : b));
-        setSelectedBranch(result.updatedBranch);
+        setSelectedBranch(result.updatedBranch); // Keep the updated branch selected
         toast({
           title: "Success",
           description: "Branch details updated successfully.",
@@ -161,8 +169,8 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
           </CardHeader>
           <CardContent>
             <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 bg-card rounded-md p-3">
-                <div className="space-y-3">
+              <form onSubmit={form.handleSubmit(onSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
+                <div className="flex-grow space-y-3 p-1">
                   <FormField
                     control={form.control}
                     name="branch_name"
@@ -229,9 +237,11 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     )}
                   />
                 </div>
-                <Button type="submit" disabled={isUpdating} className="w-full">
-                  {isUpdating ? <Loader2 className="animate-spin" /> : <><Save className="mr-2 h-4 w-4" /> Update Branch</>}
-                </Button>
+                <div className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
+                  <Button type="submit" disabled={isUpdating} className="w-full">
+                    {isUpdating ? <Loader2 className="animate-spin" /> : <><Save className="mr-2 h-4 w-4" /> Update Branch</>}
+                  </Button>
+                </div>
               </form>
             </Form>
           </CardContent>
