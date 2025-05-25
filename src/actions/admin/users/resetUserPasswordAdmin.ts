@@ -15,7 +15,7 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 import { adminResetPasswordSchema, AdminResetPasswordData } from '@/lib/schemas';
-import { logActivity } from '../../activityLogger'; // Adjusted path
+import { logActivity } from '@/actions/activityLogger';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -41,8 +41,9 @@ export async function resetUserPasswordAdmin(
 
   const validatedFields = adminResetPasswordSchema.safeParse(newPasswordData);
   if (!validatedFields.success) {
-    const errorMessage = "Invalid password data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
-    return { success: false, message: errorMessage };
+    const errorMessages = validatedFields.error.flatten().fieldErrors;
+    const flatMessages = Object.values(errorMessages).flat().join(' ');
+    return { success: false, message: `Invalid password data: ${flatMessages}` };
   }
   const { new_password } = validatedFields.data;
 
