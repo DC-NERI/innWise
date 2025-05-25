@@ -1,12 +1,12 @@
 
-
 import type { z } from 'zod';
 import type { 
     transactionObjectSchema, 
     roomCleaningStatusAndNotesUpdateSchema, 
     checkoutFormSchema,
     StaffBookingCreateData,
-    TransactionCreateData
+    TransactionCreateData,
+    adminResetPasswordSchema
 } from '@/lib/schemas';
 import type { 
     ROOM_AVAILABILITY_STATUS, 
@@ -104,17 +104,17 @@ export interface HotelRoom {
   branch_name?: string;
   hotel_rate_id: number[] | null; 
   rate_names?: string[]; // For display
-  transaction_id?: number | null; // Foreign key to transactions if room is occupied/reserved
+  transaction_id?: number | null; 
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // Uses ROOM_AVAILABILITY_STATUS (0: Available, 1: Occupied) - Reserved is handled by transaction link
-  cleaning_status: number; // Uses ROOM_CLEANING_STATUS
+  is_available: number; 
+  cleaning_status: number; 
   cleaning_notes?: string | null;
-  status: string; // Room definition status: '0' or '1' from HOTEL_ENTITY_STATUS
+  status: string; 
   created_at: string;
   updated_at: string;
 
@@ -150,18 +150,18 @@ export interface Transaction {
     hours_used?: number | null;
     total_amount?: number | null;
     tender_amount?: number | null;
-    is_paid: number; // Uses TRANSACTION_PAYMENT_STATUS (0: Unpaid, 1: Paid, 2: Advance Paid)
+    is_paid: number; 
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     accepted_by_user_id?: number | null;
     declined_by_user_id?: number | null;
-    status: number; // Uses TRANSACTION_LIFECYCLE_STATUS
+    status: number; 
     created_at: string;
     updated_at: string;
     reserved_check_in_datetime?: string | null;
     reserved_check_out_datetime?: string | null;
-    is_admin_created?: number | null; // 0 or 1
-    is_accepted?: number | null; // Uses TRANSACTION_IS_ACCEPTED_STATUS
+    is_admin_created?: number | null; 
+    is_accepted?: number | null; 
 
     // Joined fields for display
     room_name?: string | null;
@@ -184,7 +184,7 @@ export interface Notification {
   id: number;
   tenant_id: number;
   message: string;
-  status: number; // Uses NOTIFICATION_STATUS (0: Unread, 1: Read)
+  status: number; 
   target_branch_id?: number | null;
   target_branch_name?: string | null;
   creator_user_id?: number | null;
@@ -192,9 +192,9 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number; // Uses NOTIFICATION_TRANSACTION_LINK_STATUS
-  transaction_is_accepted?: number | null; // Uses TRANSACTION_IS_ACCEPTED_STATUS
-  linked_transaction_status?: number | null; // Uses TRANSACTION_LIFECYCLE_STATUS
+  transaction_link_status: number; 
+  transaction_is_accepted?: number | null; 
+  linked_transaction_lifecycle_status?: number | null; 
 
   notification_type?: string | null; 
   priority?: number | null; 
@@ -210,7 +210,7 @@ export interface RoomCleaningLog {
     room_id: number;
     tenant_id: number;
     branch_id: number;
-    room_cleaning_status: number; // Uses ROOM_CLEANING_STATUS
+    room_cleaning_status: number; 
     notes?: string | null;
     user_id?: number | null; 
     created_at: string;
@@ -230,7 +230,7 @@ export interface LostAndFoundLog {
   found_location?: string | null;
   reported_by_user_id?: number | null;
   reported_by_username?: string | null; 
-  status: number; // Uses LOST_AND_FOUND_STATUS
+  status: number; 
   found_at: string; 
   updated_at: string; 
   claimed_at?: string | null; 
@@ -238,6 +238,24 @@ export interface LostAndFoundLog {
   disposed_details?: string | null;
 }
 
+export interface PaymentMethodSaleSummary {
+  payment_method: string;
+  total_sales: number;
+  transaction_count: number;
+}
+
+export interface RateTypeSaleSummary {
+  rate_id: number | null;
+  rate_name: string;
+  total_sales: number;
+  transaction_count: number;
+}
+
+export interface DailySaleSummary {
+  sale_date: string; // YYYY-MM-DD
+  total_sales: number;
+  transaction_count: number;
+}
 export interface AdminDashboardSummary {
   totalSales: number;
   branchPerformance: Array<{
@@ -245,5 +263,28 @@ export interface AdminDashboardSummary {
     branch_name: string;
     transaction_count: number;
     total_sales: number;
+    // average_revenue_per_transaction?: number; // Add this if implemented
   }>;
+  // New fields for detailed sales reports
+  salesByPaymentMethod?: PaymentMethodSaleSummary[];
+  salesByRateType?: RateTypeSaleSummary[];
+  dailySales?: DailySaleSummary[];
 }
+
+export interface ActivityLog {
+  id: number;
+  tenant_id: number | null;
+  tenant_name?: string | null;
+  branch_id: number | null;
+  branch_name?: string | null;
+  user_id: number | null;
+  username: string | null; // Username of the actor
+  action_type: string;
+  description: string | null;
+  target_entity_type?: string | null;
+  target_entity_id?: string | null;
+  details?: Record<string, any> | null; // For JSONB
+  created_at: string;
+}
+
+export type AdminResetPasswordData = z.infer<typeof adminResetPasswordSchema>;

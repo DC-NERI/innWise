@@ -52,15 +52,17 @@ export async function getUsersForTenant(tenantId: number): Promise<User[]> {
           WHEN 'housekeeping' THEN 3
           ELSE 4
         END,
+        u.status DESC, -- Show active users first within each role group
         u.last_name, u.first_name;
     `;
     const res = await client.query(query, [tenantId]);
     return res.rows.map(row => ({
       ...row,
-      id: String(row.id), // Ensure id is string if your type expects it, or Number if number
+      id: String(row.id), 
       status: String(row.status),
       tenant_id: row.tenant_id ? Number(row.tenant_id) : null,
       tenant_branch_id: row.tenant_branch_id ? Number(row.tenant_branch_id) : null,
+      last_log_in: row.last_log_in ? String(row.last_log_in) : null,
     })) as User[];
   } catch (error) {
     console.error('[getUsersForTenant DB Error]', error);
