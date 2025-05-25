@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Building, Settings, LogOut, Tags, BedDouble, Bell, PanelLeft, Archive as LostAndFoundIcon, LayoutDashboard } from 'lucide-react';
+import { Users, Building, LogOut, Tags, BedDouble, Bell, PanelLeft, Archive as LostAndFoundIcon, LayoutDashboard } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
@@ -19,7 +19,7 @@ import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 const AdminDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'dashboard' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found' | 'settings'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found'>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -227,18 +227,7 @@ const AdminDashboardPage: NextPage = () => {
         </SidebarContent>
         <SidebarFooter>
           <div className="p-2 border-t border-sidebar-border">
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  onClick={() => setActiveView('settings')}
-                  isActive={activeView === 'settings'}
-                  tooltip="Settings"
-                >
-                  <Settings />
-                   <span>Settings</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
+            {/* Settings button removed */}
           </div>
         </SidebarFooter>
       </Sidebar>
@@ -285,12 +274,7 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'lost-and-found' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <LostAndFoundAdminContent tenantId={tenantId} adminUserId={userId} />}
           {activeView === 'lost-and-found' && (tenantId === null || !userId || userId <=0) && <p>Loading information for Lost & Found...</p>}
 
-          {activeView === 'settings' && userRole === 'admin' && (
-            <div>
-              <h2 className="text-2xl font-semibold">Settings</h2>
-              <p className="text-muted-foreground">System settings will be managed here.</p>
-            </div>
-          )}
+          {/* Settings view content removed */}
         </main>
       </SidebarInset>
     </SidebarProvider>
