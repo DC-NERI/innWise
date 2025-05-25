@@ -16,7 +16,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRateCreateSchema, HotelRateCreateData, hotelRateUpdateSchema, HotelRateUpdateData } from '@/lib/schemas';
 import type { HotelRate, SimpleBranch } from '@/lib/types';
-import { getBranchesForTenantSimple, listRatesForBranch, createRate, updateRate, archiveRate } from '@/actions/admin';
+import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
+import { listRatesForBranch } from '@/actions/admin/rates/listRatesForBranch';
+import { createRate } from '@/actions/admin/rates/createRate';
+import { updateRate } from '@/actions/admin/rates/updateRate';
+import { archiveRate } from '@/actions/admin/rates/archiveRate';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -264,7 +268,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-                <DialogHeader><DialogTitle>{isEditing ? `Edit Rate: ${selectedRate?.name}` : 'Add New Rate'}</DialogTitle></DialogHeader>
+                <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Rate: ${selectedRate?.name}` : 'Add New Rate'}</DialogTitle></DialogHeader>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRateUpdateData)) : (d => handleAddSubmit(d as HotelRateCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                     <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">

@@ -19,7 +19,12 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
 import type { SimpleBranch, HotelRoom, SimpleRate } from '@/lib/types';
-import { getBranchesForTenantSimple, listRoomsForBranch, getRatesForBranchSimple, createRoom, updateRoom, archiveRoom } from '@/actions/admin';
+import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
+import { listRoomsForBranch } from '@/actions/admin/rooms/listRoomsForBranch';
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
+import { createRoom } from '@/actions/admin/rooms/createRoom';
+import { updateRoom } from '@/actions/admin/rooms/updateRoom';
+import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
 import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
@@ -34,6 +39,7 @@ const defaultFormValuesCreate: HotelRoomCreateData = {
   capacity: 2,
   is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
   cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
+  cleaning_notes: '',
 };
 
 interface RoomsContentProps {
@@ -82,10 +88,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
-        getRatesForBranchSimple(tenantId, branchId)
+        getRatesForBranchSimple(tenantId, branchId) // tenantId is first param for this action
       ]);
       setRooms(fetchedRooms);
-      setAvailableRates(fetchedRates);
+      setAvailableRates(fetchedRates.filter(rate => rate.status === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch room and rate data for the branch.", variant: "destructive" });
       setRooms([]);
@@ -120,6 +126,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
         capacity: selectedRoom.capacity ?? 2,
         is_available: selectedRoom.is_available,
         cleaning_status: selectedRoom.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+        cleaning_notes: selectedRoom.cleaning_notes || '',
         status: selectedRoom.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
@@ -145,7 +152,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       const result = await createRoom(data, tenantId, selectedBranchId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
-        setRooms(prev => [...prev, result.room!].sort((a, b) => a.room_name.localeCompare(b.room_name)));
+        setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsAddDialogOpen(false);
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
@@ -161,7 +168,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       const result = await updateRoom(selectedRoom.id, data, tenantId, selectedBranchId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
-        setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => a.room_name.localeCompare(b.room_name)));
+        setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsEditDialogOpen(false); setSelectedRoom(null);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
@@ -198,6 +205,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       capacity: room.capacity,
       is_available: room.is_available,
       cleaning_status: room.cleaning_status || ROOM_CLEANING_STATUS.CLEAN,
+      cleaning_notes: room.cleaning_notes || '',
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
@@ -233,7 +241,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
           <FormItem>
             <RHFFormLabel>Associated Rates *</RHFFormLabel>
             {availableRates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No rates available for this branch. Please add rates first.</p>
+              <p className="text-sm text-muted-foreground">No active rates available for this branch. Please add rates first.</p>
             ) : (
               <div className="space-y-2 mt-1 max-h-40 overflow-y-auto border p-2 rounded-md w-[90%]">
                 {availableRates.map(rate => (
@@ -273,6 +281,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
               <SelectContent>
                 <SelectItem value={ROOM_AVAILABILITY_STATUS.AVAILABLE.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
                 <SelectItem value={ROOM_AVAILABILITY_STATUS.OCCUPIED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.OCCUPIED]}</SelectItem>
+                 <SelectItem value={ROOM_AVAILABILITY_STATUS.RESERVED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.RESERVED]}</SelectItem>
               </SelectContent>
             </Select>
             <FormMessage />
@@ -291,6 +300,24 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 ))}
               </SelectContent>
             </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+       <FormField
+        control={form.control}
+        name="cleaning_notes"
+        render={({ field }) => (
+          <FormItem>
+            <RHFFormLabel>Cleaning Notes</RHFFormLabel>
+            <FormControl>
+              <Textarea
+                placeholder="Enter cleaning notes..."
+                {...field}
+                value={field.value ?? ''}
+                className="w-[90%]"
+              />
+            </FormControl>
             <FormMessage />
           </FormItem>
         )}
@@ -334,15 +361,15 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
                 key={isEditing ? `edit-room-${selectedRoom?.id}` : 'add-room'}
                 open={isAddDialogOpen || isEditDialogOpen}
                 onOpenChange={(open) => {
-                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN }); }
+                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); }
                 }}>
               <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No rates available for this branch. Add rates first." : ""}>
+                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); }} disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} title={availableRates.length === 0 && selectedBranchId ? "No active rates available for this branch. Add rates first." : ""}>
                   <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-                <DialogHeader><DialogTitle>{isEditing ? `Edit Room: ${selectedRoom?.room_name}` : 'Add New Room'}</DialogTitle></DialogHeader>
+                <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Room: ${selectedRoom?.room_name}` : 'Add New Room'}</DialogTitle></DialogHeader>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRoomUpdateData)) : (d => handleAddSubmit(d as HotelRoomCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                     <div className="flex-grow space-y-3 p-1 overflow-y-auto">{renderFormFields()}</div>
@@ -416,3 +443,5 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
     </Card>
   );
 }
+
+    
