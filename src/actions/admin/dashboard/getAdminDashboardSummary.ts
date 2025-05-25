@@ -25,7 +25,11 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client in getAdminDashboardSummary action', err);
 });
 
-export async function getAdminDashboardSummary(tenantId: number): Promise<{ success: boolean; message?: string; summary?: AdminDashboardSummary }> {
+export async function getAdminDashboardSummary(
+  tenantId: number,
+  startDate?: string, // YYYY-MM-DD
+  endDate?: string    // YYYY-MM-DD
+): Promise<{ success: boolean; message?: string; summary?: AdminDashboardSummary }> {
   if (!tenantId || typeof tenantId !== 'number') {
     return { success: false, message: "Invalid tenant ID." };
   }
@@ -40,22 +44,65 @@ export async function getAdminDashboardSummary(tenantId: number): Promise<{ succ
 
   const client = await pool.connect();
   try {
-    // Calculate Total Sales for the tenant
-    const totalSalesQuery = `
-      SELECT SUM(total_amount) as total_sales
-      FROM transactions
-      WHERE tenant_id = $1
-        AND status::INTEGER = $2
-        AND is_paid = $3;
-    `;
-    const totalSalesRes = await client.query(totalSalesQuery, [
-      tenantId,
-      TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT,
-      TRANSACTION_PAYMENT_STATUS.PAID
-    ]);
-    const totalSales = totalSalesRes.rows[0]?.total_sales || 0;
+    let totalSalesParams: any[] = [tenantId, TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(), TRANSACTION_PAYMENT_STATUS.PAID];
+    let branchPerformanceParams: any[] = [tenantId, TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(), TRANSACTION_PAYMENT_STATUS.PAID];
 
-    // Calculate Branch Performance
+    let dateFilterClause = "";
+    if (startDate && endDate) {
+      dateFilterClause = `AND DATE(t.check_out_time) BETWEEN $${totalSalesParams.length + 1} AND $${totalSalesParams.length + 2}`;
+      totalSalesParams.push(startDate, endDate);
+      // For branch performance query, parameters are added after tenantId, so adjust indices
+      branchPerformanceParams.splice(1, 0, startDate, endDate); // Insert before status params
+    } else if (startDate) {
+      dateFilterClause = `AND DATE(t.check_out_time) >= $${totalSalesParams.length + 1}`;
+      totalSalesParams.push(startDate);
+      branchPerformanceParams.splice(1, 0, startDate);
+    } else if (endDate) {
+      dateFilterClause = `AND DATE(t.check_out_time) <= $${totalSalesParams.length + 1}`;
+      totalSalesParams.push(endDate);
+      branchPerformanceParams.splice(1, 0, endDate);
+    }
+    
+    // Reconstruct dateFilterClause for branch performance query, ensuring parameter indices are correct.
+    let branchDateFilterClause = "";
+    let branchFilterParamIndexStart = 2; // After tenant_id
+    if (startDate && endDate) {
+        branchDateFilterClause = `AND DATE(t.check_out_time) BETWEEN $${branchFilterParamIndexStart} AND $${branchFilterParamIndexStart+1}`;
+    } else if (startDate) {
+        branchDateFilterClause = `AND DATE(t.check_out_time) >= $${branchFilterParamIndexStart}`;
+    } else if (endDate) {
+        branchDateFilterClause = `AND DATE(t.check_out_time) <= $${branchFilterParamIndexStart}`;
+    }
+
+
+    const totalSalesQuery = `
+      SELECT SUM(t.total_amount) as total_sales
+      FROM transactions t
+      WHERE t.tenant_id = $1
+        AND t.status::INTEGER = $2
+        AND t.is_paid = $3
+        ${dateFilterClause};
+    `;
+    const totalSalesRes = await client.query(totalSalesQuery, totalSalesParams);
+    const totalSales = totalSalesRes.rows[0]?.total_sales || 0;
+    
+    // Adjust branch performance query parameter indices based on whether date filters are present
+    const branchPerformanceBaseParams = [tenantId, TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT.toString(), TRANSACTION_PAYMENT_STATUS.PAID];
+    let finalBranchPerformanceParams = [...branchPerformanceBaseParams];
+    let branchPerformanceDateFilterSQL = "";
+
+    if (startDate && endDate) {
+        branchPerformanceDateFilterSQL = `AND DATE(t.check_out_time) BETWEEN $4 AND $5`;
+        finalBranchPerformanceParams.push(startDate, endDate);
+    } else if (startDate) {
+        branchPerformanceDateFilterSQL = `AND DATE(t.check_out_time) >= $4`;
+        finalBranchPerformanceParams.push(startDate);
+    } else if (endDate) {
+        branchPerformanceDateFilterSQL = `AND DATE(t.check_out_time) <= $4`;
+        finalBranchPerformanceParams.push(endDate);
+    }
+
+
     const branchPerformanceQuery = `
       SELECT
         tb.id as branch_id,
@@ -64,15 +111,13 @@ export async function getAdminDashboardSummary(tenantId: number): Promise<{ succ
         SUM(CASE WHEN t.status::INTEGER = $2 AND t.is_paid = $3 THEN t.total_amount ELSE 0 END) as total_sales
       FROM tenant_branch tb
       LEFT JOIN transactions t ON tb.id = t.branch_id AND t.tenant_id = tb.tenant_id
+        ${branchPerformanceDateFilterSQL} 
       WHERE tb.tenant_id = $1
       GROUP BY tb.id, tb.branch_name
       ORDER BY tb.branch_name;
     `;
-    const branchPerformanceRes = await client.query(branchPerformanceQuery, [
-      tenantId,
-      TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT,
-      TRANSACTION_PAYMENT_STATUS.PAID
-    ]);
+    const branchPerformanceRes = await client.query(branchPerformanceQuery, finalBranchPerformanceParams);
+
 
     const summary: AdminDashboardSummary = {
       totalSales: parseFloat(totalSales),
