@@ -21,9 +21,10 @@ type BranchUpdateFormValues = z.infer<typeof branchUpdateSchema>;
 
 interface BranchesContentProps {
   tenantId: number;
+  adminUserId: number; // Added for logging
 }
 
-export default function BranchesContent({ tenantId }: BranchesContentProps) {
+export default function BranchesContent({ tenantId, adminUserId }: BranchesContentProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -75,7 +76,7 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
         email_address: selectedBranch.email_address || '',
       });
     } else {
-      form.reset({ // Reset form if no branch is selected
+      form.reset({ 
         branch_name: '',
         branch_code: '',
         branch_address: '',
@@ -90,13 +91,17 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
   };
 
   const onSubmit = async (data: BranchUpdateFormValues) => {
-    if (!selectedBranch) return;
+    if (!selectedBranch || !adminUserId) {
+        toast({ title: "Error", description: "Selected branch or Admin User ID not available.", variant: "destructive" });
+        return;
+    }
     setIsUpdating(true);
     try {
-      const result = await updateBranchDetails(selectedBranch.id, data);
+      // Pass adminUserId to updateBranchDetails if that action is updated to accept it for logging
+      const result = await updateBranchDetails(selectedBranch.id, data, adminUserId); // Pass adminUserId
       if (result.success && result.updatedBranch) {
         setBranches(branches.map(b => b.id === result.updatedBranch!.id ? result.updatedBranch! : b));
-        setSelectedBranch(result.updatedBranch); // Keep the updated branch selected
+        setSelectedBranch(result.updatedBranch); 
         toast({
           title: "Success",
           description: "Branch details updated successfully.",
@@ -237,11 +242,11 @@ export default function BranchesContent({ tenantId }: BranchesContentProps) {
                     )}
                   />
                 </div>
-                <div className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
+                <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <Button type="submit" disabled={isUpdating} className="w-full">
                     {isUpdating ? <Loader2 className="animate-spin" /> : <><Save className="mr-2 h-4 w-4" /> Update Branch</>}
                   </Button>
-                </div>
+                </DialogFooter>
               </form>
             </Form>
           </CardContent>

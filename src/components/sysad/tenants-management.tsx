@@ -4,10 +4,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { listTenants } from '@/actions/admin/tenants/listTenants'; // Updated import
-import { createTenant } from '@/actions/admin/tenants/createTenant'; // Updated import
-import { updateTenant } from '@/actions/admin/tenants/updateTenant'; // Updated import
-import { archiveTenant } from '@/actions/admin/tenants/archiveTenant'; // Updated import
+import { listTenants } from '@/actions/admin/tenants/listTenants';
+import { createTenant } from '@/actions/admin/tenants/createTenant';
+import { updateTenant } from '@/actions/admin/tenants/updateTenant';
+import { archiveTenant } from '@/actions/admin/tenants/archiveTenant';
 import type { Tenant } from '@/lib/types';
 import { tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData } from '@/lib/schemas';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,11 @@ const defaultFormValuesCreate: TenantCreateData = {
   max_user_count: 10,
 };
 
-export default function TenantsManagement() {
+interface TenantsManagementProps {
+  sysAdUserId: number | null;
+}
+
+export default function TenantsManagement({ sysAdUserId }: TenantsManagementProps) {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -97,9 +101,13 @@ export default function TenantsManagement() {
   }, [selectedTenant, form, isEditDialogOpen, isAddDialogOpen]);
 
   const handleAddSubmit = async (data: TenantCreateData) => {
+    if (!sysAdUserId) {
+      toast({ title: "Error", description: "SysAd user ID not available for logging.", variant: "destructive" });
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const result = await createTenant(data);
+      const result = await createTenant(data, sysAdUserId);
       if (result.success && result.tenant) {
         toast({ title: "Success", description: "Tenant created successfully." });
         setTenants(prev => [...prev, result.tenant!].sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
@@ -115,10 +123,13 @@ export default function TenantsManagement() {
   };
 
   const handleEditSubmit = async (data: TenantUpdateData) => {
-    if (!selectedTenant) return;
+    if (!selectedTenant || !sysAdUserId) {
+        toast({ title: "Error", description: "Selected tenant or SysAd user ID not available for logging.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     try {
-      const result = await updateTenant(selectedTenant.id, data);
+      const result = await updateTenant(selectedTenant.id, data, sysAdUserId);
       if (result.success && result.tenant) {
         toast({ title: "Success", description: "Tenant updated successfully." });
         setTenants(prev => prev.map(t => t.id === result.tenant!.id ? result.tenant! : t).sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
@@ -135,11 +146,15 @@ export default function TenantsManagement() {
   };
 
   const handleArchive = async (tenantId: number, tenantName: string) => {
+    if (!sysAdUserId) {
+        toast({ title: "Error", description: "SysAd user ID not available for logging.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     try {
-      const result = await archiveTenant(tenantId);
+      const result = await archiveTenant(tenantId, sysAdUserId);
       if (result.success) {
-        toast({ title: "Success", description: \`Tenant "\${tenantName}" archived.\` });
+        toast({ title: "Success", description: `Tenant "${tenantName}" archived.` });
         setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: HOTEL_ENTITY_STATUS.ARCHIVED} : t));
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
@@ -152,6 +167,10 @@ export default function TenantsManagement() {
   };
 
   const handleRestore = async (tenant: Tenant) => {
+    if (!sysAdUserId) {
+        toast({ title: "Error", description: "SysAd user ID not available for logging.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     const payload: TenantUpdateData = {
         tenant_name: tenant.tenant_name,
@@ -162,9 +181,9 @@ export default function TenantsManagement() {
         max_user_count: tenant.max_user_count,
         status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
-    const result = await updateTenant(tenant.id, payload);
+    const result = await updateTenant(tenant.id, payload, sysAdUserId);
     if (result.success && result.tenant) {
-        toast({ title: "Success", description: \`Tenant "\${tenant.tenant_name}" restored.\` });
+        toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" restored.` });
         setTenants(prev => prev.map(t => t.id === tenant.id ? result.tenant! : t));
     } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
@@ -285,7 +304,7 @@ export default function TenantsManagement() {
           <CardDescription>View, add, edit, and archive tenants.</CardDescription>
         </div>
         <Dialog
-            key={isEditing ? \`edit-tenant-\${selectedTenant?.id}\` : 'add-tenant'}
+            key={isEditing ? `edit-tenant-${selectedTenant?.id}` : 'add-tenant'}
             open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
                 if (!open) {
@@ -302,10 +321,10 @@ export default function TenantsManagement() {
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-            <DialogHeader><DialogTitle>{isEditing ? \`Edit Tenant: \${selectedTenant?.tenant_name}\` : 'Add New Tenant'}</DialogTitle></DialogHeader>
+            <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                   {renderFormFields()}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">

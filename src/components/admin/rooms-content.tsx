@@ -44,9 +44,10 @@ const defaultFormValuesCreate: HotelRoomCreateData = {
 
 interface RoomsContentProps {
   tenantId: number;
+  adminUserId: number; // Added for logging
 }
 
-export default function RoomsContent({ tenantId }: RoomsContentProps) {
+export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProps) {
   const [branches, setBranches] = useState<SimpleBranch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
@@ -85,7 +86,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   const fetchBranchData = useCallback(async (branchId: number) => {
     if (!tenantId) return;
     setIsLoadingData(true);
-    setAvailableRates([]); // Clear previous rates
+    setAvailableRates([]); 
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
@@ -144,13 +145,13 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
 
 
   const handleAddSubmit = async (data: HotelRoomCreateData) => {
-    if (!selectedBranchId || !tenantId) {
-      toast({ title: "Error", description: "Branch and Tenant must be selected.", variant: "destructive" });
+    if (!selectedBranchId || !tenantId || !adminUserId) {
+      toast({ title: "Error", description: "Branch, Tenant, or Admin ID must be selected/available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
-      const result = await createRoom(data, tenantId, selectedBranchId);
+      const result = await createRoom(data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
         setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
@@ -163,10 +164,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   };
 
   const handleEditSubmit = async (data: HotelRoomUpdateData) => {
-    if (!selectedRoom || !selectedBranchId || !tenantId) return;
+    if (!selectedRoom || !selectedBranchId || !tenantId || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await updateRoom(selectedRoom.id, data, tenantId, selectedBranchId);
+      const result = await updateRoom(selectedRoom.id, data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
         setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
@@ -179,10 +180,10 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   };
   
   const handleArchive = async (room: HotelRoom) => {
-     if (!tenantId || !room.branch_id) return;
+     if (!tenantId || !room.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await archiveRoom(room.id, tenantId, room.branch_id);
+      const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
         setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
@@ -194,7 +195,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
   };
 
   const handleRestore = async (room: HotelRoom) => {
-    if (!tenantId || !room.branch_id) return;
+    if (!tenantId || !room.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     const payload: HotelRoomUpdateData = {
       hotel_rate_ids: Array.isArray(room.hotel_rate_id) ? room.hotel_rate_id : [],
@@ -210,7 +211,7 @@ export default function RoomsContent({ tenantId }: RoomsContentProps) {
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
-      const result = await updateRoom(room.id, payload, tenantId, room.branch_id);
+      const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
         setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r));

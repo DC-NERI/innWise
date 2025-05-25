@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users as UsersIcon, Building, LogOut, Tags, BedDouble, Bell, PanelLeft, LayoutDashboard, BookOpen, BarChart3 } from 'lucide-react'; // Added LayoutDashboard, BookOpen, BarChart3
+import { Users as UsersIcon, Building, LogOut, PanelLeft, Tags, BedDouble, Bell, Archive as LostAndFoundIcon, LayoutDashboard, BarChart3 } from 'lucide-react';
 import UsersContent from '@/components/admin/users-content';
 import BranchesContent from '@/components/admin/branches-content';
 import RatesContent from '@/components/admin/rates-content';
@@ -14,12 +14,12 @@ import RoomsContent from '@/components/admin/rooms-content';
 import NotificationsContent from '@/components/admin/notifications-content';
 import LostAndFoundAdminContent from '@/components/admin/lost-and-found-admin-content';
 import DashboardAdminContent from '@/components/admin/dashboard-admin-content';
-import DetailedSalesReport from '@/components/admin/reports/detailed-sales-report'; // New Import
+import DetailedSalesReport from '@/components/admin/reports/detailed-sales-report';
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type AdminActiveView = 'dashboard' | 'reports' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found'; // Added 'reports'
+type AdminActiveView = 'dashboard' | 'reports' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found';
 
 const AdminDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<AdminActiveView>('dashboard');
@@ -31,7 +31,7 @@ const AdminDashboardPage: NextPage = () => {
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [userId, setUserId] = useState<number | null>(null); // For admin's own ID
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -44,7 +44,7 @@ const AdminDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
-      const storedUserId = localStorage.getItem('userId');
+      const storedUserId = localStorage.getItem('userId'); // For admin's own ID
 
       if (storedRole) {
         setUserRole(storedRole);
@@ -90,6 +90,7 @@ const AdminDashboardPage: NextPage = () => {
       } else {
          setTenantId(null);
          setTenantName("Tenant Information Unavailable");
+         console.error("[AdminDashboardPage] No tenantId found in localStorage.");
       }
 
       if (storedUsername) setUsername(storedUsername);
@@ -102,11 +103,11 @@ const AdminDashboardPage: NextPage = () => {
             setUserId(parsedUserId);
         } else {
             setUserId(null);
-            console.warn("[AdminDashboardPage] Invalid userId found in localStorage:", storedUserId);
+            console.warn("[AdminDashboardPage] Invalid userId (for admin) found in localStorage:", storedUserId);
         }
       } else {
           setUserId(null);
-          console.warn("[AdminDashboardPage] No valid userId found in localStorage.");
+          console.warn("[AdminDashboardPage] No valid userId (for admin) found in localStorage.");
       }
     }
 
@@ -232,16 +233,13 @@ const AdminDashboardPage: NextPage = () => {
                 isActive={activeView === 'lost-and-found'}
                 tooltip="Lost & Found"
               >
-                <BookOpen /> {/* Using BookOpen as LostAndFoundIcon was Archive */}
+                <LostAndFoundIcon />
                 <span>Lost & Found</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
-          <div className="p-2 border-t border-sidebar-border">
-            {/* Settings button removed */}
-          </div>
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
@@ -269,16 +267,16 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'reports' && tenantId === null && <p>Loading tenant information for reports...</p>}
 
           {activeView === 'users' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <UsersContent tenantId={tenantId} adminUserId={userId} />}
-          {activeView === 'users' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for user management...</p>}
+          {activeView === 'users' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant or user information for user management...</p>}
 
-          {activeView === 'branches' && userRole === 'admin' && tenantId !== null && <BranchesContent tenantId={tenantId} />}
-          {activeView === 'branches' && tenantId === null && <p>Loading tenant information for branch management...</p>}
+          {activeView === 'branches' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <BranchesContent tenantId={tenantId} adminUserId={userId} />}
+          {activeView === 'branches' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for branch management...</p>}
 
-          {activeView === 'rates' && userRole === 'admin' && tenantId !== null && <RatesContent tenantId={tenantId} />}
-          {activeView === 'rates' && tenantId === null && <p>Loading tenant information for rate management...</p>}
+          {activeView === 'rates' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <RatesContent tenantId={tenantId} adminUserId={userId} />}
+          {activeView === 'rates' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for rate management...</p>}
 
-          {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && <RoomsContent tenantId={tenantId} />}
-          {activeView === 'rooms' && tenantId === null && <p>Loading tenant information for room management...</p>}
+          {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <RoomsContent tenantId={tenantId} adminUserId={userId} />}
+          {activeView === 'rooms' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for room management...</p>}
 
           {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && (
             <NotificationsContent tenantId={tenantId} adminUserId={userId} />
@@ -297,4 +295,3 @@ const AdminDashboardPage: NextPage = () => {
 };
 
 export default AdminDashboardPage;
-    

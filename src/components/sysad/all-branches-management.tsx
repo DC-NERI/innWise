@@ -15,7 +15,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { branchCreateSchema, BranchCreateData, branchUpdateSchemaSysAd, BranchUpdateDataSysAd } from '@/lib/schemas';
 import type { Branch, Tenant } from '@/lib/types';
-import { createBranchForTenant, listAllBranches, listTenants, updateBranchSysAd, archiveBranch } from '@/actions/admin';
+import { createBranchForTenant } from '@/actions/admin/branches/createBranchForTenant';
+import { listAllBranches } from '@/actions/admin/branches/listAllBranches';
+import { listTenants } from '@/actions/admin/tenants/listTenants';
+import { updateBranchSysAd } from '@/actions/admin/branches/updateBranchSysAd';
+import { archiveBranch } from '@/actions/admin/branches/archiveBranch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -32,7 +36,11 @@ const defaultFormValuesCreate: BranchCreateData = {
   email_address: '',
 };
 
-export default function AllBranchesManagement() {
+interface AllBranchesManagementProps {
+  sysAdUserId: number | null;
+}
+
+export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManagementProps) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,10 +103,14 @@ export default function AllBranchesManagement() {
 
 
   const handleAddSubmit = async (data: BranchCreateData) => {
+    if (!sysAdUserId) {
+      toast({ title: "Error", description: "SysAd User ID is not available for logging.", variant: "destructive" });
+      return;
+    }
     setIsSubmitting(true);
     const payload = { ...data, tenant_id: Number(data.tenant_id) };
     try {
-      const result = await createBranchForTenant(payload);
+      const result = await createBranchForTenant(payload, sysAdUserId);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch created." });
         setBranches(prev => [...prev, result.branch!].sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
@@ -111,11 +123,14 @@ export default function AllBranchesManagement() {
   };
 
   const handleEditSubmit = async (data: BranchUpdateDataSysAd) => {
-    if (!selectedBranch) return;
+    if (!selectedBranch || !sysAdUserId) {
+        toast({ title: "Error", description: "Selected branch or SysAd User ID not available.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     const payload = { ...data, tenant_id: Number(data.tenant_id) };
     try {
-      const result = await updateBranchSysAd(selectedBranch.id, payload);
+      const result = await updateBranchSysAd(selectedBranch.id, payload, sysAdUserId);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch updated." });
         setBranches(prev => prev.map(b => b.id === result.branch!.id ? result.branch! : b).sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
@@ -128,8 +143,12 @@ export default function AllBranchesManagement() {
   };
   
   const handleArchive = async (branchId: number, branchName: string) => {
+    if (!sysAdUserId) {
+        toast({ title: "Error", description: "SysAd User ID not available.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
-    const result = await archiveBranch(branchId); 
+    const result = await archiveBranch(branchId, sysAdUserId); 
     if (result.success) {
         toast({ title: "Success", description: `Branch "${branchName}" archived.` });
         setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: HOTEL_ENTITY_STATUS.ARCHIVED} : b));
@@ -140,6 +159,10 @@ export default function AllBranchesManagement() {
   };
 
   const handleRestore = async (branch: Branch) => {
+    if (!sysAdUserId) {
+        toast({ title: "Error", description: "SysAd User ID not available.", variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
      const payload: BranchUpdateDataSysAd = { 
         tenant_id: branch.tenant_id,
@@ -149,7 +172,7 @@ export default function AllBranchesManagement() {
         email_address: branch.email_address,
         status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
-    const result = await updateBranchSysAd(branch.id, payload);
+    const result = await updateBranchSysAd(branch.id, payload, sysAdUserId);
     if (result.success && result.branch) {
         toast({ title: "Success", description: `Branch "${branch.branch_name}" restored.` });
         setBranches(prev => prev.map(b => b.id === branch.id ? result.branch! : b));
@@ -222,10 +245,10 @@ export default function AllBranchesManagement() {
         >
           <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-            <DialogHeader><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
+            <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
                 <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as BranchUpdateDataSysAd)) : (d => handleAddSubmit(d as BranchCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                  <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                  <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                     {renderFormFields(isEditing)}
                   </div>
                   <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">

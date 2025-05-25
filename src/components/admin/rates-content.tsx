@@ -38,9 +38,10 @@ const defaultFormValuesCreate: HotelRateCreateData = {
 
 interface RatesContentProps {
   tenantId: number;
+  adminUserId: number; // Added to log who performs the action
 }
 
-export default function RatesContent({ tenantId }: RatesContentProps) {
+export default function RatesContent({ tenantId, adminUserId }: RatesContentProps) {
   const [branches, setBranches] = useState<SimpleBranch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [rates, setRates] = useState<HotelRate[]>([]);
@@ -121,13 +122,13 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
 
 
   const handleAddSubmit = async (data: HotelRateCreateData) => {
-    if (!selectedBranchId || !tenantId) {
-      toast({ title: "Error", description: "Branch and Tenant must be selected.", variant: "destructive" });
+    if (!selectedBranchId || !tenantId || !adminUserId) {
+      toast({ title: "Error", description: "Branch, Tenant, or Admin User ID must be selected/available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
-      const result = await createRate(data, tenantId, selectedBranchId);
+      const result = await createRate(data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate created." });
         setRates(prev => [...prev, result.rate!].sort((a, b) => a.name.localeCompare(b.name)));
@@ -140,10 +141,10 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
   };
 
   const handleEditSubmit = async (data: HotelRateUpdateData) => {
-    if (!selectedRate || !selectedBranchId || !tenantId) return;
+    if (!selectedRate || !selectedBranchId || !tenantId || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId);
+      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate updated." });
         setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r).sort((a, b) => a.name.localeCompare(b.name)));
@@ -156,10 +157,10 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
   };
 
   const handleArchive = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id) return;
+    if (!tenantId || !rate.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await archiveRate(rate.id, tenantId, rate.branch_id);
+      const result = await archiveRate(rate.id, tenantId, rate.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Rate "${rate.name}" archived.` });
         setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
@@ -171,7 +172,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
   };
 
   const handleRestore = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id) return;
+    if (!tenantId || !rate.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     const payload: HotelRateUpdateData = {
         name: rate.name,
@@ -182,7 +183,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
         status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
-      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id);
+      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: `Rate "${rate.name}" restored.` });
         setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r));
@@ -271,7 +272,7 @@ export default function RatesContent({ tenantId }: RatesContentProps) {
                 <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Rate: ${selectedRate?.name}` : 'Add New Rate'}</DialogTitle></DialogHeader>
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRateUpdateData)) : (d => handleAddSubmit(d as HotelRateCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                    <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                    <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                       {renderFormFields()}
                     </div>
                     <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
