@@ -15,8 +15,8 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 import { Pool } from 'pg';
 import type { Notification } from '@/lib/types';
 import { notificationCreateSchema, NotificationCreateData, TransactionCreateData } from '@/lib/schemas';
-import { NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_LINK_STATUS } from '@/lib/constants';
-import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
+import { NOTIFICATION_STATUS, NOTIFICATION_TRANSACTION_LINK_STATUS } from '../../../lib/constants';
+import { createUnassignedReservation } from '../../staff/reservations/createUnassignedReservation'; // Adjusted path
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -63,13 +63,13 @@ export async function createNotification(
     await client.query('BEGIN');
 
     let transactionIdForNotification: number | null = null;
-    let transactionLinkStatusForNotification = NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION_LINK;
+    let finalTransactionLinkStatus = NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION_LINK;
 
     if (do_reservation && target_branch_id) {
       const reservationData: TransactionCreateData = {
         client_name: reservation_client_name || `Reservation for: ${message.substring(0,30)}...`,
-        selected_rate_id: reservation_selected_rate_id,
-        client_payment_method: reservation_client_payment_method,
+        selected_rate_id: reservation_selected_rate_id, // Can be null
+        client_payment_method: reservation_client_payment_method, // Can be null
         notes: reservation_notes || `Linked to notification: ${message.substring(0,50)}...`,
         is_advance_reservation: reservation_is_advance,
         reserved_check_in_datetime: reservation_check_in_datetime,
@@ -88,7 +88,7 @@ export async function createNotification(
 
       if (reservationResult.success && reservationResult.transaction) {
         transactionIdForNotification = reservationResult.transaction.id;
-        transactionLinkStatusForNotification = NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED;
+        finalTransactionLinkStatus = NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED;
       } else {
         await client.query('ROLLBACK');
         return { success: false, message: `Failed to create linked reservation: ${reservationResult.message}` };
@@ -99,7 +99,7 @@ export async function createNotification(
       INSERT INTO notification (
         tenant_id, message, status, target_branch_id, creator_user_id, transaction_id, transaction_status, created_at, read_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), NULL)
-      RETURNING id, tenant_id, message, status, target_branch_id, creator_user_id, transaction_id, created_at, read_at, transaction_status, null as target_branch_name, null as creator_username, null as transaction_is_accepted, null as linked_transaction_status;
+      RETURNING id, tenant_id, message, status AS notification_read_status, target_branch_id, creator_user_id, transaction_id, created_at, read_at, transaction_status AS notification_link_status, null as target_branch_name, null as creator_username, null as transaction_is_accepted, null as linked_transaction_lifecycle_status, notification_type, priority, acknowledged_at, acknowledged_by_user_id;
     `;
     const notificationRes = await client.query(notificationQuery, [
       tenantId,
@@ -108,7 +108,7 @@ export async function createNotification(
       target_branch_id,
       adminUserId,
       transactionIdForNotification,
-      transactionLinkStatusForNotification.toString()
+      finalTransactionLinkStatus.toString()
     ]);
 
     await client.query('COMMIT');
@@ -131,18 +131,19 @@ export async function createNotification(
         message: "Notification created successfully.",
         notification: {
           ...newNotification,
-          status: Number(newNotification.status),
-          transaction_status: Number(newNotification.transaction_status),
+          status: Number(newNotification.notification_read_status),
+          transaction_status: Number(newNotification.notification_link_status),
           creator_username: creatorUsername,
           target_branch_name: targetBranchName,
+          // Add other mappings if needed
         } as Notification
       };
     }
     return { success: false, message: "Notification creation failed after commit." };
-  } catch (error) {
+  } catch (dbError) {
     await client.query('ROLLBACK');
-    console.error('[createNotification DB Error]', error);
-    return { success: false, message: `Database error during notification creation: ${error instanceof Error ? error.message : String(error)}` };
+    console.error('[createNotification DB Error]', dbError);
+    return { success: false, message: `Database error during notification creation: ${dbError instanceof Error ? dbError.message : String(dbError)}` };
   } finally {
     client.release();
   }

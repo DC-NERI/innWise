@@ -3,36 +3,38 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger as ShadAlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { Notification, SimpleRate, SimpleBranch, TransactionCreateData } from '@/lib/types';
 import { notificationCreateSchema, NotificationCreateData, transactionCreateSchema } from '@/lib/schemas';
-import {
-  listNotificationsForTenant,
-  updateNotificationTransactionStatus,
-  getRatesForBranchSimple,
-  getBranchesForTenantSimple,
-  createNotification,
-  deleteNotification
-} from '@/actions/admin';
-import { createUnassignedReservation } from '@/actions/staff';
+
+import { listNotificationsForTenant } from '@/actions/admin/notifications/listNotificationsForTenant';
+import { updateNotificationTransactionStatus } from '@/actions/admin/notifications/updateNotificationTransactionStatus';
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
+import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
+import { createNotification } from '@/actions/admin/notifications/createNotification';
+import { deleteNotification } from '@/actions/admin/notifications/deleteNotification';
+
+import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation'; // Re-using staff action
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
   NOTIFICATION_TRANSACTION_LINK_STATUS,
   NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT,
-  TRANSACTION_IS_ACCEPTED_STATUS_TEXT
+  TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
+  TRANSACTION_LIFECYCLE_STATUS_TEXT,
+  TRANSACTION_PAYMENT_STATUS
 } from '@/lib/constants';
 import { format, parseISO, addDays, setHours, setMinutes, setSeconds, setMilliseconds } from 'date-fns';
 
@@ -74,7 +76,7 @@ const defaultNotificationFormValues: NotificationCreateData = {
     reservation_is_advance: false,
     reservation_check_in_datetime: null,
     reservation_check_out_datetime: null,
-    reservation_is_paid: 0,
+    reservation_is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
     reservation_tender_amount_at_checkin: null,
 };
 
@@ -104,7 +106,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         is_advance_reservation: false,
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
-        is_paid: 0,
+        is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: null,
     }
   });
@@ -178,7 +180,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     if (watchDoReservationForNotif && watchTargetBranchForNotif) {
         const fetchRates = async () => {
             try {
-                const rates = await getRatesForBranchSimple(watchTargetBranchForNotif, tenantId);
+                const rates = await getRatesForBranchSimple(tenantId, watchTargetBranchForNotif); // tenantId first
                 setRatesForAddNotificationSubForm(rates);
             } catch (error) {
                 toast({title: "Error", description: "Could not fetch rates for selected branch.", variant: "destructive"});
@@ -205,12 +207,12 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         is_advance_reservation: false,
         reserved_check_in_datetime: null,
         reserved_check_out_datetime: null,
-        is_paid: 0,
+        is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: null,
     });
     setIsLoading(true);
     try {
-        const rates = await getRatesForBranchSimple(notification.target_branch_id, tenantId);
+        const rates = await getRatesForBranchSimple(tenantId, notification.target_branch_id); // tenantId first
         setRatesForCreateReservationDialog(rates);
     } catch (error) {
         toast({title: "Error", description: "Could not fetch rates for target branch.", variant: "destructive"});
@@ -222,7 +224,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   };
 
   const handleCreateReservationFromNotificationSubmit = async (data: TransactionCreateData) => {
-    if (!selectedNotification || !selectedNotification.target_branch_id || !selectedNotification.tenant_id) {
+    if (!selectedNotification || !selectedNotification.target_branch_id || !tenantId) { // tenantId is from props
       toast({ title: "Error", description: "Target notification or branch not selected.", variant: "destructive" });
       return;
     }
@@ -230,7 +232,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     try {
       const result = await createUnassignedReservation(
         data,
-        selectedNotification.tenant_id, 
+        tenantId, 
         selectedNotification.target_branch_id,
         adminUserId,
         true 
@@ -301,13 +303,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean, isPaidState: any) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
         <FormField control={formInstance.control} name={`${prefix}_client_name`} render={({ field }) => (
-            <FormItem><FormLabel>Client Name for Reservation {isRateOptional ? '' : '*'}</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Client Name for Reservation *</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_selected_rate_id`} render={({ field }) => (
             <FormItem>
                 <FormLabel>Select Rate for Reservation {isRateOptional ? '(Optional)' : '*'}</FormLabel>
                 <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={rates.length === 0}>
-                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={rates.length === 0 ? "No rates for branch" : `Select a rate ${isRateOptional ? '(Optional)' : ''}`} /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger className="w-full"><SelectValue placeholder={rates.length === 0 ? "No rates for branch" : `Select a rate ${isRateOptional ? '(Optional)' : ''}`} /></SelectTrigger></FormControl>
                     <SelectContent>{rates.map(rate => (<SelectItem key={rate.id} value={rate.id.toString()}>{rate.name} (₱{Number(rate.price).toFixed(2)})</SelectItem>))}</SelectContent>
                 </Select><FormMessage />
             </FormItem>
@@ -315,7 +317,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         <FormField control={formInstance.control} name={`${prefix}_client_payment_method`} render={({ field }) => (
             <FormItem><FormLabel>Payment Method for Reservation</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value ?? undefined}>
-                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
+                    <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
                     <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Online Payment">Online Payment</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent>
                 </Select><FormMessage />
             </FormItem>
@@ -324,12 +326,12 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
           control={formInstance.control}
           name={`${prefix}_is_paid`}
           render={({ field }) => (
-            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%] bg-background">
+            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full bg-background">
               <FormControl>
                 <Checkbox
-                  checked={field.value === 1 || field.value === 2} // 1 for Paid, 2 for Advance Paid
+                  checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                   onCheckedChange={(checked) => {
-                    field.onChange(checked ? 1 : 0); // Set to Paid (1) or Unpaid (0)
+                    field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID); 
                     if (!checked) {
                         formInstance.setValue(`${prefix}_tender_amount_at_checkin`, null, { shouldValidate: true });
                     }
@@ -342,7 +344,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             </FormItem>
           )}
         />
-        {isPaidState && (
+        {(isPaidState === TRANSACTION_PAYMENT_STATUS.PAID || isPaidState === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID) && (
           <FormField
             control={formInstance.control}
             name={`${prefix}_tender_amount_at_checkin`}
@@ -358,10 +360,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                     onChange={(e) => {
                         const val = e.target.value;
                         if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
-                          field.onChange(val === "" ? null : val);
+                          field.onChange(val === "" ? null : parseFloat(val));
                         }
                     }}
-                    className="w-[90%]"
+                    className="w-full"
                     />
                 </FormControl>
                 <FormMessage />
@@ -370,10 +372,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
           />
         )}
         <FormField control={formInstance.control} name={`${prefix}_notes`} render={({ field }) => (
-            <FormItem><FormLabel>Notes for Reservation (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Notes for Reservation (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-full" rows={3} /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_is_advance`} render={({ field }) => (
-            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%] bg-background">
+            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full bg-background">
                 <FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                 <div className="space-y-1 leading-none"><FormLabel>This is an Advance Future Reservation?</FormLabel></div>
             </FormItem>
@@ -382,13 +384,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             <>
                 <FormField control={formInstance.control} name={`${prefix}_check_in_datetime`} render={({ field }) => (
                     <FormItem><FormLabel>Reserved Check-in Date & Time *</FormLabel>
-                        <FormControl><Input type="datetime-local" className="w-[90%]" {...field} value={field.value || ""} min={format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl>
+                        <FormControl><Input type="datetime-local" className="w-full" {...field} value={field.value || ""} min={format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl>
                         <FormMessage />
                     </FormItem>
                 )} />
                 <FormField control={formInstance.control} name={`${prefix}_check_out_datetime`} render={({ field }) => (
                     <FormItem><FormLabel>Reserved Check-out Date & Time *</FormLabel>
-                        <FormControl><Input type="datetime-local" className="w-[90%]" {...field} value={field.value || ""} min={formInstance.getValues(`${prefix}_check_in_datetime`) || format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl>
+                        <FormControl><Input type="datetime-local" className="w-full" {...field} value={field.value || ""} min={formInstance.getValues(`${prefix}_check_in_datetime`) || format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl>
                         <FormMessage />
                     </FormItem>
                 )} />
@@ -405,7 +407,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             <Bell className="h-6 w-6 text-primary" />
             <CardTitle>Notifications & Messages</CardTitle>
             </div>
-            <CardDescription>Manage notifications and take actions.</CardDescription>
+            <ShadCardDescription>Manage notifications and take actions.</ShadCardDescription>
         </div>
         <div className="flex space-x-2">
             <Button variant="outline" onClick={fetchNotificationsAndBranches} disabled={isLoading}>
@@ -488,7 +490,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                   <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
                   <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
                   <TableCell className="text-right space-x-2">
-                    {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION && (
+                    {notif.target_branch_id && notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION_LINK && (
                       <Button variant="default" size="sm" onClick={() => handleOpenCreateReservationDialog(notif)} disabled={isSubmitting}>
                         <CalendarPlus className="mr-1 h-3 w-3" /> Create Reservation
                       </Button>
@@ -496,34 +498,36 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                      {notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED && (
                         <span className="text-xs text-green-600">Processed (Tx ID: {notif.transaction_id || 'N/A'})</span>
                     )}
-                    <AlertDialog open={notificationToDelete?.id === notif.id} onOpenChange={(open) => { if (!open) setNotificationToDelete(null); }}>
-                        <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm" onClick={() => setNotificationToDelete(notif)} disabled={isSubmitting}>
-                                <Trash2 className="mr-1 h-3 w-3" /> Delete
-                            </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                            <AlertDialogHeader>
-                                <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                    Are you sure you want to permanently delete this notification?
-                                    <br />
-                                    <span className="font-semibold">Message:</span> "{notificationToDelete?.message.substring(0, 100)}{notificationToDelete && notificationToDelete.message.length > 100 ? '...' : ''}"
-                                </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                                <AlertDialogCancel onClick={() => setNotificationToDelete(null)}>Cancel</AlertDialogCancel>
-                                <AlertDialogAction onClick={() => handleDeleteNotification(notificationToDelete!.id)} disabled={isSubmitting}>
-                                    {isSubmitting ? <Loader2 className="animate-spin" /> : "Delete"}
-                                </AlertDialogAction>
-                            </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                    <ShadAlertDialogTrigger asChild>
+                        <Button variant="destructive" size="sm" onClick={() => setNotificationToDelete(notif)} disabled={isSubmitting}>
+                            <Trash2 className="mr-1 h-3 w-3" /> Delete
+                        </Button>
+                    </ShadAlertDialogTrigger>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+        )}
+        {notificationToDelete && (
+            <AlertDialog open={!!notificationToDelete} onOpenChange={(open) => { if (!open) setNotificationToDelete(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirm Deletion</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to permanently delete this notification?
+                            <br />
+                            <span className="font-semibold">Message:</span> "{notificationToDelete?.message.substring(0, 100)}{notificationToDelete && notificationToDelete.message.length > 100 ? '...' : ''}"
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setNotificationToDelete(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => handleDeleteNotification(notificationToDelete!.id)} disabled={isSubmitting}>
+                            {isSubmitting ? <Loader2 className="animate-spin" /> : "Delete"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         )}
       </CardContent>
 
@@ -533,7 +537,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             createReservationForm.reset({
                 client_name: '', selected_rate_id: undefined, client_payment_method: undefined, notes: '',
                 is_advance_reservation: false, reserved_check_in_datetime: null, reserved_check_out_datetime: null,
-                is_paid: 0, tender_amount_at_checkin: null,
+                is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID, tender_amount_at_checkin: null,
             });
             setRatesForCreateReservationDialog([]);
           }
@@ -542,7 +546,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader className="p-2 border-b">
                 <DialogTitle>Create Reservation from Notification</DialogTitle>
-                <CardDescription>For Branch: {selectedNotification?.target_branch_name || 'N/A'}</CardDescription>
+                <ShadDialogDescriptionAliased>For Branch: {selectedNotification?.target_branch_name || 'N/A'}</ShadDialogDescriptionAliased>
             </DialogHeader>
             <Form {...createReservationForm}>
                 <form onSubmit={createReservationForm.handleSubmit(handleCreateReservationFromNotificationSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">

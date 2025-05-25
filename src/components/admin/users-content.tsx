@@ -14,7 +14,11 @@ import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { userCreateSchemaAdmin, UserCreateDataAdmin, userUpdateSchemaAdmin, UserUpdateDataAdmin } from '@/lib/schemas';
 import type { User, SimpleBranch } from '@/lib/types';
-import { getUsersForTenant, createUserAdmin, updateUserAdmin, archiveUserAdmin, getBranchesForTenantSimple } from '@/actions/admin';
+import { getUsersForTenant } from '@/actions/admin/users/getUsersForTenant';
+import { createUserAdmin } from '@/actions/admin/users/createUserAdmin';
+import { updateUserAdmin } from '@/actions/admin/users/updateUserAdmin';
+import { archiveUserAdmin } from '@/actions/admin/users/archiveUserAdmin';
+import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,6 +28,7 @@ type UserFormValues = UserCreateDataAdmin | UserUpdateDataAdmin;
 
 interface UsersContentProps {
   tenantId: number;
+  adminUserId: number;
 }
 
 const defaultFormValuesCreate: UserCreateDataAdmin = {
@@ -32,11 +37,11 @@ const defaultFormValuesCreate: UserCreateDataAdmin = {
   username: '',
   password: '',
   email: '',
-  role: 'staff', 
+  role: 'staff',
   tenant_branch_id: undefined,
 };
 
-export default function UsersContent({ tenantId }: UsersContentProps) {
+export default function UsersContent({ tenantId, adminUserId }: UsersContentProps) {
   const [users, setUsers] = useState<User[]>([]);
   const [availableBranches, setAvailableBranches] = useState<SimpleBranch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -49,26 +54,27 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
   const { toast } = useToast();
 
   const isEditing = !!selectedUser;
-  
+
   const form = useForm<UserFormValues>({
+    // Resolver will be set dynamically in useEffect
   });
   const selectedRoleInForm = useWatch({ control: form.control, name: 'role' });
-  
+
   const fetchData = useCallback(async () => {
     if (!tenantId) {
-        setIsLoading(false);
-        return;
+      setIsLoading(false);
+      return;
     }
     setIsLoading(true);
     try {
       const [fetchedUsers, fetchedBranches] = await Promise.all([
         getUsersForTenant(tenantId),
-        getBranchesForTenantSimple(tenantId) 
+        getBranchesForTenantSimple(tenantId)
       ]);
       setUsers(fetchedUsers);
-      setAvailableBranches(fetchedBranches); 
-    } catch (error) { 
-      toast({ title: "Error", description: "Could not fetch user data for your tenant.", variant: "destructive" }); 
+      setAvailableBranches(fetchedBranches.filter(b => b.status === HOTEL_ENTITY_STATUS.ACTIVE));
+    } catch (error) {
+      toast({ title: "Error fetching users/branches", description: error instanceof Error ? error.message : "Could not fetch user data for your tenant.", variant: "destructive" });
     }
     finally { setIsLoading(false); }
   }, [tenantId, toast]);
@@ -84,9 +90,9 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       newDefaults = {
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
-        password: '', 
+        password: '',
         email: selectedUser.email || '',
-        role: selectedUser.role as 'admin' | 'staff' | 'housekeeping', 
+        role: selectedUser.role as 'admin' | 'staff' | 'housekeeping',
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
         status: selectedUser.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
@@ -96,24 +102,23 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     form.reset(newDefaults, { resolver: newResolver } as any);
   }, [selectedUser, form, isAddDialogOpen, isEditDialogOpen]);
 
-
   const handleAddSubmit = async (data: UserCreateDataAdmin) => {
     setIsSubmitting(true);
     try {
-      const result = await createUserAdmin(data, tenantId); 
+      const result = await createUserAdmin(data, tenantId, adminUserId);
       if (result.success && result.user) {
         toast({ title: "Success", description: "User created." });
         setUsers(prev => [...prev, result.user!].sort((a, b) => {
-            if (a.role === 'admin' && b.role !== 'admin') return -1;
-            if (a.role !== 'admin' && b.role === 'admin') return 1;
-            return a.last_name.localeCompare(b.last_name);
+          if (a.role === 'admin' && b.role !== 'admin') return -1;
+          if (a.role !== 'admin' && b.role === 'admin') return 1;
+          return (a.last_name || '').localeCompare(b.last_name || '');
         }));
         setIsAddDialogOpen(false);
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
-      toast({ title: "Error", description: "Unexpected error during user creation.", variant: "destructive" }); 
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unexpected error during user creation.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -130,18 +135,18 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       const result = await updateUserAdmin(Number(selectedUser.id), payload as UserUpdateDataAdmin, tenantId);
       if (result.success && result.user) {
         toast({ title: "Success", description: "User updated." });
-        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a,b) => {
-             if (a.role === 'admin' && b.role !== 'admin') return -1;
-            if (a.role !== 'admin' && b.role === 'admin') return 1;
-            return a.last_name.localeCompare(b.last_name);
+        setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a, b) => {
+          if (a.role === 'admin' && b.role !== 'admin') return -1;
+          if (a.role !== 'admin' && b.role === 'admin') return 1;
+          return (a.last_name || '').localeCompare(b.last_name || '');
         }));
         setIsEditDialogOpen(false);
         setSelectedUser(null);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
-      toast({ title: "Error", description: "Unexpected error during user update.", variant: "destructive" }); 
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unexpected error during user update.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -150,13 +155,13 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
     setIsSubmitting(true);
     try {
       const result = await archiveUserAdmin(userId, tenantId);
-      if (result.success) { 
-          toast({ title: "Success", description: `User "${username}" archived.` }); 
-          setUsers(prev => prev.map(u => u.id === userId ? {...u, status: HOTEL_ENTITY_STATUS.ARCHIVED} : u));
+      if (result.success) {
+        toast({ title: "Success", description: `User "${username}" archived.` });
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: HOTEL_ENTITY_STATUS.ARCHIVED } : u));
       }
       else { toast({ title: "Archive Failed", description: result.message, variant: "destructive" }); }
-    } catch (e) { 
-      toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" }); 
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unexpected error during archiving.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
@@ -167,9 +172,9 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       first_name: user.first_name,
       last_name: user.last_name,
       email: user.email || '',
-      role: user.role as 'admin' | 'staff' | 'housekeeping', 
+      role: user.role as 'admin' | 'staff' | 'housekeeping', // Admins can only manage these roles for their tenant
       tenant_branch_id: user.tenant_branch_id,
-      status: HOTEL_ENTITY_STATUS.ACTIVE, 
+      status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
       const result = await updateUserAdmin(Number(user.id), payload, tenantId);
@@ -179,15 +184,16 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { 
-      toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" }); 
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Unexpected error during restore.", variant: "destructive" });
     }
     finally { setIsSubmitting(false); }
   };
 
   const filteredUsers = users.filter(user => user.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
-  
-  const usernameField = (() => {
+
+  const renderFormFields = () => {
+    const usernameField = (() => {
       if (isEditing && selectedUser) {
         return (
           <FormItem>
@@ -211,7 +217,6 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
       );
     })();
 
-  const renderFormFields = () => {
     return (
       <React.Fragment>
         <FormField control={form.control} name="first_name" render={({ field }) => (<FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
@@ -243,7 +248,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                 value={field.value?.toString()}
                 disabled={isLoadingBranches || availableBranches.length === 0}
               >
-                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No branches available" : (selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
+                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : availableBranches.length === 0 ? "No active branches for this tenant" : (selectedRoleInForm === 'staff' || selectedRoleInForm === 'housekeeping' ? "Select branch *" : "Assign to branch (Optional)")} /></SelectTrigger></FormControl>
                 <SelectContent>{availableBranches.map(b => <SelectItem key={b.id} value={b.id.toString()}>{b.branch_name}</SelectItem>)}</SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -279,29 +284,29 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <div><div className="flex items-center space-x-2"><UsersIcon className="h-6 w-6 text-primary" /><CardTitle>User Management</CardTitle></div><CardDescription>Manage users within your tenant.</CardDescription></div>
+        <div><div className="flex items-center space-x-2"><UsersIcon className="h-6 w-6 text-primary" /><CardTitle>User Management (Admin)</CardTitle></div><CardDescription>Manage users within your tenant.</CardDescription></div>
         <Dialog
-            key={isEditing ? `edit-user-admin-${selectedUser?.id}` : 'add-user-admin'}
-            open={isAddDialogOpen || isEditDialogOpen}
-            onOpenChange={(open) => {
-                if (!open) {
-                    setIsAddDialogOpen(false);
-                    setIsEditDialogOpen(false);
-                    setSelectedUser(null); 
-                    form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchemaAdmin) } as any);
-                }
-            }}
+          key={isEditing ? `edit-user-admin-${selectedUser?.id}` : 'add-user-admin'}
+          open={isAddDialogOpen || isEditDialogOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              setIsAddDialogOpen(false);
+              setIsEditDialogOpen(false);
+              setSelectedUser(null);
+              form.reset({ ...defaultFormValuesCreate, role: 'staff' }, { resolver: zodResolver(userCreateSchemaAdmin) } as any);
+            }
+          }}
         >
           <DialogTrigger asChild>
-            <Button onClick={() => { setSelectedUser(null); form.reset(defaultFormValuesCreate, { resolver: zodResolver(userCreateSchemaAdmin) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }}>
+            <Button onClick={() => { setSelectedUser(null); form.reset({ ...defaultFormValuesCreate, role: 'staff' }, { resolver: zodResolver(userCreateSchemaAdmin) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }}>
               <PlusCircle className="mr-2 h-4 w-4" /> Add User
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-            <DialogHeader><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
+            <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit User: ${selectedUser?.username}` : 'Add New User'}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as UserUpdateDataAdmin)) : (d => handleAddSubmit(d as UserCreateDataAdmin)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                <div className="flex-grow space-y-3 py-2 px-3 overflow-y-auto">
+                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                   {renderFormFields()}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -317,7 +322,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
           <TabsContent value="active">
-            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No active users found.</p>}
+            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No active users found for this tenant.</p>}
             {!isLoading && filteredUsers.length > 0 && (
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredUsers.map(u => (
@@ -325,7 +330,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
                     <TableCell className="font-medium">{u.first_name} {u.last_name}</TableCell><TableCell>{u.username}</TableCell><TableCell className="capitalize">{u.role}</TableCell><TableCell>{u.branch_name || 'N/A'}</TableCell>
                     <TableCell className="text-right space-x-2">
                       <Button variant="outline" size="sm" onClick={() => { setSelectedUser(u); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
-                      <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting || u.role === 'admin'} title={u.role === 'admin' ? "Admin accounts cannot be archived from here." : "Archive User"}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
+                      <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive user "{u.username}"?</AlertDialogDescription></AlertDialogHeader>
                           <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(Number(u.id), u.username)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
@@ -337,7 +342,7 @@ export default function UsersContent({ tenantId }: UsersContentProps) {
               </Table>)}
           </TabsContent>
           <TabsContent value="archive">
-            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No archived users found.</p>}
+            {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No archived users found for this tenant.</p>}
             {!isLoading && filteredUsers.length > 0 && (
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>{filteredUsers.map(u => (
