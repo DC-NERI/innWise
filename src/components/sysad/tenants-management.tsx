@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { listTenants } from '@/actions/admin/tenants/listTenants';
 import { createTenant } from '@/actions/admin/tenants/createTenant';
 import { updateTenant } from '@/actions/admin/tenants/updateTenant';
-import { archiveTenant } from '@/actions/admin/tenants/archiveTenant';
+import { archiveTenant } from '@/actions/admin/tenants/archiveTenant'; // Ensure this action exists and is correctly used
 import type { Tenant } from '@/lib/types';
 import { tenantCreateSchema, TenantCreateData, tenantUpdateSchema, TenantUpdateData } from '@/lib/schemas';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore, Ban, Chec
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { HOTEL_ENTITY_STATUS, HOTEL_ENTITY_STATUS_TEXT } from '@/lib/constants';
+import { HOTEL_ENTITY_STATUS, HOTEL_ENTITY_STATUS_TEXT } from '@/lib/constants'; // Correct import path
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -31,8 +31,8 @@ const defaultFormValuesCreate: TenantCreateData = {
   tenant_address: '',
   tenant_email: '',
   tenant_contact_info: '',
-  max_branch_count: 5, // Default value
-  max_user_count: 10,  // Default value
+  max_branch_count: 5,
+  max_user_count: 10,
 };
 
 interface TenantsManagementProps {
@@ -52,11 +52,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
   const isEditing = !!selectedTenant;
 
   const form = useForm<TenantFormValues>({
-    resolver: zodResolver(isEditing ? tenantUpdateSchema : tenantCreateSchema),
-    defaultValues: {
-      ...defaultFormValuesCreate,
-      status: HOTEL_ENTITY_STATUS.ACTIVE,
-    },
+    // Resolver and defaultValues are set dynamically in useEffect
   });
 
   const fetchTenants = useCallback(async () => {
@@ -112,7 +108,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         toast({ title: "Success", description: "Tenant created successfully." });
         setTenants(prev => [...prev, result.tenant!].sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsAddDialogOpen(false);
-        fetchData(); // Re-fetch for consistency
+        // No need to call fetchData here as we are optimistically updating
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create tenant.", variant: "destructive" });
       }
@@ -136,7 +132,6 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         setTenants(prev => prev.map(t => t.id === result.tenant!.id ? result.tenant! : t).sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsEditDialogOpen(false);
         setSelectedTenant(null);
-        fetchData(); // Re-fetch
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update tenant.", variant: "destructive" });
       }
@@ -162,11 +157,18 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         max_user_count: tenant.max_user_count,
         status: newStatus,
     };
-    const actionText = newStatus === HOTEL_ENTITY_STATUS.ARCHIVED ? "archived" : newStatus === HOTEL_ENTITY_STATUS.SUSPENDED ? "suspended" : "reactivated";
+    
+    const actionText = newStatus === HOTEL_ENTITY_STATUS.ARCHIVED 
+        ? "archived" 
+        : newStatus === HOTEL_ENTITY_STATUS.SUSPENDED 
+        ? "suspended" 
+        : "reactivated"; // Default to reactivated for HOTEL_ENTITY_STATUS.ACTIVE
+        
     try {
-      const result = await updateTenant(tenant.id, payload, sysAdUserId); // Using updateTenant to change status
+      const result = await updateTenant(tenant.id, payload, sysAdUserId);
       if (result.success && result.tenant) {
         toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" ${actionText}.` });
+        // Instead of full fetchData, optimistically update the local state or filter current list
         setTenants(prev => prev.map(t => t.id === tenant.id ? result.tenant! : t));
       } else {
         toast({ title: `${actionText.charAt(0).toUpperCase() + actionText.slice(1)} Failed`, description: result.message, variant: "destructive" });
@@ -178,9 +180,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
     }
   };
 
-
   const filteredTenants = tenants.filter(tenant => tenant.status === activeTab);
-
 
   if (isLoading && tenants.length === 0) {
     return (
@@ -269,7 +269,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
             <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Tenant: ${selectedTenant?.tenant_name}` : 'Add New Tenant'}</DialogTitle></DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as TenantUpdateData)) : (d => handleAddSubmit(d as TenantCreateData)) )} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+                <div className="flex-grow overflow-y-auto p-1 space-y-3">
                   {renderFormFields()}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
@@ -353,6 +353,7 @@ function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onS
           <TableHead>Contact</TableHead>
           <TableHead>Max Branches</TableHead>
           <TableHead>Max Users</TableHead>
+          <TableHead>Status</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
@@ -364,7 +365,8 @@ function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onS
             <TableCell>{tenant.tenant_contact_info || '-'}</TableCell>
             <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
             <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
-            <TableCell className="text-right space-x-2">
+            <TableCell>{HOTEL_ENTITY_STATUS_TEXT[tenant.status as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || tenant.status}</TableCell>
+            <TableCell className="text-right space-x-1">
               {currentTab === "active" && onEdit && (
                 <Button variant="outline" size="sm" onClick={() => onEdit(tenant)} disabled={isSubmitting}>
                   <Edit className="mr-1 h-3 w-3" /> Edit
@@ -373,7 +375,7 @@ function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onS
               {currentTab === "active" && onSuspend && (
                  <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm" className="text-yellow-600 border-yellow-600 hover:bg-yellow-100 hover:text-yellow-700" disabled={isSubmitting}>
+                    <Button variant="outline" size="sm" className="text-yellow-600 border-yellow-600 hover:bg-yellow-100 hover:text-yellow-700 dark:text-yellow-400 dark:border-yellow-400 dark:hover:bg-yellow-700 dark:hover:text-yellow-200" disabled={isSubmitting}>
                         <Ban className="mr-1 h-3 w-3" /> Suspend
                     </Button>
                   </AlertDialogTrigger>
@@ -394,8 +396,13 @@ function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onS
                   </AlertDialogContent>
                 </AlertDialog>
               )}
+              {currentTab === "suspended" && onEdit && ( // Allow editing details even if suspended
+                <Button variant="outline" size="sm" onClick={() => onEdit(tenant)} disabled={isSubmitting}>
+                  <Edit className="mr-1 h-3 w-3" /> Edit
+                </Button>
+              )}
               {currentTab === "suspended" && onReactivate && (
-                <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-100 hover:text-green-700" onClick={() => onReactivate(tenant)} disabled={isSubmitting}>
+                <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-100 hover:text-green-700 dark:text-green-400 dark:border-green-400 dark:hover:bg-green-700 dark:hover:text-green-200" onClick={() => onReactivate(tenant)} disabled={isSubmitting}>
                     <CheckCircle className="mr-1 h-3 w-3" /> Reactivate
                 </Button>
               )}
@@ -422,5 +429,6 @@ function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onS
     </Table>
   );
 }
+
 
     
