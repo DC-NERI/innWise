@@ -21,33 +21,46 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client in logLoginAttempt action', err);
+  console.error('[logLoginAttempt Pool Error] Unexpected error on idle client:', err);
 });
 
 export async function logLoginAttempt(
-  userId: number,
+  userId: number | null, // Can be null if username not found
   ipAddress: string | null,
   userAgent: string | null,
-  status: 'success' | 'failed'
+  status: 'success' | 'failed',
+  attemptedUsername?: string | null, // Kept for enriching error_details
+  errorDetails?: string | null
 ): Promise<void> {
-  if (!userId || userId <= 0) {
-    // Cannot log if userId is invalid, due to NOT NULL constraint in login_logs
-    // This case should ideally be handled by the caller if a user_id isn't found.
-    console.warn('[logLoginAttempt] Attempted to log with invalid userId:', userId);
-    return;
-  }
+  // If userId is required by schema and not provided (e.g., for 'success'),
+  // this log might fail if we didn't make user_id nullable.
+  // But user_id is now nullable.
 
   let client;
   try {
     client = await pool.connect();
+
+    let finalErrorDetails = errorDetails;
+    if (status === 'failed' && attemptedUsername && errorDetails) {
+      finalErrorDetails = `Attempted Username: ${attemptedUsername}. Reason: ${errorDetails}`;
+    } else if (status === 'failed' && attemptedUsername && !errorDetails) {
+      finalErrorDetails = `Attempted Username: ${attemptedUsername}.`;
+    }
+
+
+    // Ensure login_time uses Asia/Manila if not handled by DB default (DB default is preferred)
+    // The DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') in your DDL handles this.
     const query = `
-      INSERT INTO login_logs (user_id, ip_address, user_agent, status, login_time)
-      VALUES ($1, $2, $3, $4, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
+      INSERT INTO login_logs (user_id, ip_address, user_agent, status, error_details, login_time)
+      VALUES ($1, $2, $3, $4, $5, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
     `;
-    await client.query(query, [userId, ipAddress, userAgent, status]);
-  } catch (error) {
-    // Log the error on the server, but do not let it break the main login flow
-    console.error('[logLoginAttempt DB Error] Failed to log login attempt:', error);
+    const values = [userId, ipAddress, userAgent, status, finalErrorDetails];
+
+    await client.query(query, values);
+  } catch (dbError: any) {
+    console.error('[logLoginAttempt DB Error] Failed to log login attempt:', dbError);
+    // Do not let this error break the main login flow.
+    // Optionally, log this failure to a different system or file if critical.
   } finally {
     if (client) {
       client.release();
