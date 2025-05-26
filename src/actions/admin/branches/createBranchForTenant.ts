@@ -3,10 +3,10 @@
 
 import pg from 'pg';
 // Configure pg to return numeric types as numbers instead of strings
-pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8
-pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2
-pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4
-pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric
+pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8/bigint
+pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
+pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
+pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
 
 // Configure pg to return timestamp without timezone as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
@@ -15,8 +15,8 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 import { Pool } from 'pg';
 import type { Branch } from '@/lib/types';
 import { branchCreateSchema, BranchCreateData } from '@/lib/schemas';
-import { HOTEL_ENTITY_STATUS } from '../../../lib/constants';
-import { logActivity } from '../../activityLogger';
+import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { logActivity } from '@/actions/activityLogger';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -35,16 +35,17 @@ const CREATE_BRANCH_SQL = `
 
 export async function createBranchForTenant(
   data: BranchCreateData,
-  sysAdUserId: number
+  sysAdUserId: number | null
 ): Promise<{ success: boolean; message?: string; branch?: Branch }> {
+  if (!sysAdUserId || sysAdUserId <= 0) {
+    console.error("[createBranchForTenant] Invalid sysAdUserId:", sysAdUserId);
+    return { success: false, message: "Invalid System Administrator ID. Cannot create branch." };
+  }
+
   const validatedFields = branchCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
     return { success: false, message: errorMessage };
-  }
-  if (!sysAdUserId || sysAdUserId <= 0) {
-    console.error("[createBranchForTenant] Invalid sysAdUserId:", sysAdUserId);
-    return { success: false, message: "Invalid System Administrator ID for logging." };
   }
 
   const { tenant_id, branch_name, branch_code, branch_address, contact_number, email_address } = validatedFields.data;
@@ -54,7 +55,6 @@ export async function createBranchForTenant(
     console.log('[createBranchForTenant] Beginning transaction...');
     await client.query('BEGIN');
 
-    // Check tenant details and branch count limit
     const tenantRes = await client.query('SELECT tenant_name, max_branch_count FROM tenants WHERE id = $1', [tenant_id]);
     if (tenantRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -66,7 +66,7 @@ export async function createBranchForTenant(
     if (max_branch_count !== null && max_branch_count > 0) {
       const currentBranchCountRes = await client.query(
         'SELECT COUNT(*) FROM tenant_branch WHERE tenant_id = $1 AND status = $2',
-        [tenant_id, HOTEL_ENTITY_STATUS.ACTIVE]
+        [tenant_id, HOTEL_ENTITY_STATUS.ACTIVE.toString()]
       );
       const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
       if (currentBranchCount >= max_branch_count) {
@@ -84,7 +84,7 @@ export async function createBranchForTenant(
       branch_address,
       contact_number,
       email_address,
-      HOTEL_ENTITY_STATUS.ACTIVE
+      HOTEL_ENTITY_STATUS.ACTIVE.toString()
     ]);
 
     if (res.rows.length > 0) {
@@ -101,6 +101,7 @@ export async function createBranchForTenant(
         target_entity_id: newBranch.id.toString(),
         details: { branch_name: newBranch.branch_name, branch_code: newBranch.branch_code, tenant_id: newBranch.tenant_id }
       }, client);
+      console.log('[createBranchForTenant] Activity logged.');
 
       console.log('[createBranchForTenant] Committing transaction...');
       await client.query('COMMIT');
@@ -110,7 +111,7 @@ export async function createBranchForTenant(
         message: "Branch created successfully.",
         branch: {
           ...newBranch,
-          tenant_name: tenant_name,
+          tenant_name: tenant_name, // Add tenant_name to the returned branch object
           status: String(newBranch.status)
         } as Branch
       };
@@ -136,5 +137,6 @@ export async function createBranchForTenant(
     return { success: false, message: errorMessage };
   } finally {
     client.release();
+    console.log('[createBranchForTenant] Client released.');
   }
 }

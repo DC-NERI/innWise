@@ -16,7 +16,7 @@ import { Pool } from 'pg';
 import type { Tenant } from '@/lib/types';
 import { tenantCreateSchema, TenantCreateData } from '@/lib/schemas';
 import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
-import { logActivity } from '../../activityLogger'; // Adjusted path
+import { logActivity } from '@/actions/activityLogger';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -27,14 +27,18 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client in admin/tenants/createTenant action', err);
 });
 
-// Define the SQL query as a constant string
 const CREATE_TENANT_QUERY = `
-  INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status)
-  VALUES ($1, $2, $3, $4, $5, $6, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), $7)
+  INSERT INTO tenants (tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, status, created_at, updated_at)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'), (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'))
   RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status
 `;
 
-export async function createTenant(data: TenantCreateData, sysAdUserId: number): Promise<{ success: boolean; message?: string; tenant?: Tenant }> {
+export async function createTenant(data: TenantCreateData, sysAdUserId: number | null): Promise<{ success: boolean; message?: string; tenant?: Tenant }> {
+  if (!sysAdUserId || sysAdUserId <= 0) {
+    console.error("[createTenant] Invalid sysAdUserId:", sysAdUserId);
+    return { success: false, message: "Invalid System Administrator ID. Cannot create tenant." };
+  }
+
   const validatedFields = tenantCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessages = Object.values(validatedFields.error.flatten().fieldErrors).flat().join(' ');
@@ -43,12 +47,14 @@ export async function createTenant(data: TenantCreateData, sysAdUserId: number):
   const { tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count } = validatedFields.data;
   const client = await pool.connect();
   try {
+    console.log('[createTenant] Beginning transaction...');
     await client.query('BEGIN');
-    const res = await client.query(CREATE_TENANT_QUERY, // Use the constant here
+    const res = await client.query(CREATE_TENANT_QUERY,
       [tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, HOTEL_ENTITY_STATUS.ACTIVE.toString()]
     );
     if (res.rows.length > 0) {
       const newTenant = res.rows[0];
+      console.log(`[createTenant] Tenant inserted with ID: ${newTenant.id}. Logging activity...`);
 
       try {
         await logActivity({
@@ -59,12 +65,16 @@ export async function createTenant(data: TenantCreateData, sysAdUserId: number):
           target_entity_id: newTenant.id.toString(),
           details: { tenant_name: newTenant.tenant_name, email: newTenant.tenant_email }
         }, client);
+        console.log('[createTenant] Activity logged.');
       } catch (logError) {
-        console.error("[createTenant] Failed to log activity:", logError);
-        // Do not let logging failure roll back the primary action
+        console.error("[createTenant] Failed to log activity, but proceeding with tenant creation:", logError);
+        // Decide if logging failure should roll back the tenant creation.
+        // For now, we log the error but don't roll back.
       }
       
+      console.log('[createTenant] Committing transaction...');
       await client.query('COMMIT');
+      console.log('[createTenant] Transaction committed successfully.');
       return {
         success: true,
         message: "Tenant created successfully.",
@@ -77,18 +87,25 @@ export async function createTenant(data: TenantCreateData, sysAdUserId: number):
       };
     }
     await client.query('ROLLBACK');
-    return { success: false, message: "Tenant creation failed." };
-  } catch (error) {
-    await client.query('ROLLBACK');
+    console.warn('[createTenant] Rollback: Tenant insertion failed (no rows returned).');
+    return { success: false, message: "Tenant creation failed (no rows returned)." };
+  } catch (error: any) {
+    console.error('[createTenant DB Full Error]', error);
+    try {
+      await client.query('ROLLBACK');
+      console.warn('[createTenant] Rollback due to error:', error.message);
+    } catch (rollbackError) {
+      console.error('[createTenant] Error during rollback:', rollbackError);
+    }
     let errorMessage = "Database error occurred during tenant creation.";
-     if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenants_tenant_email_key') {
+     if (error.code === '23505' && error.constraint === 'tenants_tenant_email_key') {
         errorMessage = "This email address is already in use by another tenant.";
-    } else if (error instanceof Error) {
+    } else if (error.message) {
         errorMessage = `Database error: ${error.message}`;
     }
-    console.error('[createTenant DB Error]', error);
     return { success: false, message: errorMessage };
   } finally {
     client.release();
+    console.log('[createTenant] Client released.');
   }
 }
