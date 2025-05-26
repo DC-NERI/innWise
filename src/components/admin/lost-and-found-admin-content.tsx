@@ -53,8 +53,8 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isUpdateStatusDialogOpen, setIsUpdateStatusDialogOpen] = useState(false);
   const [selectedItemForUpdate, setSelectedItemForUpdate] = useState<LostAndFoundLog | null>(null);
-  const [activeTab, setActiveTab] = useState<string>(LOST_AND_FOUND_STATUS.FOUND.toString());
-  const [searchTerm, setSearchTerm] = useState(''); // New state for search term
+  const [activeItemStatusTab, setActiveItemStatusTab] = useState<string>(LOST_AND_FOUND_STATUS.FOUND.toString());
+  const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
   const addItemForm = useForm<LostAndFoundCreateData>({
@@ -76,8 +76,10 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
       setBranches(fetchedBranches);
       if (fetchedBranches.length > 0 && !selectedBranchId) {
-        // Optionally auto-select first branch
-        // setSelectedBranchId(fetchedBranches[0].id);
+        // Optionally auto-select first branch tab
+         setSelectedBranchId(fetchedBranches[0].id);
+      } else if (fetchedBranches.length === 0) {
+        setSelectedBranchId(null);
       }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
@@ -174,16 +176,19 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
     }
   };
 
-  const filteredItems = items.filter(item => {
-    const statusMatch = item.status.toString() === activeTab;
-    if (!statusMatch) return false;
-    if (!searchTerm.trim()) return true; // If no search term, only filter by status
-    const lowerSearchTerm = searchTerm.toLowerCase();
-    return (
-      item.item_name.toLowerCase().includes(lowerSearchTerm) ||
-      (item.description && item.description.toLowerCase().includes(lowerSearchTerm))
-    );
-  });
+  const getFilteredItemsForStatusTab = (statusValue: number) => {
+    return items.filter(item => {
+      const statusMatch = item.status === statusValue;
+      if (!statusMatch) return false;
+      if (!searchTerm.trim()) return true;
+      const lowerSearchTerm = searchTerm.toLowerCase();
+      return (
+        item.item_name.toLowerCase().includes(lowerSearchTerm) ||
+        (item.description && item.description.toLowerCase().includes(lowerSearchTerm))
+      );
+    });
+  };
+
 
   return (
     <Card>
@@ -229,110 +234,114 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
           </Dialog>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-end space-x-4">
-            <div className="flex-grow space-y-2">
-                <Label htmlFor="branch-select-trigger-lostfound-admin">Select Branch</Label>
-                <Select
-                    onValueChange={(value) => setSelectedBranchId(value ? parseInt(value) : null)}
-                    value={selectedBranchId?.toString()}
-                    disabled={isLoadingBranches || branches.length === 0}
-                >
-                    <SelectTrigger id="branch-select-trigger-lostfound-admin">
-                        <SelectValue placeholder={isLoadingBranches ? "Loading branches..." : (branches.length === 0 ? "No branches available" : "Select a branch")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {branches.map(branch => (
-                            <SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-            <Button variant="outline" onClick={() => { if(selectedBranchId) fetchItems(selectedBranchId)}} disabled={!selectedBranchId || isLoadingItems}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingItems ? 'animate-spin' : ''}`} /> Refresh Items
-            </Button>
-        </div>
-
-        {selectedBranchId && (
-          <div className="relative mt-4">
-            <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search by item name or description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 w-full sm:w-1/2"
-            />
+        {isLoadingBranches && <div className="flex justify-center items-center h-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading branches...</p></div>}
+        
+        {!isLoadingBranches && branches.length === 0 && (
+          <div className="text-center py-10 text-muted-foreground">
+            <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
+            No branches available for this tenant. Please add a branch first.
           </div>
         )}
 
-        {selectedBranchId && isLoadingItems && <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading items...</p></div>}
-        
-        {selectedBranchId && !isLoadingItems && (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-3 mb-4">
-              {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
-                <TabsTrigger key={opt.value} value={opt.value.toString()}>
-                  {opt.label} ({items.filter(i => i.status === opt.value && (searchTerm.trim() === '' || i.item_name.toLowerCase().includes(searchTerm.toLowerCase()) || (i.description && i.description.toLowerCase().includes(searchTerm.toLowerCase())))).length})
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
-              <TabsContent key={`tab-content-${opt.value}`} value={opt.value.toString()}>
-                {filteredItems.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-8">No items in '{opt.label}' status {searchTerm.trim() ? `matching "${searchTerm}"` : ''} for this branch.</p>
-                ) : (
-                  <div className="max-h-[60vh] overflow-y-auto">
-                      <Table>
-                      <TableHeader>
-                          <TableRow>
-                          <TableHead>Item Name</TableHead>
-                          <TableHead>Description</TableHead>
-                          <TableHead>Location</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Found At</TableHead>
-                          <TableHead>Reported By</TableHead>
-                          <TableHead>Claimed At</TableHead>
-                          <TableHead>Claimed By</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                          </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                          {filteredItems.map(item => (
-                          <TableRow key={item.id}>
-                              <TableCell className="font-medium max-w-xs truncate" title={item.item_name}>{item.item_name}</TableCell>
-                              <TableCell className="max-w-xs truncate" title={item.description || undefined}>{item.description || '-'}</TableCell>
-                              <TableCell>{item.found_location || '-'}</TableCell>
-                              <TableCell>{LOST_AND_FOUND_STATUS_TEXT[item.status]}</TableCell>
-                              <TableCell>{formatDateTime(parseISO(item.found_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa')}</TableCell>
-                              <TableCell>{item.reported_by_username || '-'}</TableCell>
-                              <TableCell>{item.claimed_at ? formatDateTime(parseISO(item.claimed_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : '-'}</TableCell>
-                              <TableCell className="max-w-xs truncate" title={item.claimed_by_details || undefined}>{item.claimed_by_details || '-'}</TableCell>
-                              <TableCell className="text-right">
-                              <Button variant="outline" size="sm" onClick={() => handleOpenUpdateStatusDialog(item)}>
-                                  <Edit3 className="mr-1 h-3 w-3" /> Update Status
-                              </Button>
-                              </TableCell>
-                          </TableRow>
+        {!isLoadingBranches && branches.length > 0 && (
+          <Tabs
+            value={selectedBranchId?.toString()}
+            onValueChange={(value) => setSelectedBranchId(value ? parseInt(value) : null)}
+            className="w-full"
+          >
+            <div className="flex items-end space-x-4 mb-4">
+              <TabsList className="flex-wrap h-auto">
+                {branches.map(branch => (
+                  <TabsTrigger key={`branch-tab-${branch.id}`} value={branch.id.toString()} className="whitespace-nowrap">
+                    {branch.branch_name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              <Button variant="outline" onClick={() => { if(selectedBranchId) fetchItems(selectedBranchId)}} disabled={!selectedBranchId || isLoadingItems}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingItems ? 'animate-spin' : ''}`} /> Refresh Items
+              </Button>
+            </div>
+
+            {branches.map(branch => (
+              <TabsContent key={`branch-content-${branch.id}`} value={branch.id.toString()}>
+                {selectedBranchId === branch.id && (
+                  <>
+                    <div className="relative mt-4 mb-4">
+                      <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="search"
+                        placeholder="Search by item name or description in this branch..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-8 w-full sm:w-1/2"
+                      />
+                    </div>
+
+                    {isLoadingItems && <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading items for {branch.branch_name}...</p></div>}
+                    
+                    {!isLoadingItems && (
+                      <Tabs value={activeItemStatusTab} onValueChange={setActiveItemStatusTab}>
+                        <TabsList className="grid w-full grid-cols-3 mb-4">
+                          {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
+                            <TabsTrigger key={`item-status-tab-${opt.value}`} value={opt.value.toString()}>
+                              {opt.label} ({getFilteredItemsForStatusTab(opt.value).length})
+                            </TabsTrigger>
                           ))}
-                      </TableBody>
-                      </Table>
-                  </div>
+                        </TabsList>
+                        {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => {
+                          const currentFilteredItems = getFilteredItemsForStatusTab(opt.value);
+                          return (
+                            <TabsContent key={`item-status-content-${opt.value}`} value={opt.value.toString()}>
+                              {currentFilteredItems.length === 0 ? (
+                                <p className="text-muted-foreground text-center py-8">No items in '{opt.label}' status {searchTerm.trim() ? `matching "${searchTerm}"` : ''} for this branch.</p>
+                              ) : (
+                                <div className="max-h-[60vh] overflow-y-auto">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>Item Name</TableHead>
+                                        <TableHead>Description</TableHead>
+                                        <TableHead>Location</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead>Found At</TableHead>
+                                        <TableHead>Reported By</TableHead>
+                                        <TableHead>Claimed At</TableHead>
+                                        <TableHead>Claimed By</TableHead>
+                                        <TableHead className="text-right">Actions</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {currentFilteredItems.map(item => (
+                                        <TableRow key={item.id}>
+                                          <TableCell className="font-medium max-w-xs truncate" title={item.item_name}>{item.item_name}</TableCell>
+                                          <TableCell className="max-w-xs truncate" title={item.description || undefined}>{item.description || '-'}</TableCell>
+                                          <TableCell>{item.found_location || '-'}</TableCell>
+                                          <TableCell>{LOST_AND_FOUND_STATUS_TEXT[item.status]}</TableCell>
+                                          <TableCell>{item.found_at ? formatDateTime(parseISO(item.found_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
+                                          <TableCell>{item.reported_by_username || '-'}</TableCell>
+                                          <TableCell>{item.claimed_at ? formatDateTime(parseISO(item.claimed_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : '-'}</TableCell>
+                                          <TableCell className="max-w-xs truncate" title={item.claimed_by_details || undefined}>{item.claimed_by_details || '-'}</TableCell>
+                                          <TableCell className="text-right">
+                                            <Button variant="outline" size="sm" onClick={() => handleOpenUpdateStatusDialog(item)}>
+                                              <Edit3 className="mr-1 h-3 w-3" /> Update Status
+                                            </Button>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </TabsContent>
+                          );
+                        })}
+                      </Tabs>
+                    )}
+                  </>
                 )}
               </TabsContent>
             ))}
           </Tabs>
-        )}
-        {!selectedBranchId && !isLoadingBranches && branches.length > 0 && (
-             <div className="text-center py-10 text-muted-foreground">
-                <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                Please select a branch to manage its Lost &amp; Found items.
-            </div>
-        )}
-         {!isLoadingBranches && branches.length === 0 && (
-             <div className="text-center py-10 text-muted-foreground">
-                <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                No branches available for this tenant. Please add a branch first.
-            </div>
         )}
       </CardContent>
 
@@ -386,3 +395,4 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
   );
 }
 
+    
