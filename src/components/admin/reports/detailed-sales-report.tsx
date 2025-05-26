@@ -57,7 +57,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         fetchReport();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId]);
+  }, [tenantId]); // Fetch on initial load or tenantId change
 
   const handleSetToday = () => {
     const today = new Date();
@@ -67,7 +67,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
   const handleSetThisWeek = () => {
     const today = new Date();
-    setStartDate(startOfWeek(today, { weekStartsOn: 1 }));
+    setStartDate(startOfWeek(today, { weekStartsOn: 1 })); // Assuming week starts on Monday
     setEndDate(endOfWeek(today, { weekStartsOn: 1 }));
   };
 
@@ -84,6 +84,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         try {
           const date = parseISO(item.sale_date); 
           if (!isValid(date)) {
+            console.warn(`[DetailedSalesReport] Invalid sale_date for chart: ${item.sale_date}`);
             return null; 
           }
           return {
@@ -91,6 +92,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             Sales: item.total_sales,
           };
         } catch (e) {
+          console.error(`[DetailedSalesReport] Error parsing sale_date for chart: ${item.sale_date}`, e);
           return null;
         }
       })
@@ -98,10 +100,11 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   }, [reportData?.dailySales]);
 
   const escapeCSVField = (field: any): string => {
-    if (field == null) {
+    if (field == null) { // Catches both null and undefined
         return '';
     }
     const stringField = String(field);
+    // If the field contains a comma, double quote, newline, or carriage return, enclose in double quotes and escape existing double quotes
     if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') || stringField.includes('\r')) {
         return `"${stringField.replace(/"/g, '""')}"`;
     }
@@ -111,7 +114,17 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   const convertArrayToCSV = (data: any[], headers: string[], keys: string[]): string => {
     let csvString = headers.map(header => escapeCSVField(header)).join(',') + '\r\n';
     data.forEach(row => {
-        csvString += keys.map(key => escapeCSVField(row[key])).join(',') + '\r\n';
+        csvString += keys.map(key => {
+            // Handle date formatting for specific keys if needed
+            if ((key === 'check_in_time' || key === 'check_out_time') && row[key]) {
+                try {
+                    return escapeCSVField(format(parseISO(row[key]), 'yyyy-MM-dd HH:mm:ss'));
+                } catch (e) {
+                    return escapeCSVField(row[key]); // Fallback to original string if parsing fails
+                }
+            }
+            return escapeCSVField(row[key]);
+        }).join(',') + '\r\n';
     });
     return csvString;
   };
@@ -133,9 +146,15 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
     csvContent += `Overall Total Sales: ${escapeCSVField(reportData.totalSales?.toFixed(2) || '0.00')}\r\n\r\n`;
 
-    // Branch Performance (if this data source is still desired, or taken from AdminDashboardSummary)
-    // For now, assuming it's part of the main reportData structure if needed.
-    // If it's fetched separately or not part of detailedSalesReport, this section might need adjustment.
+    if (reportData.branchPerformance && reportData.branchPerformance.length > 0) {
+      csvContent += "Branch Performance\r\n";
+      csvContent += convertArrayToCSV(
+          reportData.branchPerformance,
+          ["Branch Name", "Total Sales (PHP)", "Transaction Count"],
+          ["branch_name", "total_sales", "transaction_count"]
+      );
+      csvContent += "\r\n";
+    }
 
     if (reportData.salesByPaymentMethod && reportData.salesByPaymentMethod.length > 0) {
         csvContent += "Sales By Payment Method\r\n";
@@ -171,8 +190,8 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
       csvContent += "Detailed Transactions\r\n";
       csvContent += convertArrayToCSV(
           reportData.detailedTransactions,
-          ["Tx ID", "Branch", "Check-out", "Client", "Room", "Rate", "Amount (PHP)", "Payment Method", "Staff"],
-          ["id", "branch_name", "check_out_time", "client_name", "room_name", "rate_name", "total_amount", "client_payment_method", "checked_out_by_username"]
+          ["Tx ID", "Branch", "Check-in Time", "Check-out Time", "Hours Stayed", "Client", "Room", "Rate", "Amount (PHP)", "Payment Method", "Staff"],
+          ["id", "branch_name", "check_in_time", "check_out_time", "hours_used", "client_name", "room_name", "rate_name", "total_amount", "client_payment_method", "checked_out_by_username"]
       );
       csvContent += "\r\n";
     }
@@ -328,7 +347,9 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                       <TableRow>
                         <TableHead>Tx ID</TableHead>
                         <TableHead>Branch</TableHead>
-                        <TableHead>Check-out</TableHead>
+                        <TableHead>Check-in Time</TableHead>
+                        <TableHead>Check-out Time</TableHead>
+                        <TableHead>Hours Stayed</TableHead>
                         <TableHead>Client</TableHead>
                         <TableHead>Room</TableHead>
                         <TableHead>Rate</TableHead>
@@ -342,7 +363,9 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                         <TableRow key={tx.id}>
                           <TableCell>{tx.id}</TableCell>
                           <TableCell>{tx.branch_name || 'N/A'}</TableCell>
+                          <TableCell>{tx.check_in_time ? format(parseISO(tx.check_in_time), 'yyyy-MM-dd HH:mm') : 'N/A'}</TableCell>
                           <TableCell>{tx.check_out_time ? format(parseISO(tx.check_out_time), 'yyyy-MM-dd HH:mm') : 'N/A'}</TableCell>
+                          <TableCell className="text-center">{tx.hours_used ?? 'N/A'}</TableCell>
                           <TableCell>{tx.client_name}</TableCell>
                           <TableCell>{tx.room_name || 'N/A'}</TableCell>
                           <TableCell>{tx.rate_name || 'N/A'}</TableCell>
