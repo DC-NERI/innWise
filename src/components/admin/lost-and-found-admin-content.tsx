@@ -11,15 +11,15 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, PlusCircle, Edit3, Archive as LostAndFoundIcon, RefreshCw, Building } from 'lucide-react';
+import { Loader2, PlusCircle, Edit3, Archive as LostAndFoundIcon, RefreshCw, Building, Search as SearchIcon } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useToast } from '@/hooks/use-toast';
 import type { LostAndFoundLog, SimpleBranch } from '@/lib/types';
 import { lostAndFoundCreateSchema, LostAndFoundCreateData, lostAndFoundUpdateStatusSchema, LostAndFoundUpdateStatusData } from '@/lib/schemas';
-import { listLostAndFoundItems } from '@/actions/staff/lostandfound/listLostAndFoundItems'; // Reusing staff action
-import { addLostAndFoundItem } from '@/actions/staff/lostandfound/addLostAndFoundItem'; // Reusing staff action
-import { updateLostAndFoundItemStatus } from '@/actions/staff/lostandfound/updateLostAndFoundItemStatus'; // Reusing staff action
+import { listLostAndFoundItems } from '@/actions/staff/lostandfound/listLostAndFoundItems';
+import { addLostAndFoundItem } from '@/actions/staff/lostandfound/addLostAndFoundItem';
+import { updateLostAndFoundItemStatus } from '@/actions/staff/lostandfound/updateLostAndFoundItemStatus';
 import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
 import { LOST_AND_FOUND_STATUS, LOST_AND_FOUND_STATUS_TEXT, LOST_AND_FOUND_STATUS_OPTIONS } from '@/lib/constants';
 import { format as formatDateTime, parseISO } from 'date-fns';
@@ -54,6 +54,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
   const [isUpdateStatusDialogOpen, setIsUpdateStatusDialogOpen] = useState(false);
   const [selectedItemForUpdate, setSelectedItemForUpdate] = useState<LostAndFoundLog | null>(null);
   const [activeTab, setActiveTab] = useState<string>(LOST_AND_FOUND_STATUS.FOUND.toString());
+  const [searchTerm, setSearchTerm] = useState(''); // New state for search term
   const { toast } = useToast();
 
   const addItemForm = useForm<LostAndFoundCreateData>({
@@ -74,12 +75,16 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
     try {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
       setBranches(fetchedBranches);
+      if (fetchedBranches.length > 0 && !selectedBranchId) {
+        // Optionally auto-select first branch
+        // setSelectedBranchId(fetchedBranches[0].id);
+      }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
     } finally {
       setIsLoadingBranches(false);
     }
-  }, [tenantId, toast]);
+  }, [tenantId, toast, selectedBranchId]);
 
   useEffect(() => {
     fetchBranches();
@@ -120,7 +125,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
 
   const handleAddItemSubmit = async (data: LostAndFoundCreateData) => {
     if (!adminUserId || !selectedBranchId) {
-      toast({ title: "Error", description: "User or branch information not available.", variant: "destructive" });
+      toast({ title: "Error", description: "Admin User ID or Branch not selected.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -169,7 +174,16 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
     }
   };
 
-  const filteredItems = items.filter(item => item.status.toString() === activeTab);
+  const filteredItems = items.filter(item => {
+    const statusMatch = item.status.toString() === activeTab;
+    if (!statusMatch) return false;
+    if (!searchTerm.trim()) return true; // If no search term, only filter by status
+    const lowerSearchTerm = searchTerm.toLowerCase();
+    return (
+      item.item_name.toLowerCase().includes(lowerSearchTerm) ||
+      (item.description && item.description.toLowerCase().includes(lowerSearchTerm))
+    );
+  });
 
   return (
     <Card>
@@ -218,7 +232,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
         <div className="flex items-end space-x-4">
             <div className="flex-grow space-y-2">
                 <Label htmlFor="branch-select-trigger-lostfound-admin">Select Branch</Label>
-                <Select 
+                <Select
                     onValueChange={(value) => setSelectedBranchId(value ? parseInt(value) : null)}
                     value={selectedBranchId?.toString()}
                     disabled={isLoadingBranches || branches.length === 0}
@@ -238,6 +252,19 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
             </Button>
         </div>
 
+        {selectedBranchId && (
+          <div className="relative mt-4">
+            <SearchIcon className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search by item name or description..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-8 w-full sm:w-1/2"
+            />
+          </div>
+        )}
+
         {selectedBranchId && isLoadingItems && <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading items...</p></div>}
         
         {selectedBranchId && !isLoadingItems && (
@@ -245,14 +272,14 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
             <TabsList className="grid w-full grid-cols-3 mb-4">
               {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
                 <TabsTrigger key={opt.value} value={opt.value.toString()}>
-                  {opt.label} ({items.filter(i => i.status === opt.value).length})
+                  {opt.label} ({items.filter(i => i.status === opt.value && (searchTerm.trim() === '' || i.item_name.toLowerCase().includes(searchTerm.toLowerCase()) || (i.description && i.description.toLowerCase().includes(searchTerm.toLowerCase())))).length})
                 </TabsTrigger>
               ))}
             </TabsList>
             {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
               <TabsContent key={`tab-content-${opt.value}`} value={opt.value.toString()}>
                 {filteredItems.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-8">No items in '{opt.label}' status for this branch.</p>
+                  <p className="text-muted-foreground text-center py-8">No items in '{opt.label}' status {searchTerm.trim() ? `matching "${searchTerm}"` : ''} for this branch.</p>
                 ) : (
                   <div className="max-h-[60vh] overflow-y-auto">
                       <Table>
@@ -358,3 +385,4 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
     </Card>
   );
 }
+
