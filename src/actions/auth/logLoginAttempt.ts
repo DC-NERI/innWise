@@ -1,4 +1,3 @@
-
 "use server";
 
 import pg from 'pg';
@@ -29,35 +28,32 @@ export async function logLoginAttempt(
   ipAddress: string | null,
   userAgent: string | null,
   status: 'success' | 'failed',
-  attemptedUsername?: string | null,
-  errorDetails?: string | null
+  errorDetails?: string | null // This will now include attemptedUsername if relevant
 ): Promise<void> {
-  console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, attemptedUsername, errorDetails });
+  console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, errorDetails });
 
   let client;
   try {
     client = await pool.connect();
 
-    let finalErrorDetails = errorDetails;
-    if (status === 'failed' && attemptedUsername && errorDetails) {
-      finalErrorDetails = `Attempted Username: ${attemptedUsername}. Reason: ${errorDetails}`;
-    } else if (status === 'failed' && attemptedUsername && !errorDetails) {
-      finalErrorDetails = `Attempted Username: ${attemptedUsername}.`;
-    }
-
-    const query = `
+    const queryText = `
       INSERT INTO login_logs (user_id, ip_address, user_agent, status, error_details, login_time)
       VALUES ($1, $2, $3, $4, $5, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
     `;
-    const values = [userId, ipAddress, userAgent, status, finalErrorDetails];
+    const values = [
+      userId, // Will be null if username not found
+      ipAddress || null,
+      userAgent || null,
+      status,
+      errorDetails || null,
+    ];
 
-    console.log('[logLoginAttempt] Executing query:', query);
-    console.log('[logLoginAttempt] With values:', values);
+    console.log('[logLoginAttempt] Executing query:', queryText, 'With values:', values);
+    await client.query(queryText, values);
+    console.log('[logLoginAttempt] Login attempt logged successfully to login_logs.');
 
-    await client.query(query, values);
-    console.log('[logLoginAttempt] Login attempt logged successfully to DB.');
   } catch (dbError: any) {
-    console.error('[logLoginAttempt DB Error] Failed to log login attempt:', dbError);
+    console.error('[logLoginAttempt DB Error] Failed to log login attempt to login_logs:', dbError.message, dbError.stack, dbError);
     // Do not let this error break the main login flow.
   } finally {
     if (client) {
