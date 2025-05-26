@@ -60,6 +60,12 @@ export interface Tenant {
   created_at: string;
   updated_at: string;
   status: string; // '0', '1', or '2' from HOTEL_ENTITY_STATUS
+  theme_primary_hsl?: string | null;
+  theme_secondary_hsl?: string | null;
+  theme_accent_hsl?: string | null;
+  theme_background_hsl?: string | null;
+  theme_foreground_hsl?: string | null;
+  theme_logo_url?: string | null;
 }
 
 export interface Branch {
@@ -103,8 +109,8 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null;
-  rate_names?: string[];
+  hotel_rate_id: number[] | null; // Array of rate IDs
+  rate_names?: string[]; // For display, if fetched
   transaction_id?: number | null; // Foreign key to transactions for the active booking
   room_name: string;
   room_code: string;
@@ -112,20 +118,20 @@ export interface HotelRoom {
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved (ROOM_AVAILABILITY_STATUS)
-  cleaning_status: number; // 0: Clean, 1: Dirty, 2: Inspection, 3: Out of Order (ROOM_CLEANING_STATUS)
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
+  cleaning_status: number; // 0: Clean, 1: Dirty, 2: Inspection, 3: Out of Order
   cleaning_notes?: string | null;
   status: string; // '0' or '1' from HOTEL_ENTITY_STATUS (for room definition)
   created_at: string;
   updated_at: string;
 
   // Fields populated by JOIN for active transaction details
-  active_transaction_id?: number | null;
+  active_transaction_id?: number | null; // This is usually the same as room.transaction_id if linked
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
   active_transaction_rate_hours?: number | null;
-  active_transaction_lifecycle_status?: number | null; // Now using numeric lifecycle status
+  active_transaction_lifecycle_status?: number | null;
 }
 
 
@@ -151,7 +157,7 @@ export interface Transaction {
     hours_used?: number | null;
     total_amount?: number | null;
     tender_amount?: number | null;
-    is_paid: number | null; // 0: Unpaid, 1: Paid, 2: Advance Paid (TRANSACTION_PAYMENT_STATUS)
+    is_paid: number | null; // 0: Unpaid, 1: Paid, 2: Advance Paid
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     accepted_by_user_id?: number | null;
@@ -171,7 +177,7 @@ export interface Transaction {
     rate_hours?: number | null;
     rate_excess_hour_price?: number | null;
     created_by_username?: string;
-    checked_out_by_username?: string;
+    checked_out_by_username?: string; // Username of staff who processed checkout
     accepted_by_username?: string;
     declined_by_username?: string;
 }
@@ -195,7 +201,7 @@ export interface Notification {
   read_at?: string | null;
   transaction_status: number; // (NOTIFICATION_TRANSACTION_LINK_STATUS)
   transaction_is_accepted?: number | null; // 0-3 (TRANSACTION_IS_ACCEPTED_STATUS)
-  linked_transaction_lifecycle_status?: number | null; // 0-6 (TRANSACTION_LIFECYCLE_STATUS)
+  linked_transaction_lifecycle_status?: number | null; // String from DB, converted to number
 
   notification_type?: string | null;
   priority?: number | null;
@@ -227,12 +233,12 @@ export interface LostAndFoundLog {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  item_name: string;
+  item_name: string; // from 'item' column in DB
   description?: string | null;
   found_location?: string | null;
   reported_by_user_id?: number | null;
   reported_by_username?: string | null;
-  status: number; // 0: Found, 1: Claimed, 2: Disposed (LOST_AND_FOUND_STATUS)
+  status: number; // 0: Found, 1: Claimed, 2: Disposed
   found_at: string;
   updated_at: string;
   claimed_at?: string | null;
@@ -270,6 +276,7 @@ export interface AdminDashboardSummary {
   salesByPaymentMethod?: PaymentMethodSaleSummary[];
   salesByRateType?: RateTypeSaleSummary[];
   dailySales?: DailySaleSummary[];
+  detailedTransactions?: Transaction[]; // Added for the detailed transaction list
 }
 
 export interface ActivityLog {

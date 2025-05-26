@@ -6,11 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Loader2, BarChart3, CalendarDays, RefreshCw, Download } from 'lucide-react';
+import { Loader2, BarChart3, CalendarDays, RefreshCw, Download, FileText } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getDetailedSalesReport } from '@/actions/admin/reports/getDetailedSalesReport';
-import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary } from '@/lib/types';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid, subDays } from 'date-fns';
+import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary, Transaction } from '@/lib/types';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 
@@ -53,13 +53,11 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   }, [tenantId, startDate, endDate, toast]);
 
   useEffect(() => {
-    // Fetch report when component mounts or tenantId changes
-    // We will rely on the "Apply" button to fetch based on date changes.
     if (tenantId) {
         fetchReport();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tenantId]); // Removed fetchReport from deps to avoid re-fetch on its own change
+  }, [tenantId]);
 
   const handleSetToday = () => {
     const today = new Date();
@@ -69,7 +67,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
   const handleSetThisWeek = () => {
     const today = new Date();
-    setStartDate(startOfWeek(today, { weekStartsOn: 1 })); // Assuming Monday is the start of the week
+    setStartDate(startOfWeek(today, { weekStartsOn: 1 }));
     setEndDate(endOfWeek(today, { weekStartsOn: 1 }));
   };
 
@@ -86,7 +84,6 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         try {
           const date = parseISO(item.sale_date); 
           if (!isValid(date)) {
-            console.warn(`Invalid date string encountered in dailySales: ${item.sale_date}`);
             return null; 
           }
           return {
@@ -94,7 +91,6 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             Sales: item.total_sales,
           };
         } catch (e) {
-          console.error(`Error parsing date string: ${item.sale_date}`, e);
           return null;
         }
       })
@@ -102,12 +98,10 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   }, [reportData?.dailySales]);
 
   const escapeCSVField = (field: any): string => {
-    if (field == null) { // Catches null or undefined
+    if (field == null) {
         return '';
     }
     const stringField = String(field);
-    // If the field contains a comma, double quote, or newline, enclose it in double quotes
-    // and escape any existing double quotes by doubling them.
     if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') || stringField.includes('\r')) {
         return `"${stringField.replace(/"/g, '""')}"`;
     }
@@ -139,15 +133,9 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
     csvContent += `Overall Total Sales: ${escapeCSVField(reportData.totalSales?.toFixed(2) || '0.00')}\r\n\r\n`;
 
-    if (reportData.branchPerformance && reportData.branchPerformance.length > 0) {
-        csvContent += "Branch Performance\r\n";
-        csvContent += convertArrayToCSV(
-            reportData.branchPerformance,
-            ["Branch Name", "Total Sales (PHP)", "Transaction Count"],
-            ["branch_name", "total_sales", "transaction_count"]
-        );
-        csvContent += "\r\n";
-    }
+    // Branch Performance (if this data source is still desired, or taken from AdminDashboardSummary)
+    // For now, assuming it's part of the main reportData structure if needed.
+    // If it's fetched separately or not part of detailedSalesReport, this section might need adjustment.
 
     if (reportData.salesByPaymentMethod && reportData.salesByPaymentMethod.length > 0) {
         csvContent += "Sales By Payment Method\r\n";
@@ -179,7 +167,18 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         csvContent += "\r\n";
     }
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    if (reportData.detailedTransactions && reportData.detailedTransactions.length > 0) {
+      csvContent += "Detailed Transactions\r\n";
+      csvContent += convertArrayToCSV(
+          reportData.detailedTransactions,
+          ["Tx ID", "Branch", "Check-out", "Client", "Room", "Rate", "Amount (PHP)", "Payment Method", "Staff"],
+          ["id", "branch_name", "check_out_time", "client_name", "room_name", "rate_name", "total_amount", "client_payment_method", "checked_out_by_username"]
+      );
+      csvContent += "\r\n";
+    }
+
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' }); // Added BOM for Excel
     const link = document.createElement("a");
     if (link.download !== undefined) {
         const url = URL.createObjectURL(blob);
@@ -312,11 +311,55 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                 ) : <p className="text-muted-foreground text-center py-8">No daily sales data to display chart for the selected period.</p>}
             </CardContent>
           </Card>
+
+          <Card className="lg:col-span-2">
+            <CardHeader>
+               <div className="flex items-center space-x-2">
+                  <FileText className="h-5 w-5 text-primary" />
+                  <CardTitle>Detailed Transactions</CardTitle>
+                </div>
+              <CardDescription>All completed and paid transactions within the selected date range.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(reportData.detailedTransactions && reportData.detailedTransactions.length > 0) ? (
+                <div className="max-h-[500px] overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Tx ID</TableHead>
+                        <TableHead>Branch</TableHead>
+                        <TableHead>Check-out</TableHead>
+                        <TableHead>Client</TableHead>
+                        <TableHead>Room</TableHead>
+                        <TableHead>Rate</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>Payment</TableHead>
+                        <TableHead>Staff</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reportData.detailedTransactions.map((tx) => (
+                        <TableRow key={tx.id}>
+                          <TableCell>{tx.id}</TableCell>
+                          <TableCell>{tx.branch_name || 'N/A'}</TableCell>
+                          <TableCell>{tx.check_out_time ? format(parseISO(tx.check_out_time), 'yyyy-MM-dd HH:mm') : 'N/A'}</TableCell>
+                          <TableCell>{tx.client_name}</TableCell>
+                          <TableCell>{tx.room_name || 'N/A'}</TableCell>
+                          <TableCell>{tx.rate_name || 'N/A'}</TableCell>
+                          <TableCell className="text-right">₱{tx.total_amount?.toFixed(2) || '0.00'}</TableCell>
+                          <TableCell>{tx.client_payment_method || 'N/A'}</TableCell>
+                          <TableCell>{tx.checked_out_by_username || 'N/A'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : <p className="text-muted-foreground">No detailed transaction data for the selected period.</p>}
+            </CardContent>
+          </Card>
+
         </div>
       )}
     </div>
   );
 }
-
-
-    
