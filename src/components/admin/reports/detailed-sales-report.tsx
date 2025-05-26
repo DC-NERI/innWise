@@ -9,9 +9,9 @@ import { DatePicker } from '@/components/ui/date-picker';
 import { Loader2, BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getDetailedSalesReport } from '@/actions/admin/reports/getDetailedSalesReport';
-import type { AdminDashboardSummary } from '@/lib/types';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, parseISO, isValid } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary } from '@/lib/types';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
+import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 
 interface DetailedSalesReportProps {
@@ -21,8 +21,8 @@ interface DetailedSalesReportProps {
 export default function DetailedSalesReport({ tenantId }: DetailedSalesReportProps) {
   const [reportData, setReportData] = useState<AdminDashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [startDate, setStartDate] = useState<Date | undefined>(subDays(new Date(), 30));
-  const [endDate, setEndDate] = useState<Date | undefined>(new Date());
+  const [startDate, setStartDate] = useState<Date | undefined>(new Date()); // Default to current date
+  const [endDate, setEndDate] = useState<Date | undefined>(new Date());   // Default to current date
   const { toast } = useToast();
 
   const fetchReport = useCallback(async () => {
@@ -44,7 +44,8 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         setReportData(null);
       }
     } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred while fetching sales report.", variant: "destructive" });
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
+      toast({ title: "Error Fetching Report", description: errorMessage, variant: "destructive" });
       setReportData(null);
     } finally {
       setIsLoading(false);
@@ -54,6 +55,12 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  const handleSetToday = () => {
+    const today = new Date();
+    setStartDate(today);
+    setEndDate(today);
+  };
 
   const handleSetThisWeek = () => {
     const today = new Date();
@@ -69,24 +76,22 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   
   const chartData = useMemo(() => {
     return reportData?.dailySales
-      ?.filter(item => item.sale_date && typeof item.sale_date === 'string') // Ensure sale_date is a valid string
+      ?.filter(item => item.sale_date && typeof item.sale_date === 'string') 
       .map(item => {
         try {
-          const date = parseISO(item.sale_date); // 'YYYY-MM-DD' should be parsed correctly by parseISO
+          const date = parseISO(item.sale_date); 
           if (!isValid(date)) {
-            console.warn(`Invalid date string encountered: ${item.sale_date}`);
-            return null; // Or handle as an error, or skip
+            return null; 
           }
           return {
             name: format(date, 'MMM dd'),
             Sales: item.total_sales,
           };
         } catch (e) {
-          console.error(`Error parsing date string: ${item.sale_date}`, e);
           return null;
         }
       })
-      .filter(item => item !== null) || []; // Filter out any nulls from failed parsing
+      .filter(item => item !== null) || []; 
   }, [reportData?.dailySales]);
 
 
@@ -108,6 +113,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
               <DatePicker date={endDate} setDate={setEndDate} placeholder="End Date" className="w-full sm:w-auto" />
             </div>
             <div className="flex gap-2 w-full sm:w-auto">
+              <Button onClick={handleSetToday} variant="outline" size="sm" className="flex-1 sm:flex-initial">Today</Button>
               <Button onClick={handleSetThisWeek} variant="outline" size="sm" className="flex-1 sm:flex-initial">This Week</Button>
               <Button onClick={handleSetThisMonth} variant="outline" size="sm" className="flex-1 sm:flex-initial">This Month</Button>
               <Button onClick={fetchReport} variant="outline" size="sm" className="flex-1 sm:flex-initial" disabled={isLoading}>
@@ -180,14 +186,14 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             <CardContent className="h-[350px]">
                 {(chartData && chartData.length > 0) ? (
                     <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={chartData}>
+                        <RechartsBarChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
                         <YAxis />
                         <Tooltip formatter={(value: number) => `₱${value.toFixed(2)}`} />
                         <Legend />
                         <Bar dataKey="Sales" fill="hsl(var(--primary))" />
-                        </BarChart>
+                        </RechartsBarChart>
                     </ResponsiveContainer>
                 ) : <p className="text-muted-foreground text-center py-8">No daily sales data to display chart.</p>}
             </CardContent>
