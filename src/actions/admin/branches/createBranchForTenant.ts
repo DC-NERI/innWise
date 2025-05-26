@@ -15,8 +15,8 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 import { Pool } from 'pg';
 import type { Branch } from '@/lib/types';
 import { branchCreateSchema, BranchCreateData } from '@/lib/schemas';
-import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
-import { logActivity } from '@/actions/activityLogger';
+import { HOTEL_ENTITY_STATUS } from '../../../lib/constants';
+import { logActivity } from '../../activityLogger';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -37,6 +37,8 @@ export async function createBranchForTenant(
   data: BranchCreateData,
   sysAdUserId: number | null
 ): Promise<{ success: boolean; message?: string; branch?: Branch }> {
+  console.log("[createBranchForTenant] Action started with sysAdUserId:", sysAdUserId, "Data:", data);
+
   if (!sysAdUserId || sysAdUserId <= 0) {
     console.error("[createBranchForTenant] Invalid sysAdUserId:", sysAdUserId);
     return { success: false, message: "Invalid System Administrator ID. Cannot create branch." };
@@ -45,30 +47,36 @@ export async function createBranchForTenant(
   const validatedFields = branchCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
+    console.error("[createBranchForTenant] Validation failed:", errorMessage);
     return { success: false, message: errorMessage };
   }
 
   const { tenant_id, branch_name, branch_code, branch_address, contact_number, email_address } = validatedFields.data;
 
-  const client = await pool.connect();
+  let client;
   try {
-    console.log('[createBranchForTenant] Beginning transaction...');
+    client = await pool.connect();
+    console.log("[createBranchForTenant] Database client connected.");
+    console.log('[createBranchForTenant] Attempting to BEGIN transaction...');
     await client.query('BEGIN');
+    console.log('[createBranchForTenant] Transaction BEGUN.');
 
-    const tenantRes = await client.query('SELECT tenant_name, max_branch_count FROM tenants WHERE id = $1', [tenant_id]);
+    const tenantRes = await client.query('SELECT tenant_name, max_branch_count FROM tenants WHERE id = $1 AND status = $2', [tenant_id, HOTEL_ENTITY_STATUS.ACTIVE]);
     if (tenantRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.warn('[createBranchForTenant] Rollback: Tenant not found.');
-      return { success: false, message: "Tenant not found." };
+      console.warn('[createBranchForTenant] Rollback: Tenant not found or not active.');
+      return { success: false, message: "Active tenant not found." };
     }
     const { tenant_name, max_branch_count } = tenantRes.rows[0];
+    console.log(`[createBranchForTenant] Tenant '${tenant_name}' found. Max branches: ${max_branch_count}`);
 
     if (max_branch_count !== null && max_branch_count > 0) {
       const currentBranchCountRes = await client.query(
         'SELECT COUNT(*) FROM tenant_branch WHERE tenant_id = $1 AND status = $2',
-        [tenant_id, HOTEL_ENTITY_STATUS.ACTIVE.toString()]
+        [tenant_id, HOTEL_ENTITY_STATUS.ACTIVE]
       );
       const currentBranchCount = parseInt(currentBranchCountRes.rows[0].count, 10);
+      console.log(`[createBranchForTenant] Current active branch count for tenant: ${currentBranchCount}`);
       if (currentBranchCount >= max_branch_count) {
         await client.query('ROLLBACK');
         console.warn(`[createBranchForTenant] Rollback: Branch limit (${max_branch_count}) reached for tenant '${tenant_name}'.`);
@@ -84,36 +92,46 @@ export async function createBranchForTenant(
       branch_address,
       contact_number,
       email_address,
-      HOTEL_ENTITY_STATUS.ACTIVE.toString()
+      HOTEL_ENTITY_STATUS.ACTIVE
     ]);
+    console.log(`[createBranchForTenant] INSERT query executed. Row count: ${res.rowCount}`);
+
+    let newBranch: Branch | undefined = undefined;
 
     if (res.rows.length > 0) {
-      const newBranch = res.rows[0];
-      console.log(`[createBranchForTenant] Branch inserted with ID: ${newBranch.id}. Logging activity...`);
-
-      await logActivity({
-        tenant_id: newBranch.tenant_id,
-        branch_id: newBranch.id,
-        actor_user_id: sysAdUserId,
-        action_type: 'SYSAD_CREATED_BRANCH',
-        description: `SysAd (ID: ${sysAdUserId}) created new branch '${newBranch.branch_name}' for tenant '${tenant_name}'.`,
-        target_entity_type: 'Branch',
-        target_entity_id: newBranch.id.toString(),
-        details: { branch_name: newBranch.branch_name, branch_code: newBranch.branch_code, tenant_id: newBranch.tenant_id }
-      }, client);
-      console.log('[createBranchForTenant] Activity logged.');
-
-      console.log('[createBranchForTenant] Committing transaction...');
+      newBranch = {
+        ...res.rows[0],
+        tenant_name: tenant_name, // Add tenant_name to the returned branch object
+        status: String(res.rows[0].status)
+      } as Branch;
+      console.log(`[createBranchForTenant] Branch inserted with ID: ${newBranch.id}. Attempting to COMMIT transaction...`);
+      
       await client.query('COMMIT');
-      console.log('[createBranchForTenant] Transaction committed successfully.');
+      console.log('[createBranchForTenant] Transaction COMMITTED successfully.');
+
+      // Log activity *after* the main transaction is committed
+      try {
+        console.log('[createBranchForTenant] Attempting to log activity for branch ID:', newBranch.id);
+        await logActivity({
+          tenant_id: newBranch.tenant_id,
+          branch_id: newBranch.id,
+          actor_user_id: sysAdUserId,
+          action_type: 'SYSAD_CREATED_BRANCH',
+          description: `SysAd (ID: ${sysAdUserId}) created new branch '${newBranch.branch_name}' for tenant '${tenant_name}'.`,
+          target_entity_type: 'Branch',
+          target_entity_id: newBranch.id.toString(),
+          details: { branch_name: newBranch.branch_name, branch_code: newBranch.branch_code, tenant_id: newBranch.tenant_id }
+        }); // Not passing client here, logActivity will get its own
+        console.log('[createBranchForTenant] Activity logged successfully.');
+      } catch (logError: any) {
+        console.error("[createBranchForTenant] Failed to log activity (outside main transaction), but branch creation was successful. Error:", logError.message, logError.stack);
+      }
+      
+      console.log('[createBranchForTenant] Branch creation process successful.');
       return {
         success: true,
         message: "Branch created successfully.",
-        branch: {
-          ...newBranch,
-          tenant_name: tenant_name, // Add tenant_name to the returned branch object
-          status: String(newBranch.status)
-        } as Branch
+        branch: newBranch
       };
     } else {
       await client.query('ROLLBACK');
@@ -122,11 +140,13 @@ export async function createBranchForTenant(
     }
   } catch (error: any) {
     console.error('[createBranchForTenant DB Full Error]', error);
-    try {
-      await client.query('ROLLBACK');
-      console.warn('[createBranchForTenant] Rollback due to error:', error.message);
-    } catch (rollbackError) {
-      console.error('[createBranchForTenant] Error during rollback:', rollbackError);
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+        console.warn('[createBranchForTenant] Transaction ROLLED BACK due to error:', error.message);
+      } catch (rollbackError: any) {
+        console.error('[createBranchForTenant] Error during rollback:', rollbackError.message, rollbackError.stack);
+      }
     }
     let errorMessage = "Database error occurred during branch creation.";
     if (error.code === '23505' && error.constraint === 'tenant_branch_branch_code_key') {
@@ -136,7 +156,9 @@ export async function createBranchForTenant(
     }
     return { success: false, message: errorMessage };
   } finally {
-    client.release();
-    console.log('[createBranchForTenant] Client released.');
+    if (client) {
+      client.release();
+      console.log('[createBranchForTenant] Client released.');
+    }
   }
 }
