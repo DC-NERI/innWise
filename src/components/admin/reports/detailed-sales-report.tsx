@@ -6,11 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Loader2, BarChart3, CalendarDays, RefreshCw, Download } from 'lucide-react'; // Added Download icon
+import { Loader2, BarChart3, CalendarDays, RefreshCw, Download } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getDetailedSalesReport } from '@/actions/admin/reports/getDetailedSalesReport';
 import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary } from '@/lib/types';
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid, subDays } from 'date-fns';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 
@@ -53,8 +53,13 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
   }, [tenantId, startDate, endDate, toast]);
 
   useEffect(() => {
-    fetchReport();
-  }, [fetchReport]); // Removed startDate, endDate from deps to rely on Apply button
+    // Fetch report when component mounts or tenantId changes
+    // We will rely on the "Apply" button to fetch based on date changes.
+    if (tenantId) {
+        fetchReport();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId]); // Removed fetchReport from deps to avoid re-fetch on its own change
 
   const handleSetToday = () => {
     const today = new Date();
@@ -64,7 +69,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
   const handleSetThisWeek = () => {
     const today = new Date();
-    setStartDate(startOfWeek(today, { weekStartsOn: 1 }));
+    setStartDate(startOfWeek(today, { weekStartsOn: 1 })); // Assuming Monday is the start of the week
     setEndDate(endOfWeek(today, { weekStartsOn: 1 }));
   };
 
@@ -93,8 +98,29 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
           return null;
         }
       })
-      .filter(item => item !== null) || []; 
+      .filter(item => item !== null) as { name: string; Sales: number }[] || []; 
   }, [reportData?.dailySales]);
+
+  const escapeCSVField = (field: any): string => {
+    if (field == null) { // Catches null or undefined
+        return '';
+    }
+    const stringField = String(field);
+    // If the field contains a comma, double quote, or newline, enclose it in double quotes
+    // and escape any existing double quotes by doubling them.
+    if (stringField.includes(',') || stringField.includes('"') || stringField.includes('\n') || stringField.includes('\r')) {
+        return `"${stringField.replace(/"/g, '""')}"`;
+    }
+    return stringField;
+  };
+
+  const convertArrayToCSV = (data: any[], headers: string[], keys: string[]): string => {
+    let csvString = headers.map(header => escapeCSVField(header)).join(',') + '\r\n';
+    data.forEach(row => {
+        csvString += keys.map(key => escapeCSVField(row[key])).join(',') + '\r\n';
+    });
+    return csvString;
+  };
 
   const handleExportData = () => {
     if (!reportData) {
@@ -105,15 +131,78 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
       });
       return;
     }
-    // Placeholder for actual export logic
-    console.log("Exporting data:", reportData);
-    toast({
-      title: "Export Started (Placeholder)",
-      description: "Data export functionality is not yet fully implemented. Data logged to console.",
-      variant: "default",
-    });
-    // Example: Convert to CSV and download (requires a library like 'papaparse' or custom logic)
-    // For simplicity, we'll just log for now.
+
+    let csvContent = "Detailed Sales Report\r\n";
+    const sDate = startDate ? format(startDate, "yyyy-MM-dd") : "N/A";
+    const eDate = endDate ? format(endDate, "yyyy-MM-dd") : "N/A";
+    csvContent += `Date Range: ${sDate} - ${eDate}\r\n\r\n`;
+
+    csvContent += `Overall Total Sales: ${escapeCSVField(reportData.totalSales?.toFixed(2) || '0.00')}\r\n\r\n`;
+
+    if (reportData.branchPerformance && reportData.branchPerformance.length > 0) {
+        csvContent += "Branch Performance\r\n";
+        csvContent += convertArrayToCSV(
+            reportData.branchPerformance,
+            ["Branch Name", "Total Sales (PHP)", "Transaction Count"],
+            ["branch_name", "total_sales", "transaction_count"]
+        );
+        csvContent += "\r\n";
+    }
+
+    if (reportData.salesByPaymentMethod && reportData.salesByPaymentMethod.length > 0) {
+        csvContent += "Sales By Payment Method\r\n";
+        csvContent += convertArrayToCSV(
+            reportData.salesByPaymentMethod,
+            ["Payment Method", "Total Sales (PHP)", "Transaction Count"],
+            ["payment_method", "total_sales", "transaction_count"]
+        );
+        csvContent += "\r\n";
+    }
+
+    if (reportData.salesByRateType && reportData.salesByRateType.length > 0) {
+        csvContent += "Sales By Rate Type\r\n";
+        csvContent += convertArrayToCSV(
+            reportData.salesByRateType,
+            ["Rate Name", "Total Sales (PHP)", "Transaction Count"],
+            ["rate_name", "total_sales", "transaction_count"]
+        );
+        csvContent += "\r\n";
+    }
+
+    if (reportData.dailySales && reportData.dailySales.length > 0) {
+        csvContent += "Daily Sales\r\n";
+        csvContent += convertArrayToCSV(
+            reportData.dailySales,
+            ["Date", "Total Sales (PHP)", "Transaction Count"],
+            ["sale_date", "total_sales", "transaction_count"]
+        );
+        csvContent += "\r\n";
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    if (link.download !== undefined) {
+        const url = URL.createObjectURL(blob);
+        const reportDate = startDate ? format(startDate, "yyyyMMdd") : "report";
+        const reportEndDate = endDate && endDate !== startDate ? `_to_${format(endDate, "yyyyMMdd")}` : "";
+        link.setAttribute("href", url);
+        link.setAttribute("download", `detailed_sales_report_${reportDate}${reportEndDate}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast({
+          title: "Export Successful",
+          description: "The sales report has been downloaded as a CSV file.",
+        });
+    } else {
+        toast({
+            title: "Export Failed",
+            description: "Your browser does not support this type of download.",
+            variant: "destructive",
+        });
+    }
   };
 
 
@@ -130,9 +219,9 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-4 items-center justify-between p-4 border bg-muted/50 rounded-lg">
             <div className="flex flex-col sm:flex-row gap-2 items-center w-full sm:w-auto">
-              <DatePicker date={startDate} setDate={setStartDate} placeholder="Start Date" className="w-full sm:w-auto" />
+              <DatePicker date={startDate} setDate={setStartDate} placeholder="Start Date" className="w-full sm:w-auto" buttonSize="sm" />
               <span className="text-muted-foreground hidden sm:inline">-</span>
-              <DatePicker date={endDate} setDate={setEndDate} placeholder="End Date" className="w-full sm:w-auto" />
+              <DatePicker date={endDate} setDate={setEndDate} placeholder="End Date" className="w-full sm:w-auto" buttonSize="sm" />
             </div>
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <Button onClick={handleSetToday} variant="outline" size="sm" className="flex-1 sm:flex-initial">Today</Button>
@@ -165,7 +254,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             <CardContent>
               {(reportData.salesByPaymentMethod && reportData.salesByPaymentMethod.length > 0) ? (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Payment Method</TableHead><TableHead className="text-right">Total Sales</TableHead><TableHead className="text-right">Tx Count</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Payment Method</TableHead><TableHead className="text-right">Total Sales (PHP)</TableHead><TableHead className="text-right">Tx Count</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {reportData.salesByPaymentMethod.map((item) => (
                       <TableRow key={item.payment_method}>
@@ -188,7 +277,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             <CardContent>
               {(reportData.salesByRateType && reportData.salesByRateType.length > 0) ? (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Rate Name</TableHead><TableHead className="text-right">Total Sales</TableHead><TableHead className="text-right">Tx Count</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>Rate Name</TableHead><TableHead className="text-right">Total Sales (PHP)</TableHead><TableHead className="text-right">Tx Count</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {reportData.salesByRateType.map((item) => (
                       <TableRow key={item.rate_id || item.rate_name}>
@@ -214,7 +303,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                         <RechartsBarChart data={chartData}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="name" />
-                        <YAxis />
+                        <YAxis tickFormatter={(value) => `₱${value}`} />
                         <Tooltip formatter={(value: number) => `₱${value.toFixed(2)}`} />
                         <Legend />
                         <Bar dataKey="Sales" fill="hsl(var(--primary))" />
@@ -228,3 +317,6 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
     </div>
   );
 }
+
+
+    
