@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog'; // Added DialogTrigger
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -48,7 +48,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState<string>(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedBranch;
@@ -92,7 +92,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     } else {
       newDefaults = {
         ...defaultFormValuesCreate,
-        status: HOTEL_ENTITY_STATUS.ACTIVE, // Ensure status is part of create if schema expects
+        // status field does not exist on BranchCreateData, HOTEL_ENTITY_STATUS.ACTIVE is set server-side
       } as BranchCreateData;
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -170,7 +170,6 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
      const payload: BranchUpdateDataSysAd = {
         tenant_id: branch.tenant_id,
         branch_name: branch.branch_name,
-        // branch_code is not part of BranchUpdateDataSysAd as it's not editable after creation
         branch_address: branch.branch_address,
         contact_number: branch.contact_number,
         email_address: branch.email_address,
@@ -186,7 +185,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     setIsSubmitting(false);
   };
 
-  const filteredBranches = branches.filter(branch => branch.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+  const filteredBranches = branches.filter(branch => branch.status === activeTab);
 
 
   if (isLoading && branches.length === 0) {
@@ -243,11 +242,11 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
                     setSelectedBranch(null);
-                    form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any);
+                    form.reset({ ...defaultFormValuesCreate } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any);
                 }
             }}
         >
-          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
+          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
@@ -266,8 +265,8 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
-          <TabsContent value="active">
+          <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive</TabsTrigger></TabsList>
+          <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
             {isLoading && filteredBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
             {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No active branches found.</p>}
             {!isLoading && filteredBranches.length > 0 && (
@@ -285,7 +284,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
                 </TableBody>
               </Table>)}
           </TabsContent>
-          <TabsContent value="archive">
+          <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
             {isLoading && filteredBranches.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
             {!isLoading && filteredBranches.length === 0 && <p className="text-muted-foreground text-center py-8">No archived branches found.</p>}
             {!isLoading && filteredBranches.length > 0 && (
