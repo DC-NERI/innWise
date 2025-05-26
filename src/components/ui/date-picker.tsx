@@ -19,16 +19,18 @@ interface DatePickerProps {
   setDate: (date: Date | undefined) => void
   placeholder?: string
   className?: string;
+  buttonSize?: "default" | "sm" | "lg" | "icon" | null | undefined; // Added buttonSize
 }
 
-export function DatePicker({ date, setDate, placeholder = "Pick a date", className }: DatePickerProps) {
+export function DatePicker({ date, setDate, placeholder = "Pick a date", className, buttonSize = "sm" }: DatePickerProps) { // Default to sm
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           variant={"outline"}
+          size={buttonSize} // Use the buttonSize prop
           className={cn(
-            "w-full sm:w-[280px] justify-start text-left font-normal", // Responsive width
+            "w-full justify-start text-left font-normal", 
             !date && "text-muted-foreground",
             className
           )}
@@ -48,3 +50,4 @@ export function DatePicker({ date, setDate, placeholder = "Pick a date", classNa
     </Popover>
   )
 }
+    
