@@ -38,7 +38,7 @@ const defaultFormValuesCreate: UserCreateData = {
   username: '',
   password: '',
   email: '',
-  role: 'staff',
+  role: 'staff', // Default role
   tenant_id: undefined,
   tenant_branch_id: undefined,
 };
@@ -53,13 +53,13 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isLoadingBranches, setIsLoadingBranches] = useState(false);
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedUser;
 
   const form = useForm<UserFormValues>({
-    // Resolver and defaultValues are set dynamically in useEffect
+    // Resolver and defaultValues set dynamically in useEffect
   });
 
   const selectedTenantIdInForm = useWatch({ control: form.control, name: 'tenant_id' });
@@ -71,7 +71,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
     try {
       const [fetchedUsers, fetchedTenants] = await Promise.all([listAllUsers(), listTenants()]);
       setUsers(fetchedUsers);
-      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE));
+      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE)); // Only active tenants for selection
     } catch (error) {
       console.error("Error fetching initial data for SysAd Users Management:", error);
       toast({ title: "Error fetching data", description: "Could not fetch user or tenant data.", variant: "destructive" });
@@ -84,6 +84,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
     fetchInitialData();
   }, [fetchInitialData]);
 
+  // Effect to set form resolver and defaults when dialog opens or mode changes
   useEffect(() => {
     const currentIsEditing = !!selectedUser;
     const newResolver = zodResolver(currentIsEditing ? userUpdateSchemaSysAd : userCreateSchema);
@@ -93,58 +94,67 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
       newDefaults = {
         first_name: selectedUser.first_name,
         last_name: selectedUser.last_name,
-        password: '',
+        password: '', // Password always empty on edit for security/UX
         email: selectedUser.email || '',
         role: selectedUser.role,
         tenant_id: selectedUser.tenant_id || undefined,
         tenant_branch_id: selectedUser.tenant_branch_id || undefined,
         status: selectedUser.status || HOTEL_ENTITY_STATUS.ACTIVE,
       };
+      // If editing and user has a tenant, fetch their branches for pre-selection
       if (selectedUser.tenant_id) {
         setIsLoadingBranches(true);
         getBranchesForTenantSimple(selectedUser.tenant_id)
-          .then(branches => setAvailableBranches(branches.filter(b => b.status === HOTEL_ENTITY_STATUS.ACTIVE)))
-          .catch(() => toast({ title: "Error", description: "Could not load branches for user's tenant.", variant: "destructive" }))
+          .then(branches => {
+            setAvailableBranches(branches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE));
+          })
+          .catch(() => toast({ title: "Error", description: "Could not load branches for user's current tenant.", variant: "destructive" }))
           .finally(() => setIsLoadingBranches(false));
       } else {
         setAvailableBranches([]);
       }
     } else {
       newDefaults = { ...defaultFormValuesCreate };
-      setAvailableBranches([]);
+      setAvailableBranches([]); // No tenant selected yet for new user, so no branches
     }
-    form.reset(newDefaults, { resolver: newResolver } as any);
-  }, [selectedUser, form, toast, isAddDialogOpen, isEditDialogOpen]);
+    form.reset(newDefaults, { resolver: newResolver } as any); // Using `as any` for resolver type, or ensure types match
+  }, [selectedUser, form, toast, isAddDialogOpen, isEditDialogOpen]); // Re-run when dialogs open/close
 
-
+  // Effect to fetch branches when selectedTenantIdInForm (from form) changes
   useEffect(() => {
-    const currentTenantId = typeof selectedTenantIdInForm === 'number' ? selectedTenantIdInForm : selectedTenantIdInForm && typeof selectedTenantIdInForm === 'string' ? parseInt(selectedTenantIdInForm) : undefined;
-    const isDirtyTenant = form.formState.dirtyFields.tenant_id;
-    const currentBranchId = form.getValues('tenant_branch_id');
+    const newTenantId = typeof selectedTenantIdInForm === 'string'
+      ? parseInt(selectedTenantIdInForm, 10)
+      : selectedTenantIdInForm;
 
-    if (currentTenantId) {
-      if (isDirtyTenant || (isEditing && selectedUser && currentTenantId !== selectedUser.tenant_id)) {
-        if (currentBranchId) form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
-      }
+    // console.log(`[UsersManagement] Tenant ID in form changed. New parsed ID: ${newTenantId}`);
+
+    // Always reset branch when tenant selection changes in the form
+    form.setValue('tenant_branch_id', undefined, { shouldValidate: true, shouldDirty: true });
+    setAvailableBranches([]); // Clear branches immediately
+
+    if (newTenantId && !isNaN(newTenantId)) {
       setIsLoadingBranches(true);
-      getBranchesForTenantSimple(currentTenantId)
-        .then(branches => {
-          const activeBranches = branches.filter(b => b.status === HOTEL_ENTITY_STATUS.ACTIVE);
+      // console.log(`[UsersManagement] Fetching branches for tenant ID: ${newTenantId}`);
+      getBranchesForTenantSimple(newTenantId)
+        .then(fetchedBranches => {
+          // console.log('[UsersManagement] Fetched branches raw:', fetchedBranches);
+          const activeBranches = fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE);
+          // console.log('[UsersManagement] Active branches for dropdown:', activeBranches);
           setAvailableBranches(activeBranches);
-          const currentBranchIsValid = activeBranches.some(b => b.id === currentBranchId);
-          if (currentBranchId && !currentBranchIsValid && (isDirtyTenant || !isEditing)) {
-            form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
-          }
         })
-        .catch(() => toast({ title: "Error", description: "Could not fetch branches for the selected tenant.", variant: "destructive" }))
-        .finally(() => setIsLoadingBranches(false));
+        .catch((error) => {
+          // console.error('[UsersManagement] Error fetching branches:', error);
+          toast({ title: "Error", description: "Could not fetch branches for the selected tenant.", variant: "destructive" });
+        })
+        .finally(() => {
+          // console.log('[UsersManagement] Finished fetching branches.');
+          setIsLoadingBranches(false);
+        });
     } else {
-      setAvailableBranches([]);
-      if (form.getValues('tenant_branch_id')) {
-        form.setValue('tenant_branch_id', undefined, { shouldValidate: true });
-      }
+      // console.log('[UsersManagement] No valid tenant ID in form, not loading branches.');
+      setIsLoadingBranches(false); // No tenant ID, so not loading.
     }
-  }, [selectedTenantIdInForm, form, toast, isEditing, selectedUser]);
+  }, [selectedTenantIdInForm, form, toast]);
 
 
   const handleAddSubmit = async (data: UserCreateData) => {
@@ -164,6 +174,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
         toast({ title: "Success", description: "User created." });
         setUsers(prev => [...prev, result.user!].sort((a, b) => (a.last_name || '').localeCompare(b.last_name || '')));
         setIsAddDialogOpen(false);
+        fetchInitialData(); // Re-fetch to get the complete list with joined names
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -198,6 +209,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
         setUsers(prev => prev.map(u => u.id === result.user!.id ? result.user! : u).sort((a, b) => (a.last_name || '').localeCompare(b.last_name || '')));
         setIsEditDialogOpen(false);
         setSelectedUser(null);
+        fetchInitialData(); // Re-fetch
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -258,7 +270,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
     finally { setIsSubmitting(false); }
   };
 
-  const filteredUsers = users.filter(user => user.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+  const filteredUsers = users.filter(user => String(user.status) === String(activeTab));
 
   const renderFormFields = () => {
     const usernameField = isEditing && selectedUser ? (
@@ -282,35 +294,45 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
 
     return (
       <React.Fragment>
-        <FormField control={form.control} name="first_name" render={({ field }) => (
-          <FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
-        )} />
-        <FormField control={form.control} name="last_name" render={({ field }) => (
-          <FormItem><FormLabel>Last Name *</FormLabel><FormControl><Input placeholder="Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
-        )} />
+        <FormField control={form.control} name="first_name" render={({ field }) => {
+          return (
+            <FormItem><FormLabel>First Name *</FormLabel><FormControl><Input placeholder="John" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+          );
+        }} />
+        <FormField control={form.control} name="last_name" render={({ field }) => {
+          return (
+            <FormItem><FormLabel>Last Name *</FormLabel><FormControl><Input placeholder="Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+          );
+        }} />
         {usernameField}
-        <FormField control={form.control} name="password" render={({ field }) => (
-          <FormItem><FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
-        )} />
-        <FormField control={form.control} name="email" render={({ field }) => (
-          <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
-        )} />
+        <FormField control={form.control} name="password" render={({ field }) => {
+          return (
+            <FormItem><FormLabel>{isEditing ? "New Password (Optional)" : "Password *"}</FormLabel><FormControl><Input type="password" placeholder="••••••••" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+          );
+        }} />
+        <FormField control={form.control} name="email" render={({ field }) => {
+          return (
+            <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="john.doe@example.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+          );
+        }} />
         <FormField control={form.control} name="role"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Role *</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value}>
-                <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
-                <SelectContent>
-                  <SelectItem value="staff">Staff</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                  <SelectItem value="sysad">SysAd</SelectItem>
-                  <SelectItem value="housekeeping">Housekeeping</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
+          render={({ field }) => {
+            return (
+              <FormItem>
+                <FormLabel>Role *</FormLabel>
+                <Select onValueChange={field.onChange} value={field.value}>
+                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select role" /></SelectTrigger></FormControl>
+                  <SelectContent>
+                    <SelectItem value="staff">Staff</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                    <SelectItem value="sysad">SysAd</SelectItem>
+                    <SelectItem value="housekeeping">Housekeeping</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            );
+          }}
         />
         <FormField control={form.control} name="tenant_id"
           render={({ field }) => (
@@ -342,19 +364,21 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
         />
         {isEditing && (
           <FormField control={form.control} name="status"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Status *</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value?.toString()}>
-                  <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
-                  <SelectContent>
-                    <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
-                    <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
+            render={({ field }) => {
+              return (
+                <FormItem>
+                  <FormLabel>Status *</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value?.toString()}>
+                    <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
+                    <SelectContent>
+                      <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
+                      <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              );
+            }}
           />
         )}
       </React.Fragment>
@@ -386,7 +410,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
               setIsAddDialogOpen(false);
               setIsEditDialogOpen(false);
               setSelectedUser(null);
-              setAvailableBranches([]);
+              setAvailableBranches([]); // Clear branches when dialog closes
               form.reset({ ...defaultFormValuesCreate, role: 'staff' } as UserCreateData, { resolver: zodResolver(userCreateSchema) } as any);
             }
           }}
@@ -397,6 +421,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
               form.reset({ ...defaultFormValuesCreate, role: 'staff' } as UserCreateData, { resolver: zodResolver(userCreateSchema) } as any);
               setIsAddDialogOpen(true);
               setIsEditDialogOpen(false);
+              setAvailableBranches([]); // Ensure branches are cleared for new user form
             }}><PlusCircle className="mr-2 h-4 w-4" /> Add User</Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
@@ -417,9 +442,8 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
       </CardHeader>
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
-          <TabsContent value="active">
-            {isLoading && filteredUsers.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+          <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive</TabsTrigger></TabsList>
+          <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
             {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No active users found.</p>}
             {!isLoading && filteredUsers.length > 0 && (
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Tenant</TableHead><TableHead>Branch</TableHead><TableHead>Last Login</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
@@ -440,8 +464,7 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
                 </TableBody>
               </Table>)}
           </TabsContent>
-          <TabsContent value="archive">
-            {isLoading && filteredUsers.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
+          <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
             {!isLoading && filteredUsers.length === 0 && <p className="text-muted-foreground text-center py-8">No archived users found.</p>}
             {!isLoading && filteredUsers.length > 0 && (
               <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Username</TableHead><TableHead>Role</TableHead><TableHead>Tenant</TableHead><TableHead>Branch</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
@@ -460,5 +483,3 @@ export default function UsersManagement({ sysAdUserId }: UsersManagementProps) {
     </Card>
   );
 }
-
-    
