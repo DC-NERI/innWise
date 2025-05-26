@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -13,15 +14,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, PlusCircle, Edit3, Archive as LostAndFoundIcon, RefreshCw, Search as SearchIcon } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod'; // Added missing import
 import { useToast } from '@/hooks/use-toast';
 import type { LostAndFoundLog, SimpleBranch } from '@/lib/types';
-import { 
-  lostAndFoundCreateSchema, LostAndFoundCreateData, 
-  lostAndFoundUpdateStatusSchema, LostAndFoundUpdateStatusData 
+import {
+  lostAndFoundCreateSchema, LostAndFoundCreateData,
+  lostAndFoundUpdateStatusSchema, LostAndFoundUpdateStatusData
 } from '@/lib/schemas';
 import { listLostAndFoundItemsForTenant } from '@/actions/admin/lostandfound/listLostAndFoundItemsForTenant';
-import { addLostAndFoundItem } from '@/actions/staff/lostandfound/addLostAndFoundItem'; // Reusing staff action
-import { updateLostAndFoundItemStatus } from '@/actions/staff/lostandfound/updateLostAndFoundItemStatus'; // Reusing staff action
+import { addLostAndFoundItem } from '@/actions/staff/lostandfound/addLostAndFoundItem';
+import { updateLostAndFoundItemStatus } from '@/actions/staff/lostandfound/updateLostAndFoundItemStatus';
 import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranchesForTenantSimple';
 import { LOST_AND_FOUND_STATUS, LOST_AND_FOUND_STATUS_TEXT, LOST_AND_FOUND_STATUS_OPTIONS, HOTEL_ENTITY_STATUS } from '@/lib/constants';
 import { format as formatDateTime, parseISO } from 'date-fns';
@@ -57,7 +59,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
   const [searchTerm, setSearchTerm] = useState('');
   const { toast } = useToast();
 
-  const addItemForm = useForm<LostAndFoundCreateData & { target_branch_id?: number }>({
+  const addItemForm = useForm<LostAndFoundCreateData & { target_branch_id: number }>({
     resolver: zodResolver(lostAndFoundCreateSchema.extend({
       target_branch_id: z.coerce.number().int().positive({ message: "Target branch is required." })
     })),
@@ -117,7 +119,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
       const result = await addLostAndFoundItem(itemData, tenantId, target_branch_id, adminUserId);
       if (result.success && result.item) {
         toast({ title: "Success", description: "Item logged successfully." });
-        setItems(prev => [result.item!, ...prev].sort((a,b) => new Date(b.found_at || 0).getTime() - new Date(a.found_at || 0).getTime()));
+        setItems(prev => [result.item!, ...prev].sort((a,b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime()));
         setIsAddDialogOpen(false);
         addItemForm.reset(defaultCreateFormValues);
       } else {
@@ -145,7 +147,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
       const result = await updateLostAndFoundItemStatus(selectedItemForUpdate.id, data, tenantId, selectedItemForUpdate.branch_id, adminUserId);
       if (result.success && result.item) {
         toast({ title: "Success", description: "Item status updated." });
-        setItems(prev => prev.map(i => i.id === result.item!.id ? result.item! : i).sort((a,b) => new Date(b.found_at || 0).getTime() - new Date(a.found_at || 0).getTime()));
+        setItems(prev => prev.map(i => i.id === result.item!.id ? result.item! : i).sort((a,b) => new Date(b.found_at).getTime() - new Date(a.found_at).getTime()));
         setIsUpdateStatusDialogOpen(false);
         setSelectedItemForUpdate(null);
       } else {
@@ -359,3 +361,5 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
     </Card>
   );
 }
+
+    
