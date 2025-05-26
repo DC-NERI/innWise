@@ -2,15 +2,16 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Loader2, Building2, Network, Users as UsersIcon, History } from 'lucide-react'; // Added History
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from '@/components/ui/button'; // Added Button
+import { Loader2, Building2, Network, Users as UsersIcon, History, RefreshCw } from 'lucide-react'; // Added RefreshCw
 import { useToast } from '@/hooks/use-toast';
 import { getSystemOverviewData } from '@/actions/sysad/dashboard/getSystemOverviewData';
-import { listLoginAttempts } from '@/actions/sysad/logs/listLoginAttempts'; // New import
+import { listLoginAttempts } from '@/actions/sysad/logs/listLoginAttempts';
 import type { SystemOverviewData, LoginLog } from '@/lib/types';
-import { LOGIN_LOG_STATUS_TEXT } from '@/lib/constants'; // New import
-import { format, parseISO } from 'date-fns'; // New import
+import { LOGIN_LOG_STATUS_TEXT } from '@/lib/constants';
+import { format, parseISO } from 'date-fns';
 
 const RECENT_LOGS_LIMIT = 5;
 
@@ -21,22 +22,29 @@ export default function SysAdDashboardContent() {
   const [isLoadingRecentLogs, setIsLoadingRecentLogs] = useState(true);
   const { toast } = useToast();
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchSystemOverview = useCallback(async () => {
     setIsLoadingOverview(true);
-    setIsLoadingRecentLogs(true);
     try {
-      const [overviewResult, logsResult] = await Promise.all([
-        getSystemOverviewData(),
-        listLoginAttempts(1, RECENT_LOGS_LIMIT)
-      ]);
-
+      const overviewResult = await getSystemOverviewData();
       if (overviewResult.success && overviewResult.overview) {
         setOverviewData(overviewResult.overview);
       } else {
         toast({ title: "Error Fetching Overview", description: overviewResult.message || "Could not fetch system overview.", variant: "destructive" });
         setOverviewData(null);
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
+      toast({ title: "Error Fetching Overview Data", description: errorMessage, variant: "destructive" });
+      setOverviewData(null);
+    } finally {
+      setIsLoadingOverview(false);
+    }
+  }, [toast]);
 
+  const fetchRecentLogs = useCallback(async () => {
+    setIsLoadingRecentLogs(true);
+    try {
+      const logsResult = await listLoginAttempts(1, RECENT_LOGS_LIMIT);
       if (logsResult.success && logsResult.logs) {
         setRecentLoginLogs(logsResult.logs);
       } else {
@@ -45,20 +53,17 @@ export default function SysAdDashboardContent() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred.";
-      toast({ title: "Error Fetching Dashboard Data", description: errorMessage, variant: "destructive" });
-      setOverviewData(null);
+      toast({ title: "Error Fetching Recent Logs Data", description: errorMessage, variant: "destructive" });
       setRecentLoginLogs([]);
     } finally {
-      setIsLoadingOverview(false);
       setIsLoadingRecentLogs(false);
     }
   }, [toast]);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
-
-  const isLoading = isLoadingOverview || isLoadingRecentLogs;
+    fetchSystemOverview();
+    fetchRecentLogs();
+  }, [fetchSystemOverview, fetchRecentLogs]);
 
   return (
     <div className="space-y-6">
@@ -115,13 +120,16 @@ export default function SysAdDashboardContent() {
       </div>
 
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <div className="flex items-center space-x-2">
             <History className="h-5 w-5 text-primary" />
             <CardTitle>Recent Login Attempts</CardTitle>
           </div>
-          <CardDescription>A quick view of the latest login attempts to the system.</CardDescription>
+          <Button variant="outline" size="sm" onClick={fetchRecentLogs} disabled={isLoadingRecentLogs}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingRecentLogs ? 'animate-spin' : ''}`} /> Refresh Logs
+          </Button>
         </CardHeader>
+        <CardDescription className="px-6 pb-2 text-sm text-muted-foreground">A quick view of the latest login attempts to the system.</CardDescription>
         <CardContent>
           {isLoadingRecentLogs ? (
             <div className="flex justify-center items-center h-32">
@@ -164,4 +172,3 @@ export default function SysAdDashboardContent() {
   );
 }
 
-    
