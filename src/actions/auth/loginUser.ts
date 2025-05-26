@@ -8,16 +8,19 @@ pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
 pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
 pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
 
-// Configure pg to return timestamp without timezone as strings
+// Configure pg to return timestamp types as strings
 pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
 pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+pg.types.setTypeParser(1082, (stringValue) => stringValue); // DATE
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+import { headers } from 'next/headers'; // To get IP and User-Agent
 import type { UserRole } from "@/lib/types";
 import { loginSchema } from "@/lib/schemas";
 import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
-import { logActivity } from '@/actions/activityLogger';
+import { logActivity } from '../activityLogger'; // For general activity logging
+import { logLoginAttempt } from './logLoginAttempt'; // For specific login_logs table
 
 export type LoginResult = {
   success: boolean;
@@ -51,17 +54,25 @@ const LOGIN_USER_QUERY = `
 
 export async function loginUser(formData: FormData): Promise<LoginResult> {
   let client;
-  let userIdToLog: number | undefined = undefined;
-  let tenantIdForLog: number | undefined = undefined;
-  let branchIdForLog: number | undefined = undefined;
+  let userIdToLogActivity: number | undefined = undefined;
+  let tenantIdForLogActivity: number | undefined = undefined;
+  let branchIdForLogActivity: number | undefined = undefined;
   let attemptedUsername: string = "";
+
+  // Get request details for logging
+  const headerList = headers();
+  const ipAddress = (headerList.get('x-forwarded-for') ?? headerList.get('x-real-ip') ?? headerList.get('cf-connecting-ip') ?? 'unknown').split(',')[0].trim();
+  const userAgent = headerList.get('user-agent') ?? 'unknown';
 
   try {
     const parsedData = Object.fromEntries(formData.entries());
     const validatedFields = loginSchema.safeParse(parsedData);
 
     if (!validatedFields.success) {
-      const errorMessage = "Invalid form data. " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
+      const errorFields = validatedFields.error.flatten().fieldErrors;
+      const flatMessages = Object.values(errorFields).flat().join(' ');
+      const errorMessage = "Invalid form data. " + flatMessages;
+      // Cannot log to login_logs here as we don't know the user_id yet or if username is valid
       return { message: errorMessage, success: false };
     }
 
@@ -79,28 +90,30 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
         actor_user_id: 0, // System or unknown user
         actor_username: attemptedUsername,
         action_type: 'USER_LOGIN_FAILED',
-        description: `Login attempt failed for username '${attemptedUsername}': User not found or inactive.`,
-        details: { attemptedUsername, reason: "User not found or inactive" }
+        description: `Login attempt failed for username '${attemptedUsername}': User not found or inactive. IP: ${ipAddress}, UA: ${userAgent}`,
+        details: { attemptedUsername, reason: "User not found or inactive", ipAddress, userAgent }
       });
+      // Cannot log to login_logs here due to user_id NOT NULL constraint
       return { message: "Invalid username, password, or inactive account.", success: false };
     }
 
     const user = userResult.rows[0];
-    userIdToLog = user.id;
-    tenantIdForLog = user.tenant_id;
-    branchIdForLog = user.tenant_branch_id;
+    userIdToLogActivity = Number(user.id); // Store for activity log
+    tenantIdForLogActivity = user.tenant_id ? Number(user.tenant_id) : undefined;
+    branchIdForLogActivity = user.tenant_branch_id ? Number(user.tenant_branch_id) : undefined;
 
     const passwordMatches = bcrypt.compareSync(password, user.password_hash);
 
     if (!passwordMatches) {
+      await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'failed');
       await logActivity({
-        actor_user_id: user.id,
+        actor_user_id: Number(user.id),
         actor_username: user.username,
-        tenant_id: user.tenant_id,
-        branch_id: user.tenant_branch_id,
+        tenant_id: tenantIdForLogActivity,
+        branch_id: branchIdForLogActivity,
         action_type: 'USER_LOGIN_FAILED',
-        description: `Login attempt failed for user '${user.username}': Incorrect password.`,
-        details: { username: user.username, reason: "Incorrect password" }
+        description: `Login attempt failed for user '${user.username}': Incorrect password. IP: ${ipAddress}, UA: ${userAgent}`,
+        details: { username: user.username, reason: "Incorrect password", ipAddress, userAgent }
       });
       return { message: "Invalid username or password.", success: false };
     }
@@ -108,14 +121,15 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     const userRole = user.role as UserRole;
     const validRoles: UserRole[] = ["admin", "sysad", "staff", "housekeeping"];
     if (!validRoles.includes(userRole)) {
+       await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'failed'); // Log as failed attempt if role is invalid for dashboard
        await logActivity({
-        actor_user_id: user.id,
+        actor_user_id: Number(user.id),
         actor_username: user.username,
-        tenant_id: user.tenant_id,
-        branch_id: user.tenant_branch_id,
+        tenant_id: tenantIdForLogActivity,
+        branch_id: branchIdForLogActivity,
         action_type: 'USER_LOGIN_FAILED',
-        description: `Login attempt successful for user '${user.username}', but role '${userRole}' is not recognized for dashboard access.`,
-        details: { username: user.username, role: userRole, reason: "Unrecognized role" }
+        description: `Login attempt successful for user '${user.username}', but role '${userRole}' is not recognized for dashboard access. IP: ${ipAddress}, UA: ${userAgent}`,
+        details: { username: user.username, role: userRole, reason: "Unrecognized role", ipAddress, userAgent }
       });
       return { message: "Login successful, but user role is not recognized for dashboard access.", success: false };
     }
@@ -128,11 +142,12 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
       const tenantRes = await client.query('SELECT tenant_name, status FROM tenants WHERE id = $1', [user.tenant_id]);
       if (tenantRes.rows.length === 0 || tenantRes.rows[0].status !== HOTEL_ENTITY_STATUS.ACTIVE) {
         const reason = tenantRes.rows.length === 0 ? "Tenant not found" : `Tenant inactive (status: ${tenantRes.rows[0].status})`;
+        await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'failed');
         await logActivity({
-            actor_user_id: user.id, actor_username: user.username, tenant_id: user.tenant_id,
+            actor_user_id: Number(user.id), actor_username: user.username, tenant_id: tenantIdForLogActivity,
             action_type: 'USER_LOGIN_FAILED',
-            description: `Login failed for user '${user.username}': Associated tenant is inactive or not found.`,
-            details: { username: user.username, tenantId: user.tenant_id, reason }
+            description: `Login failed for user '${user.username}': Associated tenant is inactive or not found. IP: ${ipAddress}, UA: ${userAgent}`,
+            details: { username: user.username, tenantId: user.tenant_id, reason, ipAddress, userAgent }
         });
         return { message: "Login failed: Tenant account is inactive or does not exist.", success: false };
       }
@@ -141,21 +156,23 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
 
 
     if (user.tenant_branch_id && (userRole === 'staff' || userRole === 'housekeeping')) {
-      if (!user.tenant_id) { // Should not happen if branch_id is set, but good check
-         await logActivity({ actor_user_id: user.id, actor_username: user.username, tenant_id: user.tenant_id, branch_id: user.tenant_branch_id, action_type: 'USER_LOGIN_ERROR', description: `Login error for '${user.username}': Branch assigned but tenant ID is missing.`, details: { username: user.username } });
+      if (!user.tenant_id) {
+         await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'failed');
+         await logActivity({ actor_user_id: Number(user.id), actor_username: user.username, tenant_id: tenantIdForLogActivity, branch_id: branchIdForLogActivity, action_type: 'USER_LOGIN_ERROR', description: `Login error for '${user.username}': Branch assigned but tenant ID is missing. IP: ${ipAddress}, UA: ${userAgent}`, details: { username: user.username, ipAddress, userAgent } });
         return { message: "Login failed: Branch assignment error.", success: false };
       }
       const branchStatusRes = await client.query(
-        'SELECT status FROM tenant_branch WHERE id = $1 AND tenant_id = $2',
+        'SELECT status FROM tenant_branch WHERE id = $1 AND tenant_id = $2', // Added tenant_id filter
         [user.tenant_branch_id, user.tenant_id]
       );
       if (branchStatusRes.rows.length === 0 || branchStatusRes.rows[0].status !== HOTEL_ENTITY_STATUS.ACTIVE) {
         const reason = branchStatusRes.rows.length === 0 ? "Branch not found" : `Branch inactive (status: ${branchStatusRes.rows[0].status})`;
+        await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'failed');
         await logActivity({
-            actor_user_id: user.id, actor_username: user.username, tenant_id: user.tenant_id, branch_id: user.tenant_branch_id,
+            actor_user_id: Number(user.id), actor_username: user.username, tenant_id: tenantIdForLogActivity, branch_id: branchIdForLogActivity,
             action_type: 'USER_LOGIN_FAILED',
-            description: `Login failed for user '${user.username}': Assigned branch is inactive or does not exist.`,
-            details: { username: user.username, branchId: user.tenant_branch_id, reason }
+            description: `Login failed for user '${user.username}': Assigned branch is inactive or does not exist. IP: ${ipAddress}, UA: ${userAgent}`,
+            details: { username: user.username, branchId: user.tenant_branch_id, reason, ipAddress, userAgent }
         });
         return { message: "Login failed: Assigned branch is inactive or does not exist.", success: false };
       }
@@ -166,14 +183,15 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
       [user.id]
     );
 
+    await logLoginAttempt(Number(user.id), ipAddress, userAgent, 'success');
     await logActivity({
-      actor_user_id: user.id,
+      actor_user_id: Number(user.id),
       actor_username: user.username,
-      tenant_id: user.tenant_id,
-      branch_id: user.tenant_branch_id,
+      tenant_id: tenantIdForLogActivity,
+      branch_id: branchIdForLogActivity,
       action_type: 'USER_LOGIN_SUCCESS',
-      description: `User '${user.username}' logged in successfully as role '${userRole}'. Tenant: ${tenantName || 'N/A'}, Branch: ${user.branch_name || 'N/A'}.`,
-      details: { username: user.username, role: userRole, tenantId: user.tenant_id, branchId: user.tenant_branch_id }
+      description: `User '${user.username}' logged in successfully as role '${userRole}'. Tenant: ${tenantName || 'N/A'}, Branch: ${user.branch_name || 'N/A'}. IP: ${ipAddress}, UA: ${userAgent}`,
+      details: { username: user.username, role: userRole, tenantId: user.tenant_id, branchId: user.tenant_branch_id, ipAddress, userAgent }
     });
 
     return {
@@ -192,14 +210,18 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
 
   } catch (dbError: any) {
     console.error("[loginUser DB Error]", dbError);
+    // Attempt to log to activity_logs if possible, but primary log here is to login_logs if user ID is known
+     if (userIdToLogActivity) { // If we identified a user before the DB error
+        await logLoginAttempt(userIdToLogActivity, ipAddress, userAgent, 'failed');
+    }
     await logActivity({
-      actor_user_id: userIdToLog || 0,
+      actor_user_id: userIdToLogActivity || 0, // Use identified user ID or 0 if not found before error
       actor_username: attemptedUsername,
-      tenant_id: tenantIdForLog,
-      branch_id: branchIdForLog,
+      tenant_id: tenantIdForLogActivity,
+      branch_id: branchIdForLogActivity,
       action_type: 'USER_LOGIN_ERROR',
-      description: `Database error during login attempt for username '${attemptedUsername}': ${dbError.message}`,
-      details: { attemptedUsername, errorMessage: dbError.message, stack: dbError.stack }
+      description: `Database error during login attempt for username '${attemptedUsername}': ${dbError.message}. IP: ${ipAddress}, UA: ${userAgent}`,
+      details: { attemptedUsername, errorMessage: dbError.message, stack: dbError.stack, ipAddress, userAgent }
     });
     return { message: `A database error occurred. Please try again later.`, success: false };
   } finally {
@@ -208,5 +230,3 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     }
   }
 }
-
-    
