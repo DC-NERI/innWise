@@ -6,17 +6,18 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft } from 'lucide-react';
+import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft, LayoutDashboard } from 'lucide-react'; // Added LayoutDashboard
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
+import SysAdDashboardContent from '@/components/sysad/dashboard-content'; // New component
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type SysAdActiveView = 'tenants' | 'branches' | 'users' | 'settings';
+type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'settings'; // Added 'dashboard'
 
 const SysAdDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<SysAdActiveView>('tenants');
+  const [activeView, setActiveView] = useState<SysAdActiveView>('dashboard'); // Default to dashboard
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -24,7 +25,7 @@ const SysAdDashboardPage: NextPage = () => {
   const [username, setUsername] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string | null>(null);
   const [lastName, setLastName] = useState<string | null>(null);
-  const [sysAdUserId, setSysAdUserId] = useState<number | null>(null); // For SysAd's own ID
+  const [sysAdUserId, setSysAdUserId] = useState<number | null>(null);
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -35,7 +36,7 @@ const SysAdDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
-      const storedUserId = localStorage.getItem('userId'); // For SysAd's own ID
+      const storedUserId = localStorage.getItem('userId');
 
       if (storedRole) {
         setUserRole(storedRole);
@@ -113,6 +114,16 @@ const SysAdDashboardPage: NextPage = () => {
           <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
+                onClick={() => setActiveView('dashboard')}
+                isActive={activeView === 'dashboard'}
+                tooltip="Dashboard"
+              >
+                <LayoutDashboard />
+                <span>Dashboard</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
                 onClick={() => setActiveView('tenants')}
                 isActive={activeView === 'tenants'}
                 tooltip="Tenants"
@@ -178,6 +189,7 @@ const SysAdDashboardPage: NextPage = () => {
            </Button>
         </header>
         <main className="p-4 lg:p-6">
+          {activeView === 'dashboard' && <SysAdDashboardContent />}
           {activeView === 'tenants' && <TenantsManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'branches' && <AllBranchesManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'users' && <UsersManagement sysAdUserId={sysAdUserId} />}
@@ -185,6 +197,7 @@ const SysAdDashboardPage: NextPage = () => {
             <div>
               <h2 className="text-2xl font-semibold">System Settings</h2>
               <p className="text-muted-foreground">Overall system settings and configurations will be managed here.</p>
+              {/* Placeholder for future settings UI */}
             </div>
           )}
         </main>
@@ -194,3 +207,5 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
+
+    

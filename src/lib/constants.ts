@@ -1,8 +1,9 @@
 
+// ROOM_AVAILABILITY_STATUS: Integer values
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2,
+  RESERVED: 2, // A room set aside for a future booking, linked to a transaction with status 2 or 4
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -11,11 +12,21 @@ export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
   [ROOM_AVAILABILITY_STATUS.RESERVED]: 'Reserved',
 };
 
+// HOTEL_ENTITY_STATUS: String values '0', '1', '2'
 export const HOTEL_ENTITY_STATUS = {
   ARCHIVED: '0',
   ACTIVE: '1',
+  SUSPENDED: '2', // New status for tenants
 } as const;
 
+export const HOTEL_ENTITY_STATUS_TEXT: { [key: string]: string } = {
+  [HOTEL_ENTITY_STATUS.ARCHIVED]: 'Archived',
+  [HOTEL_ENTITY_STATUS.ACTIVE]: 'Active',
+  [HOTEL_ENTITY_STATUS.SUSPENDED]: 'Suspended',
+};
+
+
+// ROOM_CLEANING_STATUS: Integer values
 export const ROOM_CLEANING_STATUS = {
   CLEAN: 0,
   DIRTY: 1,
@@ -31,10 +42,12 @@ export const ROOM_CLEANING_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).map(value => ({
-  value: value,
+  value: value, // Number
   label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT]
 }));
 
+
+// NOTIFICATION_STATUS: Integer values
 export const NOTIFICATION_STATUS = {
   UNREAD: 0,
   READ: 1,
@@ -45,6 +58,7 @@ export const NOTIFICATION_STATUS_TEXT: { [key: number]: string } = {
   [NOTIFICATION_STATUS.READ]: 'Read',
 };
 
+// NOTIFICATION_TRANSACTION_LINK_STATUS: Integer values
 export const NOTIFICATION_TRANSACTION_LINK_STATUS = {
   NO_TRANSACTION_LINK: 0,
   TRANSACTION_LINKED: 1,
@@ -52,37 +66,36 @@ export const NOTIFICATION_TRANSACTION_LINK_STATUS = {
 
 export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string } = {
   [NOTIFICATION_TRANSACTION_LINK_STATUS.NO_TRANSACTION_LINK]: 'No Linked Tx',
-  [NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED]: 'Tx Linked',
+  [NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED]: 'Reservation Linked', // Updated text
 };
 
+
+// TRANSACTION_LIFECYCLE_STATUS: Integer values
 export const TRANSACTION_LIFECYCLE_STATUS = {
-  CHECKED_IN: 0,                 // Was UNPAID, now clearly CHECKED_IN
-  CHECKED_OUT: 1,                // Was PAID, now clearly CHECKED_OUT and implies payment settled
-  RESERVATION_WITH_ROOM: 2,      // Was ADVANCE_PAID, implies reservation with a room, payment may or may not be settled yet (see is_paid)
-  RESERVATION_NO_ROOM: 3,        // Was ADVANCE_RESERVATION, implies reservation without a room, payment may or may not be settled
-  PENDING_BRANCH_ACCEPTANCE: 4,  // Admin created reservation
-  ADMIN_RESERVATION_DECLINED: 5, // Admin created reservation, declined by branch
-  VOIDED_CANCELLED: 6,
-  ADVANCE_PAID: 7,
-  ADVANCE_RESERVATION: 8
+  CHECKED_IN: 0,                       // Guest is currently in the room. is_paid might be 0 or 1.
+  CHECKED_OUT: 1,                      // Guest has departed, and bill is settled. is_paid should be 1.
+  RESERVATION_WITH_ROOM: 2,            // Reservation confirmed and a specific room is assigned. is_paid can be 0, 1, or 2.
+  RESERVATION_NO_ROOM: 3,              // Reservation made, but no specific room assigned yet (e.g., for a room type). is_paid can be 0, 1, or 2.
+  PENDING_BRANCH_ACCEPTANCE: 4,        // Admin-created reservation awaiting branch action. is_paid can be 0, 1, or 2. is_accepted will be PENDING.
+  ADMIN_RESERVATION_DECLINED: 5,       // Admin-created reservation declined by branch. is_paid irrelevant. is_accepted will be NOT_ACCEPTED.
+  VOIDED_CANCELLED: 6,                 // Reservation or booking cancelled/voided. is_paid irrelevant.
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN]: 'Checked-In',
   [TRANSACTION_LIFECYCLE_STATUS.CHECKED_OUT]: 'Checked-Out',
   [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM]: 'Reservation (Room Assigned)',
-  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room Yet)',
+  [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room)',
   [TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
   [TRANSACTION_LIFECYCLE_STATUS.ADMIN_RESERVATION_DECLINED]: 'Admin Reservation Declined',
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
-  [TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID]: 'Advanced Paid',
-  [TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION]: 'Advance Reservation',
 };
 
+// TRANSACTION_PAYMENT_STATUS: Integer values
 export const TRANSACTION_PAYMENT_STATUS = {
   UNPAID: 0,
   PAID: 1,
-  ADVANCE_PAID: 2, // This status on is_paid indicates the payment for an advance booking was made.
+  ADVANCE_PAID: 2, // For reservations paid in advance
 } as const;
 
 export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
@@ -91,11 +104,12 @@ export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID]: 'Advance Paid',
 };
 
+// TRANSACTION_IS_ACCEPTED_STATUS: Integer values
 export const TRANSACTION_IS_ACCEPTED_STATUS = {
-    DEFAULT: 0,
-    NOT_ACCEPTED: 1,
-    ACCEPTED: 2,
-    PENDING: 3,
+    DEFAULT: 0,      // Not applicable or default state
+    NOT_ACCEPTED: 1, // Declined by branch
+    ACCEPTED: 2,     // Accepted by branch
+    PENDING: 3,      // Pending branch action (for admin-created reservations)
 } as const;
 
 export const TRANSACTION_IS_ACCEPTED_STATUS_TEXT: { [key: number]: string} = {
@@ -105,6 +119,7 @@ export const TRANSACTION_IS_ACCEPTED_STATUS_TEXT: { [key: number]: string} = {
     [TRANSACTION_IS_ACCEPTED_STATUS.PENDING]: 'Pending Branch Action',
 };
 
+// LOST_AND_FOUND_STATUS: Integer values
 export const LOST_AND_FOUND_STATUS = {
   FOUND: 0,
   CLAIMED: 1,
@@ -118,6 +133,8 @@ export const LOST_AND_FOUND_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const LOST_AND_FOUND_STATUS_OPTIONS = Object.values(LOST_AND_FOUND_STATUS).map(value => ({
-  value: value,
+  value: value, // Number
   label: LOST_AND_FOUND_STATUS_TEXT[value as keyof typeof LOST_AND_FOUND_STATUS_TEXT]
 }));
+
+    

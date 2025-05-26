@@ -15,7 +15,7 @@ pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TI
 import { Pool } from 'pg';
 import type { Tenant } from '@/lib/types';
 import { tenantUpdateSchema, TenantUpdateData } from '@/lib/schemas';
-import { logActivity } from '@/actions/activityLogger'; // Use aliased path
+import { logActivity } from '@/actions/activityLogger';
 import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 const pool = new Pool({
@@ -30,7 +30,8 @@ pool.on('error', (err) => {
 const UPDATE_TENANT_QUERY = `
   UPDATE tenants
   SET tenant_name = $1, tenant_address = $2, tenant_email = $3, tenant_contact_info = $4, 
-      max_branch_count = $5, max_user_count = $6, status = $7, updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
+      max_branch_count = $5, max_user_count = $6, status = $7, 
+      updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
   WHERE id = $8
   RETURNING id, tenant_name, tenant_address, tenant_email, tenant_contact_info, max_branch_count, max_user_count, created_at, updated_at, status;
 `;
@@ -38,9 +39,10 @@ const UPDATE_TENANT_QUERY = `
 export async function updateTenant(
   tenantId: number,
   data: TenantUpdateData,
-  sysAdUserId: number
+  sysAdUserId: number | null // Added sysAdUserId for logging
 ): Promise<{ success: boolean; message?: string; tenant?: Tenant }> {
   if (!sysAdUserId || sysAdUserId <= 0) {
+    console.error("[updateTenant] Invalid sysAdUserId:", sysAdUserId);
     return { success: false, message: "Invalid System Administrator ID for logging." };
   }
 
@@ -60,24 +62,17 @@ export async function updateTenant(
     status,
   } = validatedFields.data;
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     await client.query('BEGIN');
 
-    // Fetch current tenant details for logging purposes if needed (e.g., to log specific changes)
     const currentTenantRes = await client.query('SELECT tenant_name, status as current_status FROM tenants WHERE id = $1', [tenantId]);
     if (currentTenantRes.rows.length === 0) {
       await client.query('ROLLBACK');
       return { success: false, message: "Tenant not found." };
     }
     const currentTenantDetails = currentTenantRes.rows[0];
-
-    // Check user and branch limits if restoring a tenant
-    if (String(currentTenantDetails.current_status) === HOTEL_ENTITY_STATUS.ARCHIVED && status === HOTEL_ENTITY_STATUS.ACTIVE) {
-      // No inherent limits on restoring a tenant itself, but a tenant's own limits (max_branch_count, max_user_count)
-      // will apply to its branches/users. This check is mostly for consistency.
-    }
-
 
     const res = await client.query(UPDATE_TENANT_QUERY, [
       tenant_name,
@@ -93,8 +88,8 @@ export async function updateTenant(
     if (res.rows.length > 0) {
       const updatedTenant = res.rows[0];
       let logDescription = `SysAd (ID: ${sysAdUserId}) updated tenant '${updatedTenant.tenant_name}' (ID: ${tenantId}).`;
-      if (currentTenantDetails.current_status !== status) {
-        logDescription += ` Status changed from '${currentTenantDetails.current_status}' to '${status}'.`;
+      if (String(currentTenantDetails.current_status) !== String(status)) {
+        logDescription += ` Status changed from '${HOTEL_ENTITY_STATUS_TEXT[String(currentTenantDetails.current_status) as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || currentTenantDetails.current_status}' to '${HOTEL_ENTITY_STATUS_TEXT[String(status) as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || status}'.`;
       }
 
       await logActivity({
@@ -103,7 +98,7 @@ export async function updateTenant(
         description: logDescription,
         target_entity_type: 'Tenant',
         target_entity_id: tenantId.toString(),
-        details: { updated_fields: Object.keys(data), tenant_name: updatedTenant.tenant_name }
+        details: { updated_fields: Object.keys(data).filter(k => data[k as keyof TenantUpdateData] !== currentTenantRes.rows[0][k]), tenant_name: updatedTenant.tenant_name, new_status: status }
       }, client);
       
       await client.query('COMMIT');
@@ -122,7 +117,9 @@ export async function updateTenant(
     await client.query('ROLLBACK');
     return { success: false, message: "Tenant update failed or tenant not found." };
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) {
+        try { await client.query('ROLLBACK'); } catch (rbError) { console.error('[updateTenant] Error during rollback:', rbError); }
+    }
     let errorMessage = "Database error occurred during tenant update.";
     if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenants_tenant_email_key') {
         errorMessage = "This email address is already in use by another tenant.";
@@ -132,6 +129,10 @@ export async function updateTenant(
     console.error('[updateTenant DB Error]', error);
     return { success: false, message: errorMessage };
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
+
+    

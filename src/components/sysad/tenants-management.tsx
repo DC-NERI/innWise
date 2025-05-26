@@ -18,11 +18,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore } from 'lucide-react';
+import { Loader2, PlusCircle, Building2, Edit, Trash2, ArchiveRestore, Ban, CheckCircle } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { HOTEL_ENTITY_STATUS, HOTEL_ENTITY_STATUS_TEXT } from '@/lib/constants';
 
 type TenantFormValues = TenantCreateData | TenantUpdateData;
 
@@ -31,8 +31,8 @@ const defaultFormValuesCreate: TenantCreateData = {
   tenant_address: '',
   tenant_email: '',
   tenant_contact_info: '',
-  max_branch_count: 5,
-  max_user_count: 10,
+  max_branch_count: 5, // Default value
+  max_user_count: 10,  // Default value
 };
 
 interface TenantsManagementProps {
@@ -46,7 +46,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedTenant;
@@ -112,6 +112,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         toast({ title: "Success", description: "Tenant created successfully." });
         setTenants(prev => [...prev, result.tenant!].sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsAddDialogOpen(false);
+        fetchData(); // Re-fetch for consistency
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create tenant.", variant: "destructive" });
       }
@@ -135,6 +136,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         setTenants(prev => prev.map(t => t.id === result.tenant!.id ? result.tenant! : t).sort((a,b) => a.tenant_name.localeCompare(b.tenant_name)));
         setIsEditDialogOpen(false);
         setSelectedTenant(null);
+        fetchData(); // Re-fetch
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update tenant.", variant: "destructive" });
       }
@@ -145,30 +147,9 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
     }
   };
 
-  const handleArchive = async (tenantId: number, tenantName: string) => {
+  const handleStatusChange = async (tenant: Tenant, newStatus: typeof HOTEL_ENTITY_STATUS[keyof typeof HOTEL_ENTITY_STATUS]) => {
     if (!sysAdUserId) {
-        toast({ title: "Error", description: "SysAd user ID not available for logging.", variant: "destructive" });
-        return;
-    }
-    setIsSubmitting(true);
-    try {
-      const result = await archiveTenant(tenantId, sysAdUserId);
-      if (result.success) {
-        toast({ title: "Success", description: `Tenant "${tenantName}" archived.` });
-        setTenants(prev => prev.map(t => t.id === tenantId ? {...t, status: HOTEL_ENTITY_STATUS.ARCHIVED} : t));
-      } else {
-        toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
-      }
-    } catch (error) {
-       toast({ title: "Error", description: "An unexpected error occurred during archiving.", variant: "destructive" });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleRestore = async (tenant: Tenant) => {
-    if (!sysAdUserId) {
-        toast({ title: "Error", description: "SysAd user ID not available for logging.", variant: "destructive" });
+        toast({ title: "Error", description: "SysAd user ID not available.", variant: "destructive" });
         return;
     }
     setIsSubmitting(true);
@@ -179,19 +160,26 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
         tenant_contact_info: tenant.tenant_contact_info,
         max_branch_count: tenant.max_branch_count,
         max_user_count: tenant.max_user_count,
-        status: HOTEL_ENTITY_STATUS.ACTIVE,
+        status: newStatus,
     };
-    const result = await updateTenant(tenant.id, payload, sysAdUserId);
-    if (result.success && result.tenant) {
-        toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" restored.` });
+    const actionText = newStatus === HOTEL_ENTITY_STATUS.ARCHIVED ? "archived" : newStatus === HOTEL_ENTITY_STATUS.SUSPENDED ? "suspended" : "reactivated";
+    try {
+      const result = await updateTenant(tenant.id, payload, sysAdUserId); // Using updateTenant to change status
+      if (result.success && result.tenant) {
+        toast({ title: "Success", description: `Tenant "${tenant.tenant_name}" ${actionText}.` });
         setTenants(prev => prev.map(t => t.id === tenant.id ? result.tenant! : t));
-    } else {
-        toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
+      } else {
+        toast({ title: `${actionText.charAt(0).toUpperCase() + actionText.slice(1)} Failed`, description: result.message, variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", description: `Unexpected error during tenant ${actionText}.`, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
-  const filteredTenants = tenants.filter(tenant => tenant.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+
+  const filteredTenants = tenants.filter(tenant => tenant.status === activeTab);
 
 
   if (isLoading && tenants.length === 0) {
@@ -205,84 +193,41 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
 
   const renderFormFields = () => (
     <React.Fragment>
-      <FormField
-        control={form.control}
-        name="tenant_name"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Tenant Name *</FormLabel>
-            <FormControl><Input placeholder="Grand Hotel" {...field} className="w-[90%]" /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="tenant_name" render={({ field }) => (
+          <FormItem><FormLabel>Tenant Name *</FormLabel><FormControl><Input placeholder="Grand Hotel" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )}
       />
-      <FormField
-        control={form.control}
-        name="tenant_address"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Address</FormLabel>
-            <FormControl><Textarea placeholder="123 Main St, City" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="tenant_address" render={({ field }) => (
+          <FormItem><FormLabel>Address</FormLabel><FormControl><Textarea placeholder="123 Main St, City" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )}
       />
-      <FormField
-        control={form.control}
-        name="tenant_email"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Email</FormLabel>
-            <FormControl><Input type="email" placeholder="contact@grandhotel.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="tenant_email" render={({ field }) => (
+          <FormItem><FormLabel>Email</FormLabel><FormControl><Input type="email" placeholder="contact@grandhotel.com" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )}
       />
-      <FormField
-        control={form.control}
-        name="tenant_contact_info"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Contact Info</FormLabel>
-            <FormControl><Input placeholder="+1-555-0100" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="tenant_contact_info" render={({ field }) => (
+          <FormItem><FormLabel>Contact Info</FormLabel><FormControl><Input placeholder="+1-555-0100" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
         )}
       />
-      <FormField
-        control={form.control}
-        name="max_branch_count"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Max Branches (0 for unlimited)</FormLabel>
-            <FormControl><Input type="number" placeholder="5" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="max_branch_count" render={({ field }) => (
+          <FormItem><FormLabel>Max Branches (0 for unlimited)</FormLabel><FormControl><Input type="number" placeholder="5" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl><FormMessage /></FormItem>
         )}
       />
-      <FormField
-        control={form.control}
-        name="max_user_count"
-        render={({ field }) => (
-          <FormItem>
-            <FormLabel>Max Users (0 for unlimited)</FormLabel>
-            <FormControl><Input type="number" placeholder="10" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl>
-            <FormMessage />
-          </FormItem>
+      <FormField control={form.control} name="max_user_count" render={({ field }) => (
+          <FormItem><FormLabel>Max Users (0 for unlimited)</FormLabel><FormControl><Input type="number" placeholder="10" {...field} value={field.value ?? ''} className="w-[90%]" onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10))} /></FormControl><FormMessage /></FormItem>
         )}
       />
       {isEditing && (
-        <FormField
-          control={form.control}
-          name="status"
+        <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status *</FormLabel>
                <Select onValueChange={field.onChange} value={field.value?.toString() ?? HOTEL_ENTITY_STATUS.ACTIVE}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
-                  <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
-                  <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                  <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>{HOTEL_ENTITY_STATUS_TEXT[HOTEL_ENTITY_STATUS.ACTIVE]}</SelectItem>
+                  <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>{HOTEL_ENTITY_STATUS_TEXT[HOTEL_ENTITY_STATUS.ARCHIVED]}</SelectItem>
+                  <SelectItem value={HOTEL_ENTITY_STATUS.SUSPENDED}>{HOTEL_ENTITY_STATUS_TEXT[HOTEL_ENTITY_STATUS.SUSPENDED]}</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
@@ -301,7 +246,7 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
             <Building2 className="h-6 w-6 text-primary" />
             <CardTitle>Tenants Management</CardTitle>
           </div>
-          <CardDescription>View, add, edit, and archive tenants.</CardDescription>
+          <CardDescription>View, add, edit, suspend, and archive tenants.</CardDescription>
         </div>
         <Dialog
             key={isEditing ? `edit-tenant-${selectedTenant?.id}` : 'add-tenant'}
@@ -339,67 +284,143 @@ export default function TenantsManagement({ sysAdUserId }: TenantsManagementProp
       <CardContent>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4">
-            <TabsTrigger value="active">Active</TabsTrigger>
-            <TabsTrigger value="archive">Archive</TabsTrigger>
+            <TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active ({tenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE).length})</TabsTrigger>
+            <TabsTrigger value={HOTEL_ENTITY_STATUS.SUSPENDED}>Suspended ({tenants.filter(t => t.status === HOTEL_ENTITY_STATUS.SUSPENDED).length})</TabsTrigger>
+            <TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive ({tenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ARCHIVED).length})</TabsTrigger>
           </TabsList>
-          <TabsContent value="active">
-             {isLoading && filteredTenants.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-            {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No active tenants found.</p>}
-            {!isLoading && filteredTenants.length > 0 && (
-              <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Contact</TableHead><TableHead>Max Branches</TableHead><TableHead>Max Users</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {filteredTenants.map(tenant => (
-                    <TableRow key={tenant.id}>
-                      <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
-                      <TableCell>{tenant.tenant_email || '-'}</TableCell>
-                      <TableCell>{tenant.tenant_contact_info || '-'}</TableCell>
-                      <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
-                      <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => { setSelectedTenant(tenant); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}>
-                            <Edit className="mr-1 h-3 w-3" /> Edit
-                        </Button>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive tenant "{tenant.tenant_name}"?</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(tenant.id, tenant.tenant_name)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+          <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
+            <TenantTable
+              tenants={filteredTenants}
+              isLoading={isLoading}
+              isSubmitting={isSubmitting}
+              onEdit={(tenant) => { setSelectedTenant(tenant); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}
+              onSuspend={(tenant) => handleStatusChange(tenant, HOTEL_ENTITY_STATUS.SUSPENDED)}
+              onArchive={(tenant) => handleStatusChange(tenant, HOTEL_ENTITY_STATUS.ARCHIVED)}
+              currentTab="active"
+            />
           </TabsContent>
-          <TabsContent value="archive">
-            {isLoading && filteredTenants.length === 0 && <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}
-            {!isLoading && filteredTenants.length === 0 && <p className="text-muted-foreground text-center py-8">No archived tenants found.</p>}
-            {!isLoading && filteredTenants.length > 0 && (
-              <Table>
-                <TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Email</TableHead><TableHead>Max Branches</TableHead><TableHead>Max Users</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {filteredTenants.map(tenant => (
-                    <TableRow key={tenant.id}>
-                      <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
-                      <TableCell>{tenant.tenant_email || '-'}</TableCell>
-                      <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
-                      <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => handleRestore(tenant)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+          <TabsContent value={HOTEL_ENTITY_STATUS.SUSPENDED}>
+             <TenantTable
+              tenants={filteredTenants}
+              isLoading={isLoading}
+              isSubmitting={isSubmitting}
+              onEdit={(tenant) => { setSelectedTenant(tenant); setIsEditDialogOpen(true); setIsAddDialogOpen(false);}}
+              onReactivate={(tenant) => handleStatusChange(tenant, HOTEL_ENTITY_STATUS.ACTIVE)}
+              onArchive={(tenant) => handleStatusChange(tenant, HOTEL_ENTITY_STATUS.ARCHIVED)}
+              currentTab="suspended"
+            />
+          </TabsContent>
+          <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
+             <TenantTable
+              tenants={filteredTenants}
+              isLoading={isLoading}
+              isSubmitting={isSubmitting}
+              onRestore={(tenant) => handleStatusChange(tenant, HOTEL_ENTITY_STATUS.ACTIVE)}
+              currentTab="archived"
+            />
           </TabsContent>
         </Tabs>
       </CardContent>
     </Card>
   );
 }
+
+interface TenantTableProps {
+  tenants: Tenant[];
+  isLoading: boolean;
+  isSubmitting: boolean;
+  currentTab: "active" | "suspended" | "archived";
+  onEdit?: (tenant: Tenant) => void;
+  onSuspend?: (tenant: Tenant) => void;
+  onArchive?: (tenant: Tenant) => void;
+  onReactivate?: (tenant: Tenant) => void;
+  onRestore?: (tenant: Tenant) => void;
+}
+
+function TenantTable({ tenants, isLoading, isSubmitting, currentTab, onEdit, onSuspend, onArchive, onReactivate, onRestore }: TenantTableProps) {
+  if (isLoading && tenants.length === 0) {
+    return <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
+  if (!isLoading && tenants.length === 0) {
+    return <p className="text-muted-foreground text-center py-8">No tenants found in '{HOTEL_ENTITY_STATUS_TEXT[currentTab as keyof typeof HOTEL_ENTITY_STATUS_TEXT]}' status.</p>;
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Email</TableHead>
+          <TableHead>Contact</TableHead>
+          <TableHead>Max Branches</TableHead>
+          <TableHead>Max Users</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {tenants.map(tenant => (
+          <TableRow key={tenant.id}>
+            <TableCell className="font-medium">{tenant.tenant_name}</TableCell>
+            <TableCell>{tenant.tenant_email || '-'}</TableCell>
+            <TableCell>{tenant.tenant_contact_info || '-'}</TableCell>
+            <TableCell>{tenant.max_branch_count === null || tenant.max_branch_count <= 0 ? 'Unlimited' : tenant.max_branch_count}</TableCell>
+            <TableCell>{tenant.max_user_count === null || tenant.max_user_count <= 0 ? 'Unlimited' : tenant.max_user_count}</TableCell>
+            <TableCell className="text-right space-x-2">
+              {currentTab === "active" && onEdit && (
+                <Button variant="outline" size="sm" onClick={() => onEdit(tenant)} disabled={isSubmitting}>
+                  <Edit className="mr-1 h-3 w-3" /> Edit
+                </Button>
+              )}
+              {currentTab === "active" && onSuspend && (
+                 <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm" className="text-yellow-600 border-yellow-600 hover:bg-yellow-100 hover:text-yellow-700" disabled={isSubmitting}>
+                        <Ban className="mr-1 h-3 w-3" /> Suspend
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>Confirm Suspension</AlertDialogTitle><AlertDialogDescription>Are you sure you want to suspend tenant "{tenant.tenant_name}"?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => onSuspend(tenant)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Suspend"}</AlertDialogAction></AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+               {currentTab === "active" && onArchive && (
+                 <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive tenant "{tenant.tenant_name}"?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => onArchive(tenant)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              {currentTab === "suspended" && onReactivate && (
+                <Button variant="outline" size="sm" className="text-green-600 border-green-600 hover:bg-green-100 hover:text-green-700" onClick={() => onReactivate(tenant)} disabled={isSubmitting}>
+                    <CheckCircle className="mr-1 h-3 w-3" /> Reactivate
+                </Button>
+              )}
+              {currentTab === "suspended" && onArchive && (
+                 <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive tenant "{tenant.tenant_name}" from suspended state?</AlertDialogDescription></AlertDialogHeader>
+                    <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => onArchive(tenant)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              {currentTab === "archived" && onRestore && (
+                <Button variant="outline" size="sm" onClick={() => onRestore(tenant)} disabled={isSubmitting}>
+                  <ArchiveRestore className="mr-1 h-3 w-3" /> Restore to Active
+                </Button>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+    
