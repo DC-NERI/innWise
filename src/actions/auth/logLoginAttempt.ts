@@ -29,12 +29,10 @@ export async function logLoginAttempt(
   ipAddress: string | null,
   userAgent: string | null,
   status: 'success' | 'failed',
-  attemptedUsername?: string | null, // Kept for enriching error_details
+  attemptedUsername?: string | null,
   errorDetails?: string | null
 ): Promise<void> {
-  // If userId is required by schema and not provided (e.g., for 'success'),
-  // this log might fail if we didn't make user_id nullable.
-  // But user_id is now nullable.
+  console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, attemptedUsername, errorDetails });
 
   let client;
   try {
@@ -47,20 +45,20 @@ export async function logLoginAttempt(
       finalErrorDetails = `Attempted Username: ${attemptedUsername}.`;
     }
 
-
-    // Ensure login_time uses Asia/Manila if not handled by DB default (DB default is preferred)
-    // The DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila') in your DDL handles this.
     const query = `
       INSERT INTO login_logs (user_id, ip_address, user_agent, status, error_details, login_time)
       VALUES ($1, $2, $3, $4, $5, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
     `;
     const values = [userId, ipAddress, userAgent, status, finalErrorDetails];
 
+    console.log('[logLoginAttempt] Executing query:', query);
+    console.log('[logLoginAttempt] With values:', values);
+
     await client.query(query, values);
+    console.log('[logLoginAttempt] Login attempt logged successfully to DB.');
   } catch (dbError: any) {
     console.error('[logLoginAttempt DB Error] Failed to log login attempt:', dbError);
     // Do not let this error break the main login flow.
-    // Optionally, log this failure to a different system or file if critical.
   } finally {
     if (client) {
       client.release();
