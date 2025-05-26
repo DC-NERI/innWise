@@ -11,11 +11,11 @@ import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
 import SysAdDashboardContent from '@/components/sysad/dashboard-content';
-import LoginLogsManagement from '@/components/sysad/login-logs-management'; // New import
+// Removed import for LoginLogsManagement
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'login-logs' | 'settings'; // Added 'login-logs'
+type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'settings'; // Removed 'login-logs'
 
 const SysAdDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<SysAdActiveView>('dashboard');
@@ -58,10 +58,14 @@ const SysAdDashboardPage: NextPage = () => {
         if (parsedUserId > 0) {
           setSysAdUserId(parsedUserId);
         } else {
+          console.warn("[SysAdDashboardPage] Invalid userId found in localStorage:", storedUserId);
           setSysAdUserId(null);
+           // Optionally, handle critical failure like redirecting to login if SysAd ID is mandatory
         }
       } else {
+        console.warn("[SysAdDashboardPage] No valid userId found in localStorage.");
         setSysAdUserId(null);
+        // Optionally, handle critical failure
       }
     }
 
@@ -151,16 +155,7 @@ const SysAdDashboardPage: NextPage = () => {
                 <span>Users</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={() => setActiveView('login-logs')}
-                isActive={activeView === 'login-logs'}
-                tooltip="Login Logs"
-              >
-                <History />
-                <span>Login Logs</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+            {/* Removed Login Logs menu item */}
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -202,7 +197,7 @@ const SysAdDashboardPage: NextPage = () => {
           {activeView === 'tenants' && <TenantsManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'branches' && <AllBranchesManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'users' && <UsersManagement sysAdUserId={sysAdUserId} />}
-          {activeView === 'login-logs' && <LoginLogsManagement />}
+          {/* Removed conditional rendering for LoginLogsManagement */}
           {activeView === 'settings' && (
             <div>
               <h2 className="text-2xl font-semibold">System Settings</h2>
@@ -216,3 +211,5 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
+
+    
