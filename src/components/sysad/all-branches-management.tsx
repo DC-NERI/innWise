@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -28,9 +28,9 @@ import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
 type BranchFormValues = BranchCreateData | BranchUpdateDataSysAd;
 
 const defaultFormValuesCreate: BranchCreateData = {
-  tenant_id: undefined as unknown as number, 
+  tenant_id: undefined as unknown as number,
   branch_name: '',
-  branch_code: '', 
+  branch_code: '',
   branch_address: '',
   contact_number: '',
   email_address: '',
@@ -50,15 +50,11 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [activeTab, setActiveTab] = useState("active");
   const { toast } = useToast();
-  
+
   const isEditing = !!selectedBranch;
 
   const form = useForm<BranchFormValues>({
-    resolver: zodResolver(isEditing ? branchUpdateSchemaSysAd : branchCreateSchema),
-    defaultValues: {
-      ...defaultFormValuesCreate,
-      status: HOTEL_ENTITY_STATUS.ACTIVE, 
-    },
+    // Resolver and defaultValues are set dynamically in useEffect
   });
 
   const fetchData = useCallback(async () => {
@@ -66,7 +62,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     try {
       const [fetchedBranches, fetchedTenants] = await Promise.all([listAllBranches(), listTenants()]);
       setBranches(fetchedBranches);
-      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE)); 
+      setTenants(fetchedTenants.filter(t => t.status === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch data. Check console for details.", variant: "destructive" });
     } finally {
@@ -77,7 +73,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
   useEffect(() => {
     fetchData();
   }, [fetchData]);
-  
+
   useEffect(() => {
     const currentIsEditing = !!selectedBranch;
     const newResolver = zodResolver(currentIsEditing ? branchUpdateSchemaSysAd : branchCreateSchema);
@@ -87,15 +83,16 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       newDefaults = {
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
+        // branch_code is read-only for edit
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
-        status: selectedBranch.status || HOTEL_ENTITY_STATUS.ACTIVE, 
-      } as BranchUpdateDataSysAd; 
+        status: selectedBranch.status || HOTEL_ENTITY_STATUS.ACTIVE,
+      } as BranchUpdateDataSysAd;
     } else {
-      newDefaults = { 
+      newDefaults = {
         ...defaultFormValuesCreate,
-        status: HOTEL_ENTITY_STATUS.ACTIVE,
+        status: HOTEL_ENTITY_STATUS.ACTIVE, // Ensure status is part of create if schema expects
       } as BranchCreateData;
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -114,11 +111,14 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch created." });
         setBranches(prev => [...prev, result.branch!].sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
-        setIsAddDialogOpen(false); 
+        setIsAddDialogOpen(false);
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { toast({ title: "Error", description: "Unexpected error.", variant: "destructive" }); }
+    } catch (e) {
+       const error = e as Error;
+      toast({ title: "Error", description: error.message || "Unexpected error during branch creation.", variant: "destructive" });
+    }
     finally { setIsSubmitting(false); }
   };
 
@@ -138,17 +138,20 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
-    } catch (e) { toast({ title: "Error", description: "Unexpected error.", variant: "destructive" }); }
+    } catch (e) {
+      const error = e as Error;
+      toast({ title: "Error", description: error.message || "Unexpected error during branch update.", variant: "destructive" });
+    }
     finally { setIsSubmitting(false); }
   };
-  
+
   const handleArchive = async (branchId: number, branchName: string) => {
     if (!sysAdUserId) {
         toast({ title: "Error", description: "SysAd User ID not available.", variant: "destructive" });
         return;
     }
     setIsSubmitting(true);
-    const result = await archiveBranch(branchId, sysAdUserId); 
+    const result = await archiveBranch(branchId, sysAdUserId);
     if (result.success) {
         toast({ title: "Success", description: `Branch "${branchName}" archived.` });
         setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: HOTEL_ENTITY_STATUS.ARCHIVED} : b));
@@ -164,13 +167,14 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
         return;
     }
     setIsSubmitting(true);
-     const payload: BranchUpdateDataSysAd = { 
+     const payload: BranchUpdateDataSysAd = {
         tenant_id: branch.tenant_id,
         branch_name: branch.branch_name,
+        // branch_code is not part of BranchUpdateDataSysAd as it's not editable after creation
         branch_address: branch.branch_address,
         contact_number: branch.contact_number,
         email_address: branch.email_address,
-        status: HOTEL_ENTITY_STATUS.ACTIVE, 
+        status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     const result = await updateBranchSysAd(branch.id, payload, sysAdUserId);
     if (result.success && result.branch) {
@@ -186,7 +190,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
 
 
   if (isLoading && branches.length === 0) {
-    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2">Loading branches...</p></div>;
+    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading branches...</p></div>;
   }
 
   const renderFormFields = (isEditingForm: boolean) => (
@@ -195,7 +199,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
         render={({ field }) => (
           <FormItem>
             <FormLabel>Tenant *</FormLabel>
-            <Select onValueChange={(v) => field.onChange(Number(v))} value={field.value?.toString()} disabled={isEditingForm && !!selectedBranch?.tenant_id}>
+            <Select onValueChange={(v) => field.onChange(v ? Number(v) : undefined)} value={field.value?.toString()} disabled={isEditingForm && !!selectedBranch?.tenant_id}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select tenant" /></SelectTrigger></FormControl>
               <SelectContent>{tenants.map(t => <SelectItem key={t.id} value={t.id.toString()}>{t.tenant_name}</SelectItem>)}</SelectContent>
             </Select><FormMessage />
@@ -213,7 +217,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status *</FormLabel>
-              <Select onValueChange={field.onChange} value={field.value?.toString()}>
+              <Select onValueChange={(value) => field.onChange(value as '0' | '1')} value={field.value as string ?? HOTEL_ENTITY_STATUS.ACTIVE}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
                     <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
@@ -226,24 +230,24 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       )}
     </React.Fragment>
   );
-  
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div><div className="flex items-center space-x-2"><Network className="h-6 w-6 text-primary" /><CardTitle>All Branches</CardTitle></div><CardDescription>Manage branches across all tenants.</CardDescription></div>
-        <Dialog 
+        <Dialog
             key={isEditing ? `edit-branch-${selectedBranch?.id}` : 'add-branch'}
-            open={isAddDialogOpen || isEditDialogOpen} 
+            open={isAddDialogOpen || isEditDialogOpen}
             onOpenChange={(open) => {
                 if (!open) {
                     setIsAddDialogOpen(false);
                     setIsEditDialogOpen(false);
-                    setSelectedBranch(null); 
-                    form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(branchCreateSchema) } as any);
+                    setSelectedBranch(null);
+                    form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any);
                 }
             }}
         >
-          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE }, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
+          <DialogTrigger asChild><Button onClick={() => {setSelectedBranch(null); form.reset({ ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE } as BranchCreateData, { resolver: zodResolver(branchCreateSchema) } as any); setIsAddDialogOpen(true); setIsEditDialogOpen(false);}}><PlusCircle className="mr-2 h-4 w-4" /> Add Branch</Button></DialogTrigger>
           <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Branch: ${selectedBranch?.branch_name}` : 'Add New Branch'}</DialogTitle></DialogHeader>
             <Form {...form}>
