@@ -1,3 +1,4 @@
+
 "use server";
 
 import pg from 'pg';
@@ -24,11 +25,11 @@ pool.on('error', (err) => {
 });
 
 export async function logLoginAttempt(
-  userId: number | null, // Can be null if username not found
+  userId: number | null,
   ipAddress: string | null,
   userAgent: string | null,
-  status: 'success' | 'failed',
-  errorDetails?: string | null // This will now include attemptedUsername if relevant
+  status: 0 | 1, // 0 for failed, 1 for success
+  errorDetails?: string | null
 ): Promise<void> {
   console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, errorDetails });
 
@@ -36,15 +37,16 @@ export async function logLoginAttempt(
   try {
     client = await pool.connect();
 
+    // login_time has a default in the DB, so we don't need to explicitly set it unless we want to override
     const queryText = `
       INSERT INTO login_logs (user_id, ip_address, user_agent, status, error_details, login_time)
       VALUES ($1, $2, $3, $4, $5, (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila'));
     `;
     const values = [
-      userId, // Will be null if username not found
+      userId,
       ipAddress || null,
       userAgent || null,
-      status,
+      status, // Will be 0 or 1
       errorDetails || null,
     ];
 
