@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog'; // Added DialogTrigger
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -83,7 +83,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       newDefaults = {
         tenant_id: selectedBranch.tenant_id,
         branch_name: selectedBranch.branch_name,
-        // branch_code is read-only for edit
+        // branch_code is read-only for edit in SysAd form based on schema
         branch_address: selectedBranch.branch_address || '',
         contact_number: selectedBranch.contact_number || '',
         email_address: selectedBranch.email_address || '',
@@ -92,7 +92,6 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     } else {
       newDefaults = {
         ...defaultFormValuesCreate,
-        // status field does not exist on BranchCreateData, HOTEL_ENTITY_STATUS.ACTIVE is set server-side
       } as BranchCreateData;
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -110,10 +109,12 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       const result = await createBranchForTenant(payload, sysAdUserId);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch created." });
-        setBranches(prev => [...prev, result.branch!].sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
+        setBranches(prev => [...prev, result.branch!].sort((a,b) => (a.tenant_name || "").localeCompare(b.tenant_name || "") || a.branch_name.localeCompare(b.branch_name)));
         setIsAddDialogOpen(false);
+        form.reset({ ...defaultFormValuesCreate } as BranchCreateData);
+        fetchData(); // Re-fetch to ensure list is accurate
       } else {
-        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Creation Failed", description: result.message || "Could not create branch.", variant: "destructive" });
       }
     } catch (e) {
        const error = e as Error;
@@ -133,8 +134,9 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
       const result = await updateBranchSysAd(selectedBranch.id, payload, sysAdUserId);
       if (result.success && result.branch) {
         toast({ title: "Success", description: "Branch updated." });
-        setBranches(prev => prev.map(b => b.id === result.branch!.id ? result.branch! : b).sort((a,b) => a.branch_name.localeCompare(b.branch_name)));
+        setBranches(prev => prev.map(b => b.id === result.branch!.id ? result.branch! : b).sort((a,b) => (a.tenant_name || "").localeCompare(b.tenant_name || "") || a.branch_name.localeCompare(b.branch_name)));
         setIsEditDialogOpen(false); setSelectedBranch(null);
+        fetchData(); // Re-fetch
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -154,7 +156,9 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     const result = await archiveBranch(branchId, sysAdUserId);
     if (result.success) {
         toast({ title: "Success", description: `Branch "${branchName}" archived.` });
-        setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: HOTEL_ENTITY_STATUS.ARCHIVED} : b));
+        // Optimistic update or re-fetch
+        // setBranches(prev => prev.map(b => b.id === branchId ? {...b, status: HOTEL_ENTITY_STATUS.ARCHIVED} : b));
+        fetchData();
     } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
     }
@@ -178,7 +182,9 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     const result = await updateBranchSysAd(branch.id, payload, sysAdUserId);
     if (result.success && result.branch) {
         toast({ title: "Success", description: `Branch "${branch.branch_name}" restored.` });
-        setBranches(prev => prev.map(b => b.id === branch.id ? result.branch! : b));
+        // Optimistic update or re-fetch
+        // setBranches(prev => prev.map(b => b.id === branch.id ? result.branch! : b));
+        fetchData();
     } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
     }
@@ -216,7 +222,7 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
           render={({ field }) => (
             <FormItem>
               <FormLabel>Status *</FormLabel>
-              <Select onValueChange={(value) => field.onChange(value as '0' | '1')} value={field.value as string ?? HOTEL_ENTITY_STATUS.ACTIVE}>
+              <Select onValueChange={(value) => field.onChange(value as HOTEL_ENTITY_STATUS)} value={field.value as string ?? HOTEL_ENTITY_STATUS.ACTIVE}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
                     <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
@@ -305,3 +311,4 @@ export default function AllBranchesManagement({ sysAdUserId }: AllBranchesManage
     </Card>
   );
 }
+
