@@ -16,7 +16,7 @@ import { Pool } from 'pg';
 import type { Tenant } from '@/lib/types';
 import { tenantUpdateSchema, TenantUpdateData } from '@/lib/schemas';
 import { logActivity } from '@/actions/activityLogger';
-import { HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { HOTEL_ENTITY_STATUS, HOTEL_ENTITY_STATUS_TEXT } from '@/lib/constants'; // Corrected import
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -45,6 +45,12 @@ export async function updateTenant(
     console.error("[updateTenant] Invalid sysAdUserId:", sysAdUserId);
     return { success: false, message: "Invalid System Administrator ID for logging." };
   }
+   // Explicitly check if constants are loaded
+  if (!HOTEL_ENTITY_STATUS || !HOTEL_ENTITY_STATUS_TEXT) {
+    console.error("[updateTenant] CRITICAL: HOTEL_ENTITY_STATUS or HOTEL_ENTITY_STATUS_TEXT constants are undefined.");
+    return { success: false, message: "Server configuration error: Status constants not loaded." };
+  }
+
 
   const validatedFields = tenantUpdateSchema.safeParse(data);
   if (!validatedFields.success) {
@@ -66,13 +72,17 @@ export async function updateTenant(
   try {
     client = await pool.connect();
     await client.query('BEGIN');
+    console.log(`[updateTenant] Beginning transaction for tenant ID: ${tenantId}`);
 
     const currentTenantRes = await client.query('SELECT tenant_name, status as current_status FROM tenants WHERE id = $1', [tenantId]);
     if (currentTenantRes.rows.length === 0) {
       await client.query('ROLLBACK');
+      console.warn(`[updateTenant] Tenant not found, rolling back. Tenant ID: ${tenantId}`);
       return { success: false, message: "Tenant not found." };
     }
     const currentTenantDetails = currentTenantRes.rows[0];
+    console.log(`[updateTenant] Current tenant details fetched: Name: ${currentTenantDetails.tenant_name}, Status: ${currentTenantDetails.current_status}`);
+
 
     const res = await client.query(UPDATE_TENANT_QUERY, [
       tenant_name,
@@ -84,13 +94,20 @@ export async function updateTenant(
       status,
       tenantId,
     ]);
+    console.log(`[updateTenant] Update query executed. Row count: ${res.rowCount}`);
 
     if (res.rows.length > 0) {
       const updatedTenant = res.rows[0];
       let logDescription = `SysAd (ID: ${sysAdUserId}) updated tenant '${updatedTenant.tenant_name}' (ID: ${tenantId}).`;
+      
+      // Ensure HOTEL_ENTITY_STATUS_TEXT is defined before using it
+      const currentStatusText = HOTEL_ENTITY_STATUS_TEXT[currentTenantDetails.current_status as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || currentTenantDetails.current_status;
+      const newStatusText = HOTEL_ENTITY_STATUS_TEXT[status as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || status;
+
       if (String(currentTenantDetails.current_status) !== String(status)) {
-        logDescription += ` Status changed from '${HOTEL_ENTITY_STATUS_TEXT[String(currentTenantDetails.current_status) as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || currentTenantDetails.current_status}' to '${HOTEL_ENTITY_STATUS_TEXT[String(status) as keyof typeof HOTEL_ENTITY_STATUS_TEXT] || status}'.`;
+        logDescription += ` Status changed from '${currentStatusText}' to '${newStatusText}'.`;
       }
+      console.log(`[updateTenant] Preparing to log activity: ${logDescription}`);
 
       await logActivity({
         actor_user_id: sysAdUserId,
@@ -100,8 +117,10 @@ export async function updateTenant(
         target_entity_id: tenantId.toString(),
         details: { updated_fields: Object.keys(data).filter(k => data[k as keyof TenantUpdateData] !== currentTenantRes.rows[0][k]), tenant_name: updatedTenant.tenant_name, new_status: status }
       }, client);
+      console.log(`[updateTenant] Activity logged. Committing transaction for tenant ID: ${tenantId}`);
       
       await client.query('COMMIT');
+      console.log(`[updateTenant] Transaction committed successfully for tenant ID: ${tenantId}`);
       return {
         success: true,
         message: "Tenant updated successfully.",
@@ -115,24 +134,32 @@ export async function updateTenant(
     }
 
     await client.query('ROLLBACK');
+    console.warn(`[updateTenant] Tenant update failed (no rows returned), rolling back. Tenant ID: ${tenantId}`);
     return { success: false, message: "Tenant update failed or tenant not found." };
   } catch (error) {
     if (client) {
-        try { await client.query('ROLLBACK'); } catch (rbError) { console.error('[updateTenant] Error during rollback:', rbError); }
+        try { 
+          console.warn(`[updateTenant] Error occurred. Attempting to ROLLBACK for tenant ID: ${tenantId}`, error);
+          await client.query('ROLLBACK'); 
+        } catch (rbError) { 
+          console.error(`[updateTenant] Error during rollback for tenant ID: ${tenantId}`, rbError); 
+        }
     }
     let errorMessage = "Database error occurred during tenant update.";
-    if (error instanceof Error && (error as any).code === '23505' && (error as any).constraint === 'tenants_tenant_email_key') {
-        errorMessage = "This email address is already in use by another tenant.";
-    } else if (error instanceof Error) {
-        errorMessage = `Database error: ${error.message}`;
+    if (error instanceof Error) {
+        if ((error as any).code === '23505' && (error as any).constraint === 'tenants_tenant_email_key') {
+            errorMessage = "This email address is already in use by another tenant.";
+        } else {
+            errorMessage = `Database error: ${error.message}`;
+        }
     }
-    console.error('[updateTenant DB Error]', error);
+    console.error('[updateTenant DB Full Error]', error);
     return { success: false, message: errorMessage };
   } finally {
     if (client) {
       client.release();
+      console.log(`[updateTenant] Client released for tenant ID: ${tenantId}`);
     }
   }
 }
-
     
