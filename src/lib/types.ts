@@ -17,14 +17,15 @@ import type {
     NOTIFICATION_TRANSACTION_LINK_STATUS,
     TRANSACTION_IS_ACCEPTED_STATUS,
     HOTEL_ENTITY_STATUS,
-    LOST_AND_FOUND_STATUS
+    LOST_AND_FOUND_STATUS,
+    LOGIN_LOG_STATUS
 } from '@/lib/constants';
 
 
 export type UserRole = "admin" | "sysad" | "staff" | "housekeeping";
 
 export interface User {
-  id: number; // Changed from string | number to just number based on SERIAL type
+  id: number;
   tenant_id?: number | null;
   tenant_name?: string | null;
   tenant_branch_id?: number | null;
@@ -86,7 +87,7 @@ export interface HotelRate {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; // Added for display in Admin UI
+  branch_name?: string;
   name: string;
   price: number;
   hours: number;
@@ -102,28 +103,29 @@ export interface HotelRoom {
   tenant_id: number;
   branch_id: number;
   branch_name?: string;
-  hotel_rate_id: number[] | null; // Changed to array of numbers
+  hotel_rate_id: number[] | null;
   rate_names?: string[];
-  transaction_id?: number | null;
+  transaction_id?: number | null; // Foreign key to transactions for the active booking
   room_name: string;
   room_code: string;
   floor?: number | null;
   room_type?: string | null;
   bed_type?: string | null;
   capacity?: number | null;
-  is_available: number; // 0: Available, 1: Occupied, 2: Reserved
-  cleaning_status: number; // 0: Clean, 1: Dirty, 2: Inspection, 3: Out of Order
+  is_available: number; // 0: Available, 1: Occupied, 2: Reserved (ROOM_AVAILABILITY_STATUS)
+  cleaning_status: number; // 0: Clean, 1: Dirty, 2: Inspection, 3: Out of Order (ROOM_CLEANING_STATUS)
   cleaning_notes?: string | null;
   status: string; // '0' or '1' from HOTEL_ENTITY_STATUS (for room definition)
   created_at: string;
   updated_at: string;
 
+  // Fields populated by JOIN for active transaction details
   active_transaction_id?: number | null;
   active_transaction_client_name?: string | null;
   active_transaction_check_in_time?: string | null;
   active_transaction_rate_name?: string | null;
   active_transaction_rate_hours?: number | null;
-  active_transaction_lifecycle_status?: number | null;
+  active_transaction_lifecycle_status?: number | null; // Now using numeric lifecycle status
 }
 
 
@@ -144,12 +146,12 @@ export interface Transaction {
     client_name: string;
     client_payment_method: string | null;
     notes?: string | null;
-    check_in_time: string | null;
+    check_in_time: string | null; // Can be null for future reservations
     check_out_time?: string | null;
     hours_used?: number | null;
     total_amount?: number | null;
     tender_amount?: number | null;
-    is_paid: number | null; // 0: Unpaid, 1: Paid, 2: Advance Paid
+    is_paid: number | null; // 0: Unpaid, 1: Paid, 2: Advance Paid (TRANSACTION_PAYMENT_STATUS)
     created_by_user_id: number;
     check_out_by_user_id?: number | null;
     accepted_by_user_id?: number | null;
@@ -191,7 +193,7 @@ export interface Notification {
   transaction_id?: number | null;
   created_at: string;
   read_at?: string | null;
-  transaction_status: number; // Renamed from notification_link_status (NOTIFICATION_TRANSACTION_LINK_STATUS)
+  transaction_status: number; // (NOTIFICATION_TRANSACTION_LINK_STATUS)
   transaction_is_accepted?: number | null; // 0-3 (TRANSACTION_IS_ACCEPTED_STATUS)
   linked_transaction_lifecycle_status?: number | null; // 0-6 (TRANSACTION_LIFECYCLE_STATUS)
 
@@ -209,7 +211,7 @@ export interface RoomCleaningLog {
     room_id: number;
     tenant_id: number;
     branch_id: number;
-    room_cleaning_status: number;
+    room_cleaning_status: number; // Uses ROOM_CLEANING_STATUS
     notes?: string | null;
     user_id?: number | null;
     created_at: string;
@@ -224,8 +226,8 @@ export interface LostAndFoundLog {
   id: number;
   tenant_id: number;
   branch_id: number;
-  branch_name?: string; // Added for display
-  item_name: string; // Changed from item to item_name for consistency with code
+  branch_name?: string;
+  item_name: string;
   description?: string | null;
   found_location?: string | null;
   reported_by_user_id?: number | null;
@@ -288,7 +290,6 @@ export interface ActivityLog {
 
 export type AdminResetPasswordData = z.infer<typeof adminResetPasswordSchema>;
 
-// New type for SysAd Dashboard Overview
 export interface SystemOverviewData {
   totalActiveTenants: number;
   totalActiveBranches: number;
@@ -300,4 +301,13 @@ export interface SystemOverviewData {
   };
 }
 
-    
+export interface LoginLog {
+  id: number;
+  user_id: number | null;
+  username?: string | null; // Joined from users table
+  login_time: string; // TIMESTAMPTZ as string
+  ip_address: string | null;
+  user_agent: string | null;
+  status: number; // 0 for failed, 1 for success (LOGIN_LOG_STATUS)
+  error_details: string | null;
+}

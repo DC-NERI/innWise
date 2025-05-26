@@ -6,18 +6,19 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft, LayoutDashboard } from 'lucide-react'; // Added LayoutDashboard
+import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft, LayoutDashboard, History } from 'lucide-react';
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
-import SysAdDashboardContent from '@/components/sysad/dashboard-content'; // New component
+import SysAdDashboardContent from '@/components/sysad/dashboard-content';
+import LoginLogsManagement from '@/components/sysad/login-logs-management'; // New import
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'settings'; // Added 'dashboard'
+type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'login-logs' | 'settings'; // Added 'login-logs'
 
 const SysAdDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<SysAdActiveView>('dashboard'); // Default to dashboard
+  const [activeView, setActiveView] = useState<SysAdActiveView>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -58,11 +59,9 @@ const SysAdDashboardPage: NextPage = () => {
           setSysAdUserId(parsedUserId);
         } else {
           setSysAdUserId(null);
-          console.warn("[SysAdDashboardPage] Invalid userId (for sysad) found in localStorage:", storedUserId);
         }
       } else {
         setSysAdUserId(null);
-        console.warn("[SysAdDashboardPage] No valid userId (for sysad) found in localStorage.");
       }
     }
 
@@ -152,6 +151,16 @@ const SysAdDashboardPage: NextPage = () => {
                 <span>Users</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('login-logs')}
+                isActive={activeView === 'login-logs'}
+                tooltip="Login Logs"
+              >
+                <History />
+                <span>Login Logs</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -193,11 +202,11 @@ const SysAdDashboardPage: NextPage = () => {
           {activeView === 'tenants' && <TenantsManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'branches' && <AllBranchesManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'users' && <UsersManagement sysAdUserId={sysAdUserId} />}
+          {activeView === 'login-logs' && <LoginLogsManagement />}
           {activeView === 'settings' && (
             <div>
               <h2 className="text-2xl font-semibold">System Settings</h2>
               <p className="text-muted-foreground">Overall system settings and configurations will be managed here.</p>
-              {/* Placeholder for future settings UI */}
             </div>
           )}
         </main>
@@ -207,5 +216,3 @@ const SysAdDashboardPage: NextPage = () => {
 };
 
 export default SysAdDashboardPage;
-
-    
