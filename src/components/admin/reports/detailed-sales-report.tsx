@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { DatePicker } from '@/components/ui/date-picker';
-import { Loader2, BarChart3, CalendarDays, RefreshCw } from 'lucide-react';
+import { Loader2, BarChart3, CalendarDays, RefreshCw, Download } from 'lucide-react'; // Added Download icon
 import { useToast } from '@/hooks/use-toast';
 import { getDetailedSalesReport } from '@/actions/admin/reports/getDetailedSalesReport';
 import type { AdminDashboardSummary, PaymentMethodSaleSummary, RateTypeSaleSummary, DailySaleSummary } from '@/lib/types';
@@ -21,8 +21,8 @@ interface DetailedSalesReportProps {
 export default function DetailedSalesReport({ tenantId }: DetailedSalesReportProps) {
   const [reportData, setReportData] = useState<AdminDashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [startDate, setStartDate] = useState<Date | undefined>(new Date()); // Default to current date
-  const [endDate, setEndDate] = useState<Date | undefined>(new Date());   // Default to current date
+  const [startDate, setStartDate] = useState<Date | undefined>(new Date());
+  const [endDate, setEndDate] = useState<Date | undefined>(new Date());
   const { toast } = useToast();
 
   const fetchReport = useCallback(async () => {
@@ -54,7 +54,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
 
   useEffect(() => {
     fetchReport();
-  }, [fetchReport]);
+  }, [fetchReport]); // Removed startDate, endDate from deps to rely on Apply button
 
   const handleSetToday = () => {
     const today = new Date();
@@ -81,6 +81,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
         try {
           const date = parseISO(item.sale_date); 
           if (!isValid(date)) {
+            console.warn(`Invalid date string encountered in dailySales: ${item.sale_date}`);
             return null; 
           }
           return {
@@ -88,11 +89,32 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             Sales: item.total_sales,
           };
         } catch (e) {
+          console.error(`Error parsing date string: ${item.sale_date}`, e);
           return null;
         }
       })
       .filter(item => item !== null) || []; 
   }, [reportData?.dailySales]);
+
+  const handleExportData = () => {
+    if (!reportData) {
+      toast({
+        title: "No Data",
+        description: "No data available to export. Please apply a date range first.",
+        variant: "default",
+      });
+      return;
+    }
+    // Placeholder for actual export logic
+    console.log("Exporting data:", reportData);
+    toast({
+      title: "Export Started (Placeholder)",
+      description: "Data export functionality is not yet fully implemented. Data logged to console.",
+      variant: "default",
+    });
+    // Example: Convert to CSV and download (requires a library like 'papaparse' or custom logic)
+    // For simplicity, we'll just log for now.
+  };
 
 
   return (
@@ -103,7 +125,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
             <BarChart3 className="h-6 w-6 text-primary" />
             <CardTitle>Detailed Sales Report</CardTitle>
           </div>
-          <CardDescription>View sales data by various metrics.</CardDescription>
+          <CardDescription>View sales data by various metrics. Select a date range and click 'Apply' to update.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-4 items-center justify-between p-4 border bg-muted/50 rounded-lg">
@@ -112,12 +134,15 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
               <span className="text-muted-foreground hidden sm:inline">-</span>
               <DatePicker date={endDate} setDate={setEndDate} placeholder="End Date" className="w-full sm:w-auto" />
             </div>
-            <div className="flex gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <Button onClick={handleSetToday} variant="outline" size="sm" className="flex-1 sm:flex-initial">Today</Button>
               <Button onClick={handleSetThisWeek} variant="outline" size="sm" className="flex-1 sm:flex-initial">This Week</Button>
               <Button onClick={handleSetThisMonth} variant="outline" size="sm" className="flex-1 sm:flex-initial">This Month</Button>
-              <Button onClick={fetchReport} variant="outline" size="sm" className="flex-1 sm:flex-initial" disabled={isLoading}>
+              <Button onClick={fetchReport} variant="default" size="sm" className="flex-1 sm:flex-initial" disabled={isLoading}>
                 <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin':''}`} /> Apply
+              </Button>
+              <Button onClick={handleExportData} variant="outline" size="sm" className="flex-1 sm:flex-initial" disabled={isLoading || !reportData}>
+                <Download className="mr-2 h-4 w-4" /> Export Data
               </Button>
             </div>
           </div>
@@ -129,7 +154,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
         </div>
       ) : !reportData ? (
-        <Card><CardContent><p className="text-muted-foreground text-center py-8">No report data available for the selected period.</p></CardContent></Card>
+        <Card><CardContent><p className="text-muted-foreground text-center py-8">No report data available for the selected period. Please select a date range and click 'Apply'.</p></CardContent></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card>
@@ -151,7 +176,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                     ))}
                   </TableBody>
                 </Table>
-              ) : <p className="text-muted-foreground">No sales data by payment method.</p>}
+              ) : <p className="text-muted-foreground">No sales data by payment method for the selected period.</p>}
             </CardContent>
           </Card>
 
@@ -174,7 +199,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                     ))}
                   </TableBody>
                 </Table>
-              ) : <p className="text-muted-foreground">No sales data by rate type.</p>}
+              ) : <p className="text-muted-foreground">No sales data by rate type for the selected period.</p>}
             </CardContent>
           </Card>
           
@@ -195,7 +220,7 @@ export default function DetailedSalesReport({ tenantId }: DetailedSalesReportPro
                         <Bar dataKey="Sales" fill="hsl(var(--primary))" />
                         </RechartsBarChart>
                     </ResponsiveContainer>
-                ) : <p className="text-muted-foreground text-center py-8">No daily sales data to display chart.</p>}
+                ) : <p className="text-muted-foreground text-center py-8">No daily sales data to display chart for the selected period.</p>}
             </CardContent>
           </Card>
         </div>
