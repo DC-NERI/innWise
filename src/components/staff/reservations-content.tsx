@@ -12,7 +12,7 @@ import {
   DialogFooter,
   DialogClose,
   DialogDescription as ShadDialogDescription,
-  DialogTrigger // Added DialogTrigger here
+  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -23,7 +23,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle as ShadAlertDialogTitle,
-  AlertDialogTrigger as ShadAlertDialogTrigger // Already aliased for AlertDialog
+  // AlertDialogTrigger as ShadAlertDialogTrigger // No longer needed here directly for cancel button
 } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -54,7 +54,7 @@ import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailable
 import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
 import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
 
-import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS } from '@/lib/constants';
+import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
 import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO } from 'date-fns';
 
 interface ReservationsContentProps {
@@ -103,7 +103,7 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 };
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, // Needs to be a number, but initialized as undefined
+  selected_room_id: undefined as unknown as number, 
 };
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
@@ -136,7 +136,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const editReservationForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
-    // defaultValues will be set when opening the dialog
   });
   const watchIsAdvanceReservationEdit = useWatch({ control: editReservationForm.control, name: 'is_advance_reservation' });
   const watchIsPaidEdit = useWatch({ control: editReservationForm.control, name: 'is_paid' });
@@ -210,12 +209,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      // Pass data.selected_rate_id as number | null | undefined
       const rateIdParam = data.selected_rate_id !== null && data.selected_rate_id !== undefined
         ? Number(data.selected_rate_id)
         : null;
 
-      const result = await createUnassignedReservation(data, tenantId, branchId, rateIdParam, staffUserId, false);
+      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId, false); // is_admin_created_flag is false
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
@@ -240,7 +238,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const handleOpenEditReservationDialog = (reservation: Transaction) => {
     setSelectedReservationForEdit(reservation);
-    const isAdvance = reservation.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION;
+    const isAdvance = Number(reservation.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM && !!reservation.reserved_check_in_datetime;
 
     let checkInDateTimeFormatted = null;
     if (reservation.reserved_check_in_datetime) {
@@ -261,7 +259,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         selected_rate_id: reservation.hotel_rate_id ?? undefined,
         client_payment_method: reservation.client_payment_method ?? undefined,
         notes: reservation.notes ?? '',
-        is_advance_reservation: isAdvance || !!reservation.reserved_check_in_datetime,
+        is_advance_reservation: isAdvance,
         reserved_check_in_datetime: checkInDateTimeFormatted,
         reserved_check_out_datetime: checkOutDateTimeFormatted,
         is_paid: reservation.is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID,
@@ -314,8 +312,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      // For unassigned reservations, roomId is null
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null);
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // Pass null for roomId
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
@@ -336,10 +333,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     if (!tenantId || !branchId) return;
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); // Set a specific loading state if needed, or use general isLoading
+    setIsLoading(true); 
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
-      setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code })));
+      setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
       if (rooms.length === 0) {
         toast({ title: "No Rooms Available", description: "There are no currently available and clean rooms in this branch to assign.", variant: "default"});
       }
@@ -371,7 +368,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        refreshReservationCount?.(); // Refresh count after successful assignment
+        refreshReservationCount?.(); 
       } else {
         toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
       }
@@ -385,7 +382,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const renderReservationFormFields = (
     formInstance: typeof addReservationForm | typeof editReservationForm,
     isAdvance: boolean | undefined,
-    isPaid: TRANSACTION_PAYMENT_STATUS | undefined // Assuming 0 for Unpaid, 1 for Paid, 2 for Advance Paid
+    isPaid: TRANSACTION_PAYMENT_STATUS | undefined | null
   ) => {
     const formValues = formInstance.getValues();
     return (
@@ -395,17 +392,17 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         )} />
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
-            <FormLabel>Select Rate</FormLabel>
+            <FormLabel>Select Rate (Optional)</FormLabel>
             <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={allBranchRates.length === 0}>
               <FormControl>
                 <SelectTrigger className="w-[90%]">
-                  <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available" : "Select a rate (Optional)"} />
+                  <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available for branch" : "Select a rate (Optional)"} />
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
                 {allBranchRates.map(rate => (
                   <SelectItem key={rate.id} value={rate.id.toString()}>
-                    {rate.name} (₱{rate.price.toFixed(2)} for {rate.hours}hr/s)
+                    {rate.name} (₱{Number(rate.price).toFixed(2)} for {rate.hours}hr/s)
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -414,7 +411,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           </FormItem>
         )} />
         <FormField control={formInstance.control} name="client_payment_method" render={({ field }) => (
-          <FormItem><FormLabel>Payment Method</FormLabel>
+          <FormItem><FormLabel>Payment Method (Optional)</FormLabel>
             <Select onValueChange={field.onChange} value={field.value ?? undefined}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
               <SelectContent>
@@ -433,8 +430,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                 <Checkbox
                   checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                   onCheckedChange={(checked) => {
-                    // If it's an advance reservation, set to ADVANCE_PAID, otherwise just PAID.
-                    // If unchecked, set to UNPAID.
                     const currentIsAdvance = formInstance.getValues("is_advance_reservation");
                     if (checked) {
                         field.onChange(currentIsAdvance ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID);
@@ -485,10 +480,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
             <FormControl>
                 <Checkbox
-                    checked={field.value}
+                    checked={!!field.value} // Ensure checked is boolean
                     onCheckedChange={(checked) => {
-                        field.onChange(checked);
-                        // Also update is_paid status if relevant
+                        field.onChange(!!checked);
                         const currentIsPaid = formInstance.getValues("is_paid");
                         if (currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
                             formInstance.setValue("is_paid", checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
@@ -509,7 +503,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     type="datetime-local"
                     className="w-[90%]"
                     {...field}
-                    value={field.value || ""} // Ensure empty string if null for input value
+                    value={field.value || ""} 
                     min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -524,7 +518,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     type="datetime-local"
                     className="w-[90%]"
                     {...field}
-                    value={field.value || ""} // Ensure empty string if null for input value
+                    value={field.value || ""} 
                     min={formValues.reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -597,7 +591,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     <TableCell>{res.rate_name || 'N/A'}</TableCell>
                     <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
                     <TableCell>
-                        {(res.status === TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION || res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE) && res.reserved_check_in_datetime
+                        {Number(res.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM && res.reserved_check_in_datetime
                         ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
                         : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
                     </TableCell>
@@ -606,11 +600,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                             <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
                                 <Edit className="mr-1 h-3 w-3" /> Edit
                             </Button>
-                            <ShadAlertDialogTrigger asChild>
-                                <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
-                                    <Ban className="mr-1 h-3 w-3" /> Cancel
-                                </Button>
-                            </ShadAlertDialogTrigger>
+                            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
+                                <Ban className="mr-1 h-3 w-3" /> Cancel
+                            </Button>
                             <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
                                 <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
                             </Button>
@@ -703,7 +695,12 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         </DialogContent>
       </Dialog>
 
-       <AlertDialog open={isCancelReservationConfirmOpen} onOpenChange={setIsCancelReservationConfirmOpen}>
+       <AlertDialog open={isCancelReservationConfirmOpen} onOpenChange={(open) => {
+          if(!open) {
+            setTransactionToCancel(null); // Clear the transaction to cancel when dialog closes
+          }
+          setIsCancelReservationConfirmOpen(open);
+        }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <ShadAlertDialogTitle>Confirm Cancellation</ShadAlertDialogTitle>
@@ -722,3 +719,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     </Card>
   );
 }
+
+
+    
