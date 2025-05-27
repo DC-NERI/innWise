@@ -263,7 +263,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       // Use the notification's target_branch_id as the branchId for the action
       const result = await acceptReservationByStaff(transactionToManage.id, data, tenantId, selectedNotification.target_branch_id, staffUserId);
       if (result.success) {
-        toast({ title: "Success", description: "Reservation accepted and updated." });
+        toast({ title: "Success", description: result.message });
         setIsAcceptManageModalOpen(false);
         fetchNotifications();
         refreshReservationCount?.();
