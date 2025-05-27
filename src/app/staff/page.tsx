@@ -6,8 +6,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Building, Archive as LostAndFoundIcon } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Archive as LostAndFoundIcon, Wrench } from 'lucide-react';
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
@@ -17,6 +17,8 @@ import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
 import DashboardContent from '@/components/staff/dashboard-content';
 import LostAndFoundContent from '@/components/staff/lost-and-found-content';
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
+import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch'; // For unread count
+import { NOTIFICATION_STATUS } from '@/lib/constants'; // For unread count
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
 
@@ -36,6 +38,7 @@ const StaffDashboardPage: NextPage = () => {
 
   const [isAvailableRoomsOverviewModalOpen, setIsAvailableRoomsOverviewModalOpen] = useState(false);
   const [unassignedReservationsCount, setUnassignedReservationsCount] = useState<number>(0);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState<number>(0);
 
   const router = useRouter();
   const manilaTimeZone = 'Asia/Manila';
@@ -54,7 +57,7 @@ const StaffDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'staff' && storedRole !== 'admin') { // Allow admin to view staff page for dev/demo
+        if (storedRole !== 'staff' && storedRole !== 'admin') {
             router.push('/');
             return;
         }
@@ -68,7 +71,7 @@ const StaffDashboardPage: NextPage = () => {
         setTenantId(parsedTenantId);
         if (storedTenantName) {
           setTenantName(storedTenantName);
-        } else {
+        } else if(parsedTenantId > 0) {
           getTenantDetails(parsedTenantId).then(tenant => {
             if (tenant) {
               setTenantName(tenant.tenant_name);
@@ -82,6 +85,8 @@ const StaffDashboardPage: NextPage = () => {
             console.error("Error fetching tenant details for staff page:", error);
             setTenantName("Error Fetching Tenant Info");
           });
+        } else {
+             setTenantName("Tenant Information Unavailable");
         }
       } else {
         setTenantName("Tenant Information Unavailable");
@@ -99,12 +104,12 @@ const StaffDashboardPage: NextPage = () => {
         if (parsedUserId > 0) {
           setUserId(parsedUserId);
         } else {
-          setUserId(null);
           console.warn("[StaffDashboardPage] Invalid userId found in localStorage:", storedUserId);
+          setUserId(null);
         }
       } else {
-        setUserId(null);
         console.warn("[StaffDashboardPage] No valid userId found in localStorage.");
+        setUserId(null);
       }
     }
 
@@ -130,14 +135,36 @@ const StaffDashboardPage: NextPage = () => {
     }
   }, [tenantId, branchId]);
 
+  const fetchUnreadNotificationCount = useCallback(async () => {
+    if (tenantId && branchId) {
+      try {
+        const notifications = await listNotificationsForBranch(tenantId, branchId);
+        const unreadCount = notifications.filter(n => n.status === NOTIFICATION_STATUS.UNREAD).length;
+        setUnreadNotificationsCount(unreadCount);
+      } catch (error) {
+        console.error("Failed to fetch unread notification count:", error);
+        setUnreadNotificationsCount(0);
+      }
+    } else {
+      setUnreadNotificationsCount(0);
+    }
+  }, [tenantId, branchId]);
+
 
   useEffect(() => {
-    if (tenantId && branchId) { // Only fetch if tenantId and branchId are available
-      fetchReservationCount();
+    if (tenantId && branchId) { 
+      fetchReservationCount(); // Initial fetch
       const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
-      return () => clearInterval(countInterval);
+      
+      fetchUnreadNotificationCount(); // Initial fetch for notifications
+      const notificationInterval = setInterval(fetchUnreadNotificationCount, 20000); // Refresh every 20 seconds
+
+      return () => {
+        clearInterval(countInterval);
+        clearInterval(notificationInterval);
+      };
     }
-  }, [fetchReservationCount, tenantId, branchId]);
+  }, [fetchReservationCount, fetchUnreadNotificationCount, tenantId, branchId]);
 
 
   const handleLogout = () => {
@@ -230,6 +257,9 @@ const StaffDashboardPage: NextPage = () => {
               >
                 <MessageSquare />
                 <span>Message/Notif</span>
+                {unreadNotificationsCount > 0 && (
+                  <SidebarMenuBadge>{unreadNotificationsCount}</SidebarMenuBadge>
+                )}
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -245,6 +275,7 @@ const StaffDashboardPage: NextPage = () => {
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
+          {/* Removed Settings Button from staff page */}
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
@@ -317,35 +348,42 @@ const StaffDashboardPage: NextPage = () => {
               staffUserId={userId}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in' || activeView === 'lost-and-found') && (!tenantId || !branchId || !userId || userId <= 0 ) && (
+          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in' || activeView === 'lost-and-found') && (!tenantId || !branchId || (activeView !== 'dashboard' && !userId) ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
-                  <Building className="h-6 w-6 text-primary" />
+                  {activeView === 'dashboard' ? <LayoutDashboard className="h-6 w-6 text-primary" /> :
+                   activeView === 'room-status' ? <BedDouble className="h-6 w-6 text-primary" /> :
+                   activeView === 'walk-in' ? <UsersIcon className="h-6 w-6 text-primary" /> :
+                   activeView === 'reservations' ? <CalendarPlus className="h-6 w-6 text-primary" /> :
+                   activeView === 'notifications' ? <MessageSquare className="h-6 w-6 text-primary" /> :
+                   activeView === 'lost-and-found' ? <LostAndFoundIcon className="h-6 w-6 text-primary" /> :
+                   <Wrench className="h-6 w-6 text-primary" />
+                  }
                   <CardTitle>
                     {activeView === 'dashboard' ? 'Dashboard' :
                      activeView === 'room-status' ? 'Room Status' :
-                     activeView === 'reservations' ? 'Reservations' :
-                     activeView === 'notifications' ? 'Notifications' :
                      activeView === 'walk-in' ? 'Walk-in Check-in' :
+                     activeView === 'reservations' ? 'Reservations' :
+                     activeView === 'notifications' ? 'Notifications & Messages' :
                      activeView === 'lost-and-found' ? 'Lost & Found' :
-                     'Content'}
+                     'Content Unavailable'}
                   </CardTitle>
                 </div>
                  <CardDescription>
                     {activeView === 'dashboard' ? 'Overview of your branch activities.' :
                      activeView === 'room-status' ? 'Manage room availability and guest check-ins.' :
+                     activeView === 'walk-in' ? 'Directly check-in a guest without a prior reservation.' :
                      activeView === 'reservations' ? 'Manage unassigned reservations.' :
                      activeView === 'notifications' ? 'View messages and notifications for your branch.' :
-                     activeView === 'walk-in' ? 'Directly check-in a guest without a prior reservation.' :
                      activeView === 'lost-and-found' ? 'Manage lost and found items.' :
-                     'Manage content.'}
+                     'This content cannot be loaded.'}
                  </CardDescription>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground">
                   Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
-                  {(!userId || userId <= 0) && (activeView !== 'dashboard' && activeView !== 'walk-in' && activeView !== 'lost-and-found') && " (Specifically, User ID is missing or invalid for this view.)"}
+                  {(!userId && (activeView !== 'dashboard' && activeView !== 'walk-in' && activeView !== 'lost-and-found')) && " (Specifically, User ID is missing for this view.)"}
                 </p>
               </CardContent>
             </Card>
@@ -357,6 +395,5 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
 
     
