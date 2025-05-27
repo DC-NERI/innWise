@@ -2,7 +2,14 @@
 "use client";
 
 import React from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose
+} from "@/components/ui/dialog"; // Added this import
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,7 +19,7 @@ import type { UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
 import type { roomCleaningStatusAndNotesUpdateSchema } from '@/lib/schemas';
 import { ROOM_CLEANING_STATUS } from '@/lib/constants';
-import { Input } from "@/components/ui/input"; // Added for hidden field
+import { Input } from "@/components/ui/input";
 
 type RoomCleaningStatusAndNotesUpdateData = z.infer<typeof roomCleaningStatusAndNotesUpdateSchema>;
 
@@ -23,7 +30,7 @@ interface CleaningNotesModalProps {
   form: UseFormReturn<RoomCleaningStatusAndNotesUpdateData>;
   onSubmit: (data: RoomCleaningStatusAndNotesUpdateData) => void;
   isSubmitting: boolean;
-  currentCleaningStatusForModal: number | null;
+  currentCleaningStatusForModal: number | null; // Changed from string to number to match constants
 }
 
 export default function CleaningNotesModal({
@@ -79,7 +86,8 @@ export default function CleaningNotesModal({
                   <FormItem className="sr-only">
                     <RHFFormLabel>Cleaning Status</RHFFormLabel>
                     <FormControl>
-                      <Input type="hidden" {...field} value={field.value ?? ''} />
+                      {/* Ensure value is a string if input expects string, or handle type appropriately */}
+                      <Input type="hidden" {...field} value={String(field.value ?? '')} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -95,4 +103,6 @@ export default function CleaningNotesModal({
           </form>
         </Form>
       </DialogContent>
-    </
+    </Dialog>
+  );
+}
