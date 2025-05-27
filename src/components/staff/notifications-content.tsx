@@ -4,27 +4,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card, CardContent, CardHeader, CardTitle,
-  CardDescription as ShadCardDescription // Aliased
+  CardDescription as ShadCardDescription
 } from "@/components/ui/card";
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle as ShadDialogTitle, // Aliased
+  DialogTitle as ShadDialogTitle,
   DialogFooter,
   DialogClose,
-  DialogDescription as ShadDialogDescriptionAliased // Aliased
+  DialogDescription as ShadDialogDescriptionAliased
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription as ShadAlertDialogDescriptionConfirm, // Aliased
+  AlertDialogDescription as ShadAlertDialogDescriptionConfirm,
   AlertDialogFooter,
   AlertDialogHeader,
-  AlertDialogTitle as ShadAlertDialogTitleConfirm, // Aliased
+  AlertDialogTitle as ShadAlertDialogTitleConfirm,
 } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -193,21 +193,14 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
   const handleOpenAcceptManageModal = async () => {
     if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !staffUserId || !selectedNotification.target_branch_id) {
       toast({ title: "Error", description: "Notification, transaction, user, or target branch ID not available for managing reservation.", variant: "destructive" });
-      setIsAcceptManageModalOpen(false); // Ensure modal doesn't open if pre-checks fail
+      setIsAcceptManageModalOpen(false);
       return;
     }
 
-    setIsSubmittingAction(true); // Use this to disable button while fetching data for modal
-    console.log(
-      `[NotificationsContent] Opening Accept/Manage Modal. Notification ID: ${selectedNotification.id}, Target Branch ID: ${selectedNotification.target_branch_id}`
-    );
-
+    setIsSubmittingAction(true);
     try {
-      const ratesForTargetBranch = await getRatesForBranchSimple(tenantId, selectedNotification.target_branch_id);
-      console.log(`[NotificationsContent] Fetched ${ratesForTargetBranch.length} active rates for branch ${selectedNotification.target_branch_id}:`, JSON.stringify(ratesForTargetBranch));
-
+      const rates = await getRatesForBranchSimple(tenantId, selectedNotification.target_branch_id);
       const transaction = await getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, selectedNotification.target_branch_id);
-      console.log(`[NotificationsContent] Fetched transaction details for Tx ID ${selectedNotification.transaction_id}:`, JSON.stringify(transaction));
 
       if (!transaction) {
         toast({ title: "Error", description: "Linked transaction not found or is not in a manageable state.", variant: "destructive" });
@@ -216,17 +209,14 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       }
 
       setTransactionToManage(transaction);
-      setRatesForAcceptModal(ratesForTargetBranch);
+      setRatesForAcceptModal(rates.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE));
 
       let initialRateId = transaction.hotel_rate_id ?? undefined;
-      if (initialRateId && !ratesForTargetBranch.some(rate => rate.id === initialRateId)) {
-        console.warn(`[NotificationsContent] Initial rate ID ${initialRateId} for transaction is no longer active or available for branch ${selectedNotification.target_branch_id}. Forcing re-selection.`);
-        initialRateId = undefined; // Clear if not available/active, forcing staff to select.
-      } else if (!initialRateId && ratesForTargetBranch.length > 0) {
-        // If no rate was set by admin and rates are available, don't pre-select, let staff choose.
+      if (initialRateId && !rates.some(rate => rate.id === initialRateId && String(rate.status) === HOTEL_ENTITY_STATUS.ACTIVE)) {
         initialRateId = undefined;
+      } else if (!initialRateId && rates.length > 0) {
+        initialRateId = rates.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE)[0]?.id;
       }
-
 
       acceptManageForm.reset({
         client_name: transaction.client_name || '',
@@ -243,9 +233,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       setIsDetailsModalOpen(false);
       setIsAcceptManageModalOpen(true);
     } catch (error) {
-      console.error("[NotificationsContent] Error opening accept/manage modal:", error);
-      toast({ title: "Error", description: "Failed to load reservation details or rates for management. Check console for details.", variant: "destructive" });
-      setRatesForAcceptModal([]); // Clear rates on error
+      toast({ title: "Error", description: "Failed to load reservation details or rates for management.", variant: "destructive" });
+      setRatesForAcceptModal([]);
     } finally {
       setIsSubmittingAction(false);
     }
@@ -262,8 +251,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       if (result.success) {
         toast({ title: "Success", description: "Reservation accepted and updated." });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Refresh the notification list
-        refreshReservationCount?.(); // Refresh count on staff dashboard
+        fetchNotifications();
+        refreshReservationCount?.();
       } else {
         toast({ title: "Acceptance Failed", description: result.message || "Could not accept reservation.", variant: "destructive" });
       }
@@ -291,10 +280,10 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
       const result = await declineReservationByStaff(transactionToDecline.id, tenantId, branchId, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close the manage modal if it was open
-        setIsDetailsModalOpen(false); // Close the details modal if it was open
-        fetchNotifications(); // Refresh notification list
-        refreshReservationCount?.(); // Refresh count on staff dashboard
+        setIsAcceptManageModalOpen(false);
+        setIsDetailsModalOpen(false);
+        fetchNotifications();
+        refreshReservationCount?.();
       } else {
         toast({ title: "Decline Failed", description: result.message || "Could not decline reservation.", variant: "destructive" });
       }
@@ -337,7 +326,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               let cardLinkedStatusTextClass = "font-semibold";
               let cardAcceptanceTextClass = "font-semibold";
 
-              if (notif.transaction_id) {
+              if (notif.transaction_id && notif.transaction_is_accepted !== null && notif.transaction_is_accepted !== undefined) {
                  if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
                   cardBgClass = "bg-red-500 border-red-700 animate-pulse-opacity-gentle";
                   cardTitleClass = "text-white";
@@ -355,20 +344,19 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
                   cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
                 } else if (notif.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                  cardBgClass = "bg-red-500 border-red-700"; // Consistent red, no blink
+                  cardBgClass = "bg-red-500 border-red-700";
                   cardTitleClass = "text-white";
                   cardDescriptionClass = "text-red-100";
                   cardContentTextClass = "text-red-50";
                   cardStatusTextClass = notif.status === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-white" : "text-red-100";
                   cardLinkedStatusTextClass = "font-semibold text-red-50";
                   cardAcceptanceTextClass = "font-semibold text-red-50";
-                } else { // Default or other statuses
+                } else {
                   cardLinkedStatusTextClass = "text-muted-foreground";
                   cardAcceptanceTextClass = "text-muted-foreground";
                 }
               }
-              // Add border for unread if no other special background is applied
-              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100') && !cardBgClass.includes('bg-yellow-100')) {
+              if (notif.status === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100')) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -453,7 +441,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
-                    <FormItem><FormLabel>Client Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Client Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={acceptManageForm.control} name="selected_rate_id" render={({ field }) => (
                     <FormItem><FormLabel>Select Rate *</FormLabel>
@@ -462,7 +450,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                         value={field.value?.toString() ?? ""}
                         disabled={ratesForAcceptModal.length === 0 || isSubmittingAction}
                       >
-                        <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={ratesForAcceptModal.length === 0 ? "No active rates for target branch" : "Select a rate *"} /></SelectTrigger></FormControl>
+                        <FormControl><SelectTrigger className="w-full"><SelectValue placeholder={ratesForAcceptModal.length === 0 ? "No active rates for target branch" : "Select a rate *"} /></SelectTrigger></FormControl>
                         <SelectContent>{ratesForAcceptModal.map(rate => (<SelectItem key={rate.id} value={rate.id.toString()}>{rate.name} (₱{Number(rate.price).toFixed(2)} for {rate.hours}hr/s)</SelectItem>))}</SelectContent>
                       </Select><FormMessage />
                     </FormItem>
@@ -470,19 +458,19 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   <FormField control={acceptManageForm.control} name="client_payment_method" render={({ field }) => (
                     <FormItem><FormLabel>Payment Method</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value ?? undefined}>
-                        <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
+                        <FormControl><SelectTrigger className="w-full"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
                         <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Online Payment">Online Payment</SelectItem><SelectItem value="Other">Other</SelectItem></SelectContent>
                       </Select><FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={acceptManageForm.control} name="notes" render={({ field }) => (
-                    <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Notes (Optional)</FormLabel><FormControl><Textarea placeholder="Reservation notes..." {...field} value={field.value ?? ''} className="w-full" /></FormControl><FormMessage /></FormItem>
                   )} />
                    <FormField
                       control={acceptManageForm.control}
                       name="is_paid"
                       render={({ field }) => (
-                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
+                        <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full">
                           <FormControl>
                             <Checkbox
                               checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
@@ -519,7 +507,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                                     field.onChange(val === "" ? null : parseFloat(val));
                                   }
                                 }}
-                                className="w-[90%]"
+                                className="w-full"
                               />
                             </FormControl>
                             <FormMessage />
@@ -528,17 +516,17 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                       />
                     )}
                   <FormField control={acceptManageForm.control} name="is_advance_reservation" render={({ field }) => (
-                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                    <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full"><FormControl><Checkbox checked={field.value} onCheckedChange={field.onChange} /></FormControl>
                       <div className="space-y-1 leading-none"><FormLabel>Advance Future Reservation?</FormLabel></div>
                     </FormItem>
                   )} />
                   {watchIsAdvanceReservationForm && (
                     <>
                       <FormField control={acceptManageForm.control} name="reserved_check_in_datetime" render={({ field }) => (
-                        <FormItem><FormLabel>Reserved Check-in Date & Time *</FormLabel><FormControl><Input type="datetime-local" className="w-[90%]" {...field} value={field.value || ""} min={format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl><FormMessage /></FormItem>
+                        <FormItem><FormLabel>Reserved Check-in Date & Time *</FormLabel><FormControl><Input type="datetime-local" className="w-full" {...field} value={field.value || ""} min={format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl><FormMessage /></FormItem>
                       )} />
                       <FormField control={acceptManageForm.control} name="reserved_check_out_datetime" render={({ field }) => (
-                        <FormItem><FormLabel>Reserved Check-out Date & Time *</FormLabel><FormControl><Input type="datetime-local" className="w-[90%]" {...field} value={field.value || ""} min={acceptManageForm.getValues('reserved_check_in_datetime') || format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl><FormMessage /></FormItem>
+                        <FormItem><FormLabel>Reserved Check-out Date & Time *</FormLabel><FormControl><Input type="datetime-local" className="w-full" {...field} value={field.value || ""} min={acceptManageForm.getValues('reserved_check_in_datetime') || format(new Date(), "yyyy-MM-dd'T'HH:mm")} /></FormControl><FormMessage /></FormItem>
                       )} />
                     </>
                   )}
@@ -584,3 +572,4 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     </Card>
   );
 }
+
