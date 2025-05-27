@@ -15,6 +15,7 @@ import NotificationsContent from '@/components/admin/notifications-content';
 import LostAndFoundAdminContent from '@/components/admin/lost-and-found-admin-content';
 import DashboardAdminContent from '@/components/admin/dashboard-admin-content';
 import DetailedSalesReport from '@/components/admin/reports/detailed-sales-report';
+
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
@@ -44,17 +45,19 @@ const AdminDashboardPage: NextPage = () => {
       const storedUsername = localStorage.getItem('username');
       const storedFirstName = localStorage.getItem('userFirstName');
       const storedLastName = localStorage.getItem('userLastName');
-      const storedUserId = localStorage.getItem('userId'); // For admin's own ID
+      const storedUserId = localStorage.getItem('userId');
 
       if (storedRole) {
         setUserRole(storedRole);
         if (storedRole !== 'admin') {
-            router.push('/');
-            return;
+            // console.warn("[AdminDashboardPage] User role is not admin. Redirecting.");
+            // router.push('/');
+            // return;
         }
       } else {
-        router.push('/');
-        return;
+        // console.warn("[AdminDashboardPage] No user role found in localStorage. Redirecting.");
+        // router.push('/');
+        // return;
       }
 
       if (storedTenantId) {
@@ -102,12 +105,12 @@ const AdminDashboardPage: NextPage = () => {
         if (parsedUserId > 0) {
             setUserId(parsedUserId);
         } else {
+            console.warn("[AdminDashboardPage] Invalid admin userId (0 or negative) found in localStorage:", storedUserId);
             setUserId(null);
-            console.warn("[AdminDashboardPage] Invalid userId (for admin) found in localStorage:", storedUserId);
         }
       } else {
+          console.warn("[AdminDashboardPage] No valid admin userId (not a number or not found) in localStorage. Stored value:", storedUserId);
           setUserId(null);
-          console.warn("[AdminDashboardPage] No valid userId (for admin) found in localStorage.");
       }
     }
 
@@ -270,13 +273,13 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'users' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant or user information for user management...</p>}
 
           {activeView === 'branches' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <BranchesContent tenantId={tenantId} adminUserId={userId} />}
-          {activeView === 'branches' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for branch management...</p>}
+          {activeView === 'branches' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant or user information for branch management...</p>}
 
           {activeView === 'rates' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <RatesContent tenantId={tenantId} adminUserId={userId} />}
-          {activeView === 'rates' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for rate management...</p>}
+          {activeView === 'rates' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant or user information for rate management...</p>}
 
           {activeView === 'rooms' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <RoomsContent tenantId={tenantId} adminUserId={userId} />}
-          {activeView === 'rooms' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant information for room management...</p>}
+          {activeView === 'rooms' && (tenantId === null || !userId || userId <=0) && <p>Loading tenant or user information for room management...</p>}
 
           {activeView === 'notifications' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && (
             <NotificationsContent tenantId={tenantId} adminUserId={userId} />

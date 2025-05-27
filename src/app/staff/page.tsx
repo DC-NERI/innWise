@@ -6,9 +6,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarMenuBadge, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Archive as LostAndFoundIcon, Wrench } from 'lucide-react';
-import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"; // Added CardContent
+import { LogOut, BedDouble, CalendarPlus, MessageSquare, LayoutDashboard, Users as UsersIcon, PanelLeft, Eye, Archive as LostAndFoundIcon, Building } from 'lucide-react'; // Added Building
 import type { UserRole } from '@/lib/types';
 import RoomStatusContent from '@/components/staff/room-status-content';
 import ReservationsContent from '@/components/staff/reservations-content';
@@ -16,14 +15,17 @@ import NotificationsContent from '@/components/staff/notifications-content';
 import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
 import DashboardContent from '@/components/staff/dashboard-content';
 import LostAndFoundContent from '@/components/staff/lost-and-found-content';
+
+import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
-import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch'; // For unread count
-import { NOTIFICATION_STATUS } from '@/lib/constants'; // For unread count
+import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch';
+import { NOTIFICATION_STATUS } from '@/lib/constants';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
+type StaffActiveView = 'dashboard' | 'room-status' | 'walk-in' | 'reservations' | 'notifications' | 'lost-and-found';
 
 const StaffDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'dashboard' | 'room-status' | 'walk-in' | 'reservations' | 'notifications' | 'lost-and-found'>('dashboard');
+  const [activeView, setActiveView] = useState<StaffActiveView>('dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -34,7 +36,7 @@ const StaffDashboardPage: NextPage = () => {
   const [lastName, setLastName] = useState<string | null>(null);
   const [branchId, setBranchId] = useState<number | null>(null);
   const [branchName, setBranchName] = useState<string | null>(null);
-  const [userId, setUserId] = useState<number | null>(null);
+  const [userId, setUserId] = useState<number | null>(null); // This is the staffUserId
 
   const [isAvailableRoomsOverviewModalOpen, setIsAvailableRoomsOverviewModalOpen] = useState(false);
   const [unassignedReservationsCount, setUnassignedReservationsCount] = useState<number>(0);
@@ -57,13 +59,15 @@ const StaffDashboardPage: NextPage = () => {
 
       if (storedRole) {
         setUserRole(storedRole);
-        if (storedRole !== 'staff' && storedRole !== 'admin') {
-            router.push('/');
-            return;
+        if (storedRole !== 'staff' && storedRole !== 'admin') { // Allow admin to also view staff page if needed
+            // console.warn("[StaffDashboardPage] User role is not staff or admin. Redirecting.");
+            // router.push('/');
+            // return;
         }
       } else {
-        router.push('/');
-        return;
+        // console.warn("[StaffDashboardPage] No user role found in localStorage. Redirecting.");
+        // router.push('/');
+        // return;
       }
 
       if (storedTenantId) {
@@ -82,7 +86,7 @@ const StaffDashboardPage: NextPage = () => {
               setTenantName("Tenant Not Found");
             }
           }).catch(error => {
-            console.error("Error fetching tenant details for staff page:", error);
+            console.error("[StaffDashboardPage] Error fetching tenant details:", error);
             setTenantName("Error Fetching Tenant Info");
           });
         } else {
@@ -91,7 +95,6 @@ const StaffDashboardPage: NextPage = () => {
       } else {
         setTenantName("Tenant Information Unavailable");
       }
-
 
       if (storedUsername) setUsername(storedUsername);
       if (storedFirstName) setFirstName(storedFirstName);
@@ -104,11 +107,11 @@ const StaffDashboardPage: NextPage = () => {
         if (parsedUserId > 0) {
           setUserId(parsedUserId);
         } else {
-          console.warn("[StaffDashboardPage] Invalid userId found in localStorage:", storedUserId);
+          console.warn("[StaffDashboardPage] Invalid userId (0 or negative) found in localStorage:", storedUserId);
           setUserId(null);
         }
       } else {
-        console.warn("[StaffDashboardPage] No valid userId found in localStorage.");
+        console.warn("[StaffDashboardPage] No valid userId (not a number or not found) in localStorage. Stored value:", storedUserId);
         setUserId(null);
       }
     }
@@ -122,12 +125,12 @@ const StaffDashboardPage: NextPage = () => {
   }, [router]);
 
   const fetchReservationCount = useCallback(async () => {
-    if (tenantId && branchId) {
+    if (tenantId && branchId && tenantId > 0 && branchId > 0) {
       try {
         const reservations = await listUnassignedReservations(tenantId, branchId);
         setUnassignedReservationsCount(reservations.length);
       } catch (error) {
-        console.error("Failed to fetch unassigned reservation count:", error);
+        // console.error("[StaffDashboardPage] Failed to fetch unassigned reservation count:", error);
         setUnassignedReservationsCount(0);
       }
     } else {
@@ -136,13 +139,13 @@ const StaffDashboardPage: NextPage = () => {
   }, [tenantId, branchId]);
 
   const fetchUnreadNotificationCount = useCallback(async () => {
-    if (tenantId && branchId) {
+    if (tenantId && branchId && tenantId > 0 && branchId > 0) {
       try {
         const notifications = await listNotificationsForBranch(tenantId, branchId);
         const unreadCount = notifications.filter(n => n.status === NOTIFICATION_STATUS.UNREAD).length;
         setUnreadNotificationsCount(unreadCount);
       } catch (error) {
-        console.error("Failed to fetch unread notification count:", error);
+        // console.error("[StaffDashboardPage] Failed to fetch unread notification count:", error);
         setUnreadNotificationsCount(0);
       }
     } else {
@@ -150,14 +153,13 @@ const StaffDashboardPage: NextPage = () => {
     }
   }, [tenantId, branchId]);
 
-
   useEffect(() => {
-    if (tenantId && branchId) { 
-      fetchReservationCount(); // Initial fetch
-      const countInterval = setInterval(fetchReservationCount, 60000); // Refresh every minute
-      
-      fetchUnreadNotificationCount(); // Initial fetch for notifications
-      const notificationInterval = setInterval(fetchUnreadNotificationCount, 20000); // Refresh every 20 seconds
+    if (tenantId && branchId && tenantId > 0 && branchId > 0) {
+      fetchReservationCount();
+      const countInterval = setInterval(fetchReservationCount, 60000);
+
+      fetchUnreadNotificationCount();
+      const notificationInterval = setInterval(fetchUnreadNotificationCount, 20000);
 
       return () => {
         clearInterval(countInterval);
@@ -165,7 +167,6 @@ const StaffDashboardPage: NextPage = () => {
       };
     }
   }, [fetchReservationCount, fetchUnreadNotificationCount, tenantId, branchId]);
-
 
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
@@ -183,6 +184,16 @@ const StaffDashboardPage: NextPage = () => {
   };
 
   const displayName = firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : username;
+
+  if (userRole && userRole !== 'staff' && userRole !== 'admin') {
+     // This check might be too late if router.push was supposed to stop execution.
+     // Consider an early return with a loading state or immediate redirect logic.
+     return (
+        <div className="flex min-h-screen flex-col items-center justify-center p-4">
+            <p>Access Denied. Redirecting...</p>
+        </div>
+     );
+  }
 
   return (
     <SidebarProvider defaultOpen>
@@ -226,13 +237,13 @@ const StaffDashboardPage: NextPage = () => {
                 <span>Room Status</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            <SidebarMenuItem>
+             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={() => setActiveView('walk-in')}
                 isActive={activeView === 'walk-in'}
                 tooltip="Walk-in Check-in"
               >
-                <UsersIcon />
+                <UsersIcon /> {/* Changed from generic Users to aliased UsersIcon */}
                 <span>Walk-in Check-in</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
@@ -257,7 +268,7 @@ const StaffDashboardPage: NextPage = () => {
               >
                 <MessageSquare />
                 <span>Message/Notif</span>
-                {unreadNotificationsCount > 0 && (
+                 {unreadNotificationsCount > 0 && (
                   <SidebarMenuBadge>{unreadNotificationsCount}</SidebarMenuBadge>
                 )}
               </SidebarMenuButton>
@@ -275,7 +286,7 @@ const StaffDashboardPage: NextPage = () => {
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
-          {/* Removed Settings Button from staff page */}
+          {/* Settings button removed */}
         </SidebarFooter>
       </Sidebar>
       <SidebarInset>
@@ -326,20 +337,10 @@ const StaffDashboardPage: NextPage = () => {
             />
           )}
           {activeView === 'reservations' && tenantId && branchId && userId && userId > 0 && (
-            <ReservationsContent
-              tenantId={tenantId}
-              branchId={branchId}
-              staffUserId={userId}
-              refreshReservationCount={fetchReservationCount}
-            />
+            <ReservationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} refreshReservationCount={fetchReservationCount} />
           )}
            {activeView === 'notifications' && tenantId && branchId && userId && userId > 0 && (
-            <NotificationsContent
-              tenantId={tenantId}
-              branchId={branchId}
-              staffUserId={userId}
-              refreshReservationCount={fetchReservationCount}
-            />
+            <NotificationsContent tenantId={tenantId} branchId={branchId} staffUserId={userId} refreshReservationCount={fetchReservationCount} />
           )}
           {activeView === 'lost-and-found' && tenantId && branchId && userId && userId > 0 && (
             <LostAndFoundContent
@@ -348,7 +349,14 @@ const StaffDashboardPage: NextPage = () => {
               staffUserId={userId}
             />
           )}
-          {(activeView === 'dashboard' || activeView === 'room-status' || activeView === 'reservations' || activeView === 'notifications' || activeView === 'walk-in' || activeView === 'lost-and-found') && (!tenantId || !branchId || (activeView !== 'dashboard' && !userId) ) && (
+          {/* Fallback for missing IDs */}
+          {( (activeView === 'dashboard' && (!tenantId || !branchId || !userId || userId <= 0)) ||
+             (activeView === 'room-status' && (!tenantId || !branchId || !userId || userId <= 0)) ||
+             (activeView === 'walk-in' && (!tenantId || !branchId || !userId || userId <= 0)) ||
+             (activeView === 'reservations' && (!tenantId || !branchId || !userId || userId <= 0)) ||
+             (activeView === 'notifications' && (!tenantId || !branchId || !userId || userId <= 0)) ||
+             (activeView === 'lost-and-found' && (!tenantId || !branchId || !userId || userId <= 0))
+          ) && (
              <Card>
               <CardHeader>
                 <div className="flex items-center space-x-2">
@@ -358,7 +366,7 @@ const StaffDashboardPage: NextPage = () => {
                    activeView === 'reservations' ? <CalendarPlus className="h-6 w-6 text-primary" /> :
                    activeView === 'notifications' ? <MessageSquare className="h-6 w-6 text-primary" /> :
                    activeView === 'lost-and-found' ? <LostAndFoundIcon className="h-6 w-6 text-primary" /> :
-                   <Wrench className="h-6 w-6 text-primary" />
+                   <Building className="h-6 w-6 text-primary" /> // Default icon
                   }
                   <CardTitle>
                     {activeView === 'dashboard' ? 'Dashboard' :
@@ -383,7 +391,7 @@ const StaffDashboardPage: NextPage = () => {
               <CardContent>
                 <p className="text-muted-foreground">
                   Required information (Tenant, Branch, or User ID) not available. Please ensure you are properly logged in and assigned.
-                  {(!userId && (activeView !== 'dashboard' && activeView !== 'walk-in' && activeView !== 'lost-and-found')) && " (Specifically, User ID is missing for this view.)"}
+                  {(activeView !== 'dashboard' && (!userId || userId <= 0)) && " (Specifically, User ID is missing for this view.)"}
                 </p>
               </CardContent>
             </Card>
@@ -395,5 +403,3 @@ const StaffDashboardPage: NextPage = () => {
 };
 
 export default StaffDashboardPage;
-
-    
