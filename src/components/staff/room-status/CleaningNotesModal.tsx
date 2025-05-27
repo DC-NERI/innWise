@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from 'react';
@@ -9,7 +10,9 @@ import { Loader2 } from 'lucide-react';
 import type { HotelRoom } from '@/lib/types';
 import type { UseFormReturn } from 'react-hook-form';
 import type { z } from 'zod';
-import type { roomCleaningStatusAndNotesUpdateSchema } from '@/lib/schemas'; // Assuming this schema is used
+import type { roomCleaningStatusAndNotesUpdateSchema } from '@/lib/schemas';
+import { ROOM_CLEANING_STATUS } from '@/lib/constants';
+import { Input } from "@/components/ui/input"; // Added for hidden field
 
 type RoomCleaningStatusAndNotesUpdateData = z.infer<typeof roomCleaningStatusAndNotesUpdateSchema>;
 
@@ -17,10 +20,10 @@ interface CleaningNotesModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   selectedRoom: HotelRoom | null;
-  form: UseFormReturn<RoomCleaningStatusAndNotesUpdateData>; // Pass the form instance
+  form: UseFormReturn<RoomCleaningStatusAndNotesUpdateData>;
   onSubmit: (data: RoomCleaningStatusAndNotesUpdateData) => void;
   isSubmitting: boolean;
-  currentCleaningStatusForModal: number | null; // To conditionally require notes
+  currentCleaningStatusForModal: number | null;
 }
 
 export default function CleaningNotesModal({
@@ -34,12 +37,11 @@ export default function CleaningNotesModal({
 }: CleaningNotesModalProps) {
   if (!selectedRoom) return null;
 
-  // Import ROOM_CLEANING_STATUS directly or pass it as a prop if needed for more dynamic logic
-  const ROOM_CLEANING_STATUS_OUT_OF_ORDER = 3; // Example, replace with imported constant
+  const isOutOfOrder = currentCleaningStatusForModal === ROOM_CLEANING_STATUS.OUT_OF_ORDER;
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
+      <DialogContent className="sm:max-w-md p-3 flex flex-col max-h-[85vh]">
         <DialogHeader className="p-2 border-b">
           <DialogTitle className="text-xl">
             Update Cleaning Notes: {selectedRoom.room_name} ({selectedRoom.room_code})
@@ -47,7 +49,7 @@ export default function CleaningNotesModal({
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex-grow flex flex-col overflow-hidden bg-card rounded-md">
-            <div className="flex-grow space-y-3 p-3 overflow-y-auto"> {/* Added p-3 for better spacing */}
+            <div className="flex-grow space-y-3 p-3 overflow-y-auto">
               <FormField
                 control={form.control}
                 name="cleaning_notes"
@@ -55,27 +57,26 @@ export default function CleaningNotesModal({
                   <FormItem>
                     <RHFFormLabel>
                       Notes
-                      {currentCleaningStatusForModal === ROOM_CLEANING_STATUS_OUT_OF_ORDER && ' * (Required for Out of Order)'}
+                      {isOutOfOrder && ' * (Required for Out of Order)'}
                     </RHFFormLabel>
                     <FormControl>
                       <Textarea
                         placeholder="Enter cleaning notes..."
                         {...field}
                         value={field.value ?? ''}
-                        rows={5} // Increased rows for more space
-                        className="w-full" // Ensure textarea takes full width
+                        rows={5}
+                        className="w-full"
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-              {/* The cleaning_status field is part of the form but might be hidden or read-only here if only notes are being edited */}
-               <FormField
+              <FormField
                 control={form.control}
                 name="cleaning_status"
                 render={({ field }) => (
-                  <FormItem className="sr-only"> {/* Hidden as we are only editing notes or status is pre-set */}
+                  <FormItem className="sr-only">
                     <RHFFormLabel>Cleaning Status</RHFFormLabel>
                     <FormControl>
                       <Input type="hidden" {...field} value={field.value ?? ''} />
@@ -94,9 +95,4 @@ export default function CleaningNotesModal({
           </form>
         </Form>
       </DialogContent>
-    </Dialog>
-  );
-}
-
-// Need to import Input for the hidden field
-import { Input } from "@/components/ui/input";
+    </
