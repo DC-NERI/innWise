@@ -23,7 +23,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle as ShadAlertDialogTitle,
-  // AlertDialogTrigger as ShadAlertDialogTrigger // No longer needed here directly for cancel button
 } from "@/components/ui/alert-dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
@@ -44,29 +43,29 @@ import {
   transactionUnassignedUpdateSchema,
   TransactionUnassignedUpdateData
 } from '@/lib/schemas';
-
-// Updated imports for actions:
 import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
-import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
-import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
-import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
+import {
+  listUnassignedReservations,
+  createUnassignedReservation,
+  updateUnassignedReservation,
+  cancelReservation,
+  assignRoomAndCheckIn
+} from '@/actions/staff/reservations'; // Grouped imports
 import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
-import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
-import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
 
 import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
-import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO } from 'date-fns';
+import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO, isValid } from 'date-fns';
 
 interface ReservationsContentProps {
-  tenantId: number;
-  branchId: number;
-  staffUserId: number;
+  tenantId: number | null;
+  branchId: number | null;
+  staffUserId: number | null;
   refreshReservationCount?: () => void;
 }
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0); // Default to 2 PM
+  const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -79,12 +78,10 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore, use current date */ }
+    } catch (e) { /* ignore */ }
   } else {
-    // If no check-in is provided, default to today at 2 PM for calculation base
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  // Default checkout to next day at 12 PM
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
@@ -103,12 +100,12 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 };
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, 
+  selected_room_id: undefined as unknown as number,
 };
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
   const [unassignedReservations, setUnassignedReservations] = useState<Transaction[]>([]);
-  const [availableRooms, setAvailableRooms] = useState<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code'>>>([]);
+  const [availableRooms, setAvailableRooms] = useState<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code' | 'hotel_rate_id'>>>([]);
   const [allBranchRates, setAllBranchRates] = useState<SimpleRate[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -125,6 +122,12 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const [selectedReservationForAssignment, setSelectedReservationForAssignment] = useState<Transaction | null>(null);
 
   const { toast } = useToast();
+
+  // Log incoming props
+  useEffect(() => {
+    console.log("[ReservationsContent] Props received:", { tenantId, branchId, staffUserId });
+  }, [tenantId, branchId, staffUserId]);
+
 
   const addReservationForm = useForm<TransactionCreateData>({
     resolver: zodResolver(transactionCreateSchema),
@@ -146,7 +149,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     defaultValues: defaultAssignRoomFormValues,
   });
 
- useEffect(() => {
+  useEffect(() => {
     if (isAddReservationDialogOpen) {
       if (watchIsAdvanceReservationAdd) {
         if (!addReservationForm.getValues('reserved_check_in_datetime')) {
@@ -167,11 +170,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     if (isEditReservationDialogOpen && selectedReservationForEdit) {
         if (watchIsAdvanceReservationEdit) {
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
-                 editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
+                 editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
             }
              const currentCheckInEdit = editReservationForm.getValues('reserved_check_in_datetime');
             if (!editReservationForm.getValues('reserved_check_out_datetime')) {
-                editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(currentCheckInEdit), { shouldValidate: true, shouldDirty: true });
+                editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(currentCheckInEdit), { shouldValidate: true, shouldDirty: true });
             }
         } else {
             editReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
@@ -182,7 +185,12 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
 
   const fetchInitialData = useCallback(async () => {
-    if (!tenantId || !branchId) return;
+    if (!tenantId || !branchId) {
+        setIsLoading(false);
+        setUnassignedReservations([]);
+        setAllBranchRates([]);
+        return;
+    }
     setIsLoading(true);
     try {
       const [reservations, rates] = await Promise.all([
@@ -192,7 +200,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
       setUnassignedReservations(reservations);
       setAllBranchRates(rates);
     } catch (error) {
-      toast({ title: "Error", description: "Could not fetch reservations or rates.", variant: "destructive" });
+      toast({ title: "Error", description: `Could not fetch initial data. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
@@ -203,34 +211,30 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   }, [fetchInitialData]);
 
   const handleAddReservationSubmit = async (data: TransactionCreateData) => {
-    if (!tenantId || !branchId || !staffUserId) {
-      toast({ title: "Error", description: "Missing required information (Tenant, Branch, or Staff).", variant: "destructive" });
+    if (!tenantId || !branchId || !staffUserId || staffUserId <= 0) {
+      toast({ title: "Error", description: "Missing required information (Tenant, Branch, or Staff ID).", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
-      const rateIdParam = data.selected_rate_id !== null && data.selected_rate_id !== undefined
-        ? Number(data.selected_rate_id)
-        : null;
-
-      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId, false); // is_admin_created_flag is false
+      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId, false);
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
             const dateAVal = a.reserved_check_in_datetime || a.created_at;
             const dateBVal = b.reserved_check_in_datetime || b.created_at;
-            const dateA = dateAVal ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
-            const dateB = dateBVal ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
+            const dateA = dateAVal && isValid(parseISO(dateAVal.replace(' ', 'T'))) ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
+            const dateB = dateBVal && isValid(parseISO(dateBVal.replace(' ', 'T'))) ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
             return dateA.getTime() - dateB.getTime();
         }));
         setIsAddReservationDialogOpen(false);
         addReservationForm.reset(defaultUnassignedReservationFormValues);
         refreshReservationCount?.();
       } else {
-        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Creation Failed", description: result.message || "Could not create reservation.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
+      toast({ title: "Error", description: `An unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -241,17 +245,13 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     const isAdvance = Number(reservation.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM && !!reservation.reserved_check_in_datetime;
 
     let checkInDateTimeFormatted = null;
-    if (reservation.reserved_check_in_datetime) {
-        try {
-            checkInDateTimeFormatted = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
-        } catch (e) {  /* ignore */ }
+    if (reservation.reserved_check_in_datetime && isValid(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')))) {
+        checkInDateTimeFormatted = format(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
     }
 
     let checkOutDateTimeFormatted = null;
-    if (reservation.reserved_check_out_datetime) {
-        try {
-            checkOutDateTimeFormatted = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
-        } catch (e) {  /* ignore */ }
+    if (reservation.reserved_check_out_datetime && isValid(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')))) {
+        checkOutDateTimeFormatted = format(parseISO(reservation.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm");
     }
 
     editReservationForm.reset({
@@ -269,21 +269,23 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   };
 
   const handleEditReservationSubmit = async (data: TransactionUnassignedUpdateData) => {
-    if (!selectedReservationForEdit || !tenantId || !branchId) {
-        toast({ title: "Error", description: "Missing data for update.", variant: "destructive" });
+    console.log("[ReservationsContent] handleEditReservationSubmit - staffUserId:", staffUserId, "selectedReservationForEdit ID:", selectedReservationForEdit?.id);
+    if (!selectedReservationForEdit || !tenantId || !branchId || !staffUserId || staffUserId <= 0) {
+        toast({ title: "Action Failed", description: "Required information (User, Tenant, Branch, or Reservation) is missing for update.", variant: "destructive" });
+        setIsSubmitting(false); // ensure submitting is false if we return early
         return;
     }
     setIsSubmitting(true);
     try {
-        const result = await updateUnassignedReservation(selectedReservationForEdit.id, data, tenantId, branchId);
+        const result = await updateUnassignedReservation(selectedReservationForEdit.id, data, tenantId, branchId, staffUserId);
         if (result.success && result.updatedTransaction) {
             toast({ title: "Success", description: "Reservation updated." });
             setUnassignedReservations(prev =>
                 prev.map(r => r.id === result.updatedTransaction!.id ? result.updatedTransaction! : r).sort((a, b) => {
                    const dateAVal = a.reserved_check_in_datetime || a.created_at;
                    const dateBVal = b.reserved_check_in_datetime || b.created_at;
-                   const dateA = dateAVal ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
-                   const dateB = dateBVal ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
+                   const dateA = dateAVal && isValid(parseISO(dateAVal.replace(' ', 'T'))) ? parseISO(dateAVal.replace(' ', 'T')) : new Date(0);
+                   const dateB = dateBVal && isValid(parseISO(dateBVal.replace(' ', 'T'))) ? parseISO(dateBVal.replace(' ', 'T')) : new Date(0);
                    return dateA.getTime() - dateB.getTime();
                 })
             );
@@ -291,10 +293,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             setSelectedReservationForEdit(null);
             refreshReservationCount?.();
         } else {
-            toast({ title: "Update Failed", description: result.message, variant: "destructive" });
+            toast({ title: "Update Failed", description: result.message || "Could not update reservation.", variant: "destructive" });
         }
     } catch (error) {
-        toast({ title: "Error", description: "An unexpected error occurred during update.", variant: "destructive" });
+        toast({ title: "Error", description: `An unexpected error occurred during update: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
         setIsSubmitting(false);
     }
@@ -306,13 +308,14 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   };
 
   const handleConfirmCancelUnassignedReservation = async () => {
-    if (!transactionToCancel || !tenantId || !branchId) {
-      toast({ title: "Cancellation Error", description: "Required information missing.", variant: "destructive" });
+    if (!transactionToCancel || !tenantId || !branchId || !staffUserId || staffUserId <= 0) {
+      toast({ title: "Cancellation Error", description: "Required information missing or invalid user ID.", variant: "destructive" });
+      setIsCancelReservationConfirmOpen(false);
       return;
     }
     setIsSubmitting(true);
     try {
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null); // Pass null for roomId
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
@@ -320,20 +323,23 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setTransactionToCancel(null);
         refreshReservationCount?.();
       } else {
-        toast({ title: "Cancellation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Cancellation Failed", description: result.message || "Could not cancel reservation.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred during cancellation.", variant: "destructive" });
+      toast({ title: "Error", description: `An unexpected error occurred during cancellation: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleOpenAssignRoomDialog = async (reservation: Transaction) => {
-    if (!tenantId || !branchId) return;
+    if (!tenantId || !branchId || !staffUserId || staffUserId <= 0) {
+        toast({title: "Error", description: "User, tenant, or branch info missing.", variant: "destructive"});
+        return;
+    }
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); 
+    setIsLoading(true);
     try {
       const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
@@ -341,7 +347,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         toast({ title: "No Rooms Available", description: "There are no currently available and clean rooms in this branch to assign.", variant: "default"});
       }
     } catch (error) {
-      toast({ title: "Error", description: "Could not fetch available rooms.", variant: "destructive" });
+      toast({ title: "Error", description: `Could not fetch available rooms: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
       setAvailableRooms([]);
     } finally {
       setIsLoading(false);
@@ -350,8 +356,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   };
 
   const handleAssignRoomAndCheckInSubmit = async (data: AssignRoomAndCheckInData) => {
-    if (!selectedReservationForAssignment || !data.selected_room_id || !tenantId || !branchId || !staffUserId) {
-      toast({ title: "Error", description: "Missing required information for assignment.", variant: "destructive" });
+    if (!selectedReservationForAssignment || !data.selected_room_id || !tenantId || !branchId || !staffUserId || staffUserId <= 0) {
+      toast({ title: "Error", description: "Missing required information for assignment or invalid user ID.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -368,12 +374,12 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setUnassignedReservations(prev => prev.filter(res => res.id !== selectedReservationForAssignment.id));
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
-        refreshReservationCount?.(); 
+        refreshReservationCount?.();
       } else {
-        toast({ title: "Assignment Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Assignment Failed", description: result.message || "Could not assign room.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "An unexpected error occurred during assignment.", variant: "destructive" });
+      toast({ title: "Error", description: `An unexpected error occurred during assignment: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }
@@ -392,7 +398,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         )} />
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
-            <FormLabel>Select Rate (Optional)</FormLabel>
+            <FormLabel>Select Rate</FormLabel>
             <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={allBranchRates.length === 0}>
               <FormControl>
                 <SelectTrigger className="w-[90%]">
@@ -411,7 +417,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           </FormItem>
         )} />
         <FormField control={formInstance.control} name="client_payment_method" render={({ field }) => (
-          <FormItem><FormLabel>Payment Method (Optional)</FormLabel>
+          <FormItem><FormLabel>Payment Method</FormLabel>
             <Select onValueChange={field.onChange} value={field.value ?? undefined}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
               <SelectContent>
@@ -462,7 +468,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     onChange={(e) => {
                         const val = e.target.value;
                         if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
-                          field.onChange(val === "" ? null : val);
+                          field.onChange(val === "" ? null : parseFloat(val));
                         }
                     }}
                     className="w-[90%]"
@@ -480,12 +486,12 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-[90%]">
             <FormControl>
                 <Checkbox
-                    checked={!!field.value} // Ensure checked is boolean
+                    checked={!!field.value}
                     onCheckedChange={(checked) => {
                         field.onChange(!!checked);
                         const currentIsPaid = formInstance.getValues("is_paid");
                         if (currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
-                            formInstance.setValue("is_paid", checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
+                            formInstance.setValue("is_paid", !!checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
                         }
                     }}
                 />
@@ -503,7 +509,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     type="datetime-local"
                     className="w-[90%]"
                     {...field}
-                    value={field.value || ""} 
+                    value={field.value || ""}
                     min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -518,7 +524,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     type="datetime-local"
                     className="w-[90%]"
                     {...field}
-                    value={field.value || ""} 
+                    value={field.value || ""}
                     min={formValues.reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
@@ -591,16 +597,16 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     <TableCell>{res.rate_name || 'N/A'}</TableCell>
                     <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
                     <TableCell>
-                        {Number(res.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM && res.reserved_check_in_datetime
+                        {res.reserved_check_in_datetime && isValid(parseISO(res.reserved_check_in_datetime.replace(' ','T')))
                         ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
-                        : (res.created_at ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
+                        : (res.created_at && isValid(parseISO(res.created_at.replace(' ','T'))) ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
                     </TableCell>
                     <TableCell className="text-right">
                         <div className="flex justify-end items-center space-x-2">
                             <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
                                 <Edit className="mr-1 h-3 w-3" /> Edit
                             </Button>
-                            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
+                             <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
                                 <Ban className="mr-1 h-3 w-3" /> Cancel
                             </Button>
                             <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
@@ -697,11 +703,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
        <AlertDialog open={isCancelReservationConfirmOpen} onOpenChange={(open) => {
           if(!open) {
-            setTransactionToCancel(null); // Clear the transaction to cancel when dialog closes
+            setTransactionToCancel(null);
           }
           setIsCancelReservationConfirmOpen(open);
         }}>
-        <AlertDialogContent>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
           <AlertDialogHeader>
             <ShadAlertDialogTitle>Confirm Cancellation</ShadAlertDialogTitle>
             <ShadAlertDialogDescriptionAliased>
@@ -709,8 +715,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             </ShadAlertDialogDescriptionAliased>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => { setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmCancelUnassignedReservation} disabled={isSubmitting}>
+            <AlertDialogCancel onClick={(e) => { e.stopPropagation(); setIsCancelReservationConfirmOpen(false); setTransactionToCancel(null); }}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.stopPropagation(); handleConfirmCancelUnassignedReservation(); }} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="animate-spin" /> : "Yes, Cancel Reservation"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -719,6 +725,5 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     </Card>
   );
 }
-
 
     

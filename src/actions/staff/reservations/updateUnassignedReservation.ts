@@ -8,8 +8,8 @@ pg.types.setTypeParser(pg.types.builtins.INT4, (val: string) => parseInt(val, 10
 pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
 // Configure pg to return timestamp without timezone as strings
-pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
-pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (stringValue: string) => stringValue);
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (stringValue: string) => stringValue);
 
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
@@ -18,7 +18,7 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_LIFECYCLE_STATUS_TEXT,
   TRANSACTION_PAYMENT_STATUS,
-  TRANSACTION_IS_ACCEPTED_STATUS, // Added for consistency if needed, though not directly used in this action's core logic
+  TRANSACTION_IS_ACCEPTED_STATUS,
   HOTEL_ENTITY_STATUS
 } from '../../../lib/constants';
 import { logActivity } from '../../activityLogger';
@@ -37,13 +37,17 @@ export async function updateUnassignedReservation(
   data: TransactionUnassignedUpdateData,
   tenantId: number,
   branchId: number,
-  staffUserId: number
+  staffUserId: number // Added staffUserId for logging and ensuring actor context
 ): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
   console.log(`[updateUnassignedReservation] Action started. TxID: ${transactionId}, StaffID: ${staffUserId}, Data:`, JSON.stringify(data));
-
+  
   if (!staffUserId || staffUserId <= 0) {
     console.error("[updateUnassignedReservation] Invalid staffUserId:", staffUserId);
     return { success: false, message: "Invalid user identifier." };
+  }
+
+  if (!transactionId || !tenantId || !branchId) {
+    return { success: false, message: "Transaction, tenant, or branch ID missing." };
   }
 
   const validatedFields = transactionUnassignedUpdateSchema.safeParse(data);
@@ -71,22 +75,21 @@ export async function updateUnassignedReservation(
     await client.query('BEGIN');
     console.log(`[updateUnassignedReservation] BEGIN transaction for TxID: ${transactionId}`);
 
-    const PRE_CHECK_SQL = 'SELECT status, is_accepted, hotel_rate_id FROM transactions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id IS NULL FOR UPDATE';
+    // Pre-check the transaction
+    const PRE_CHECK_SQL = 'SELECT status, is_accepted FROM transactions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND hotel_room_id IS NULL FOR UPDATE';
     const currentTransactionRes = await client.query(PRE_CHECK_SQL, [transactionId, tenantId, branchId]);
 
     if (currentTransactionRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.warn(`[updateUnassignedReservation] ROLLBACK: Transaction ${transactionId} not found for tenant ${tenantId}, branch ${branchId}, or already assigned a room.`);
+      console.warn(`[updateUnassignedReservation] ROLLBACK: Transaction ${transactionId} not found, already assigned, or does not belong to tenant ${tenantId}/branch ${branchId}.`);
       return { success: false, message: "Reservation not found, already assigned a room, or does not belong to this branch/tenant." };
     }
 
     const currentStatus = Number(currentTransactionRes.rows[0].status);
     const currentIsAccepted = Number(currentTransactionRes.rows[0].is_accepted);
-    const currentRateId = currentTransactionRes.rows[0].hotel_rate_id;
 
-    console.log(`[updateUnassignedReservation] TxID ${transactionId} current DB status: ${currentStatus}, is_accepted: ${currentIsAccepted}, rate_id: ${currentRateId}`);
+    console.log(`[updateUnassignedReservation] TxID ${transactionId} current DB status: ${currentStatus}, is_accepted: ${currentIsAccepted}`);
 
-    // This action should only update reservations that are in 'RESERVATION_NO_ROOM' (3) and 'ACCEPTED' (2) state.
     if (currentStatus !== TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM || currentIsAccepted !== TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED) {
       await client.query('ROLLBACK');
       const errorMessage = `Reservation cannot be updated from its current state (Lifecycle: ${TRANSACTION_LIFECYCLE_STATUS_TEXT[currentStatus] || 'Unknown'}, Acceptance: ${TRANSACTION_IS_ACCEPTED_STATUS_TEXT[currentIsAccepted] || 'Unknown'}). Expected 'Reservation (No Room)' and 'Accepted'.`;
@@ -94,10 +97,8 @@ export async function updateUnassignedReservation(
       return { success: false, message: errorMessage };
     }
 
-    // For an unassigned reservation being edited, its lifecycle status remains 'RESERVATION_NO_ROOM' (3).
-    // The payment status and advance reservation details can change.
+    // Status remains '3' (RESERVATION_NO_ROOM) for unassigned reservations
     const finalNewTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
-
     const finalIsPaidDbValue = is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID;
     const finalTenderAmount = (finalIsPaidDbValue === TRANSACTION_PAYMENT_STATUS.UNPAID || finalIsPaidDbValue === null) ? null : tender_amount_at_checkin;
 
@@ -143,7 +144,7 @@ export async function updateUnassignedReservation(
 
     if (res.rowCount === 0) {
       await client.query('ROLLBACK');
-      console.warn(`[updateUnassignedReservation] ROLLBACK: UPDATE affected 0 rows for TxID ${transactionId}. Transaction state might have changed, or IDs mismatch. Or it was not in status '3' and accepted '2'.`);
+      console.warn(`[updateUnassignedReservation] ROLLBACK: UPDATE affected 0 rows for TxID ${transactionId}. Transaction state might have changed, or IDs mismatch. Expected status '3' and accepted '2'.`);
       return { success: false, message: "Failed to update reservation. It might have been processed, assigned a room, or its state changed." };
     }
 
@@ -170,22 +171,24 @@ export async function updateUnassignedReservation(
       console.error(`[updateUnassignedReservation] Failed to log activity post-commit for TxID: ${transactionId}. Error:`, logError.message, logError.stack);
     }
 
-    // Fetch rate name for the returned object
     let rateName: string | null = null;
     let ratePrice: number | null = null;
     let rateHours: number | null = null;
+    let rateExcessHourPrice: number | null = null;
+
 
     if (updatedTransactionRow.hotel_rate_id) {
-      const rateClient = await pool.connect(); // Use a new connection from the pool
+      const rateClient = await pool.connect(); 
       try {
         const rateRes = await rateClient.query(
-          'SELECT name, price, hours FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4',
+          'SELECT name, price, hours, excess_hour_price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4',
           [updatedTransactionRow.hotel_rate_id, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]
         );
         if (rateRes.rows.length > 0) {
           rateName = rateRes.rows[0].name;
           ratePrice = parseFloat(rateRes.rows[0].price);
           rateHours = parseInt(rateRes.rows[0].hours, 10);
+          rateExcessHourPrice = rateRes.rows[0].excess_hour_price ? parseFloat(rateRes.rows[0].excess_hour_price) : null;
         }
       } catch (rateFetchError) {
         console.error(`[updateUnassignedReservation] Error fetching rate details post-commit for TxID ${transactionId}:`, rateFetchError);
@@ -198,12 +201,12 @@ export async function updateUnassignedReservation(
       id: Number(updatedTransactionRow.id),
       tenant_id: Number(updatedTransactionRow.tenant_id),
       branch_id: Number(updatedTransactionRow.branch_id),
-      hotel_room_id: null, // Remains null for unassigned
+      hotel_room_id: null, 
       hotel_rate_id: updatedTransactionRow.hotel_rate_id ? Number(updatedTransactionRow.hotel_rate_id) : null,
       client_name: String(updatedTransactionRow.client_name),
       client_payment_method: updatedTransactionRow.client_payment_method,
       notes: updatedTransactionRow.notes,
-      check_in_time: updatedTransactionRow.check_in_time, // This is the reservation creation/acceptance time, not actual check-in
+      check_in_time: updatedTransactionRow.check_in_time,
       check_out_time: updatedTransactionRow.check_out_time,
       hours_used: updatedTransactionRow.hours_used ? Number(updatedTransactionRow.hours_used) : null,
       total_amount: updatedTransactionRow.total_amount ? parseFloat(updatedTransactionRow.total_amount) : null,
@@ -223,6 +226,7 @@ export async function updateUnassignedReservation(
       rate_name: rateName,
       rate_price: ratePrice,
       rate_hours: rateHours,
+      rate_excess_hour_price: rateExcessHourPrice,
     };
 
     console.log(`[updateUnassignedReservation] Returning updated transaction for TxID ${transactionId}:`, JSON.stringify(finalUpdatedTransaction, null, 2));
@@ -250,3 +254,5 @@ export async function updateUnassignedReservation(
     }
   }
 }
+
+    
