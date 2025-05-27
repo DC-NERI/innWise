@@ -4,14 +4,32 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger, DialogDescription as ShadDialogDescriptionAliased } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle as ShadDialogTitle, // Aliased
+  DialogFooter,
+  DialogClose,
+  DialogTrigger,
+  DialogDescription as ShadDialogDescriptionAliased // Aliased
+} from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger as ShadAlertDialogTrigger } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription, 
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
 import { Loader2, Bell, CalendarPlus, PlusCircle, RefreshCw, Trash2 } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -26,13 +44,14 @@ import { getBranchesForTenantSimple } from '@/actions/admin/branches/getBranches
 import { createNotification } from '@/actions/admin/notifications/createNotification';
 import { deleteNotification } from '@/actions/admin/notifications/deleteNotification';
 
-import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation'; // Re-using staff action
+import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
 import {
   NOTIFICATION_STATUS,
   NOTIFICATION_STATUS_TEXT,
   NOTIFICATION_TRANSACTION_LINK_STATUS,
   NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
+  TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_LIFECYCLE_STATUS_TEXT,
   TRANSACTION_PAYMENT_STATUS
 } from '@/lib/constants';
@@ -53,7 +72,8 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        const parsedCheckIn = parseISO(checkInDateString.replace(' ', 'T'));
+        const parsableDateString = checkInDateString.includes('T') ? checkInDateString : checkInDateString.replace(' ', 'T');
+        const parsedCheckIn = parseISO(parsableDateString);
         if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
@@ -134,7 +154,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         getBranchesForTenantSimple(tenantId)
       ]);
       setNotifications(notifData);
-      setAvailableTenantBranches(branchData);
+      setAvailableTenantBranches(branchData.filter(b => String(b.status) === '1'));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch initial data.", variant: "destructive" });
     } finally {
@@ -162,7 +182,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   }, [watchIsAdvanceReservationCreate, createReservationForm, isCreateReservationDialogOpen]);
 
   useEffect(() => {
-    if (watchDoReservationForNotif && watchIsAdvanceForNotifSubForm) {
+    if (watchDoReservationForNotif && watchIsAdvanceForNotifSubForm && isAddNotificationDialogOpen) {
         if (!addNotificationForm.getValues('reservation_check_in_datetime')) {
             addNotificationForm.setValue('reservation_check_in_datetime', getDefaultCheckInDateTimeString());
         }
@@ -170,28 +190,31 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         if (!addNotificationForm.getValues('reservation_check_out_datetime')) {
              addNotificationForm.setValue('reservation_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn));
         }
-    } else if (watchDoReservationForNotif) {
+    } else if (watchDoReservationForNotif && isAddNotificationDialogOpen) {
         addNotificationForm.setValue('reservation_check_in_datetime', null);
         addNotificationForm.setValue('reservation_check_out_datetime', null);
     }
-  }, [watchDoReservationForNotif, watchIsAdvanceForNotifSubForm, addNotificationForm]);
+  }, [watchDoReservationForNotif, watchIsAdvanceForNotifSubForm, addNotificationForm, isAddNotificationDialogOpen]);
 
   useEffect(() => {
-    if (watchDoReservationForNotif && watchTargetBranchForNotif) {
+    if (watchDoReservationForNotif && watchTargetBranchForNotif && isAddNotificationDialogOpen) {
         const fetchRates = async () => {
+            setIsLoading(true); 
             try {
-                const rates = await getRatesForBranchSimple(tenantId, watchTargetBranchForNotif); // tenantId first
-                setRatesForAddNotificationSubForm(rates);
+                const rates = await getRatesForBranchSimple(tenantId, watchTargetBranchForNotif);
+                setRatesForAddNotificationSubForm(rates.filter(r => String(r.status) === '1'));
             } catch (error) {
                 toast({title: "Error", description: "Could not fetch rates for selected branch.", variant: "destructive"});
                 setRatesForAddNotificationSubForm([]);
+            } finally {
+                setIsLoading(false);
             }
         };
         fetchRates();
     } else {
         setRatesForAddNotificationSubForm([]);
     }
-  }, [watchDoReservationForNotif, watchTargetBranchForNotif, tenantId, addNotificationForm, toast]);
+  }, [watchDoReservationForNotif, watchTargetBranchForNotif, tenantId, isAddNotificationDialogOpen, toast]);
 
   const handleOpenCreateReservationDialog = async (notification: Notification) => {
     if (!notification.target_branch_id) {
@@ -210,10 +233,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         is_paid: TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: null,
     });
-    setIsLoading(true);
+    setIsLoading(true); 
     try {
-        const rates = await getRatesForBranchSimple(tenantId, notification.target_branch_id); // tenantId first
-        setRatesForCreateReservationDialog(rates);
+        const rates = await getRatesForBranchSimple(tenantId, notification.target_branch_id);
+        setRatesForCreateReservationDialog(rates.filter(r => String(r.status) === '1'));
     } catch (error) {
         toast({title: "Error", description: "Could not fetch rates for target branch.", variant: "destructive"});
         setRatesForCreateReservationDialog([]);
@@ -224,8 +247,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   };
 
   const handleCreateReservationFromNotificationSubmit = async (data: TransactionCreateData) => {
-    if (!selectedNotification || !selectedNotification.target_branch_id || !tenantId) { // tenantId is from props
-      toast({ title: "Error", description: "Target notification or branch not selected.", variant: "destructive" });
+    if (!selectedNotification || !selectedNotification.target_branch_id || !tenantId || !adminUserId) { 
+      toast({ title: "Error", description: "Target notification, branch, tenant or admin ID not available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
@@ -247,13 +270,13 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             tenantId 
         );
         if (updateNotifResult.success && updateNotifResult.notification) {
-             setNotifications(prev => prev.map(n => n.id === selectedNotification.id ? updateNotifResult.notification! : n));
+             setNotifications(prev => prev.map(n => n.id === selectedNotification.id ? updateNotifResult.notification! : n).sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         } else {
             toast({title: "Warning", description: `Reservation created, but failed to update notification status: ${updateNotifResult.message}`, variant: "default"});
         }
         setIsCreateReservationDialogOpen(false);
       } else {
-        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Creation Failed", description: result.message || "Could not create reservation.", variant: "destructive" });
       }
     } catch (error) {
       toast({ title: "Error", description: "An unexpected error occurred while creating reservation.", variant: "destructive" });
@@ -263,6 +286,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   };
 
   const handleAddNotificationSubmit = async (data: NotificationCreateData) => {
+    if (!adminUserId || !tenantId) {
+        toast({title: "Error", description: "Admin user ID or Tenant ID missing.", variant: "destructive"});
+        return;
+    }
     setIsSubmitting(true);
     try {
       const result = await createNotification(data, tenantId, adminUserId);
@@ -272,7 +299,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         setIsAddNotificationDialogOpen(false);
         addNotificationForm.reset(defaultNotificationFormValues);
       } else {
-        toast({title: "Creation Failed", description: result.message, variant: "destructive"});
+        toast({title: "Creation Failed", description: result.message || "Could not create notification.", variant: "destructive"});
       }
     } catch (error) {
         toast({ title: "Error", description: "An unexpected error occurred.", variant: "destructive" });
@@ -303,7 +330,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean, isPaidState: any) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
         <FormField control={formInstance.control} name={`${prefix}_client_name`} render={({ field }) => (
-            <FormItem><FormLabel>Client Name for Reservation *</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Client Name for Reservation {isRateOptional ? '(Optional)' : '*'}</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_selected_rate_id`} render={({ field }) => (
             <FormItem>
@@ -422,7 +449,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
                     <DialogHeader className="p-2 border-b">
-                        <DialogTitle>Create New Notification</DialogTitle>
+                        <ShadDialogTitle>Create New Notification</ShadDialogTitle>
                     </DialogHeader>
                     <Form {...addNotificationForm}>
                         <form onSubmit={addNotificationForm.handleSubmit(handleAddNotificationSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
@@ -452,7 +479,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                             </div>
                             <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                                <Button type="submit" disabled={isSubmitting}>
+                                <Button type="submit" disabled={isSubmitting || (watchDoReservationForNotif && isLoading)}>
                                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Notification"}
                                 </Button>
                             </DialogFooter>
@@ -463,7 +490,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         </div>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
+        {isLoading && notifications.length === 0 ? ( 
           <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
         ) : notifications.length === 0 ? (
           <p className="text-muted-foreground text-center py-8">No notifications found.</p>
@@ -498,11 +525,10 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                      {notif.transaction_status === NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED && (
                         <span className="text-xs text-green-600">Processed (Tx ID: {notif.transaction_id || 'N/A'})</span>
                     )}
-                    <ShadAlertDialogTrigger asChild>
-                        <Button variant="destructive" size="sm" onClick={() => setNotificationToDelete(notif)} disabled={isSubmitting}>
-                            <Trash2 className="mr-1 h-3 w-3" /> Delete
-                        </Button>
-                    </ShadAlertDialogTrigger>
+                    {/* Replaced ShadAlertDialogTrigger with a simple Button that sets state */}
+                    <Button variant="destructive" size="sm" onClick={() => setNotificationToDelete(notif)} disabled={isSubmitting}>
+                        <Trash2 className="mr-1 h-3 w-3" /> Delete
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -545,17 +571,17 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
       }}>
         <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
             <DialogHeader className="p-2 border-b">
-                <DialogTitle>Create Reservation from Notification</DialogTitle>
+                <ShadDialogTitle>Create Reservation from Notification</ShadDialogTitle>
                 <ShadDialogDescriptionAliased>For Branch: {selectedNotification?.target_branch_name || 'N/A'}</ShadDialogDescriptionAliased>
             </DialogHeader>
             <Form {...createReservationForm}>
                 <form onSubmit={createReservationForm.handleSubmit(handleCreateReservationFromNotificationSubmit)} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
                     <div className="flex-grow overflow-y-auto p-1">
-                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '', true, watchIsPaidCreateReservation)} 
+                        {renderReservationSubFormFields(createReservationForm, ratesForCreateReservationDialog, '', false, watchIsPaidCreateReservation)} 
                     </div>
                     <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                         <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                        <Button type="submit" disabled={isSubmitting || (isLoading && ratesForCreateReservationDialog.length === 0 && createReservationForm.getValues('selected_rate_id'))}>
+                        <Button type="submit" disabled={isSubmitting || (isLoading && ratesForCreateReservationDialog.length === 0 && !createReservationForm.getValues('selected_rate_id'))}>
                             {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Reservation"}
                         </Button>
                     </DialogFooter>
