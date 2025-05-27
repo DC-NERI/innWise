@@ -51,8 +51,8 @@ import {
   NOTIFICATION_TRANSACTION_LINK_STATUS,
   NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT,
   TRANSACTION_IS_ACCEPTED_STATUS_TEXT,
-  TRANSACTION_LIFECYCLE_STATUS, // Assuming this should be TRANSACTION_LIFECYCLE_STATUS
-  TRANSACTION_LIFECYCLE_STATUS_TEXT, // Assuming this should be TRANSACTION_LIFECYCLE_STATUS_TEXT
+  TRANSACTION_LIFECYCLE_STATUS,
+  TRANSACTION_LIFECYCLE_STATUS_TEXT,
   TRANSACTION_PAYMENT_STATUS,
   HOTEL_ENTITY_STATUS
 } from '@/lib/constants';
@@ -154,8 +154,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
         listNotificationsForTenant(tenantId),
         getBranchesForTenantSimple(tenantId)
       ]);
-      setNotifications(notifData);
-      setAvailableTenantBranches(branchData.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE));
+      setNotifications(notifData.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setAvailableTenantBranches(branchData.filter(b => b.status === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch initial data.", variant: "destructive" });
     } finally {
@@ -184,35 +184,28 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
 
   useEffect(() => {
     let isMounted = true;
-    // console.log(`[AdminNotif] Rate Fetch Effect Triggered. doReservation: ${watchDoReservationForNotif}, targetBranch: ${watchTargetBranchForNotif}, dialogOpen: ${isAddNotificationDialogOpen}, tenantId: ${tenantId}`);
-
     if (watchDoReservationForNotif && watchTargetBranchForNotif && isAddNotificationDialogOpen && tenantId) {
-        const fetchRatesForSubForm = async () => {
-            // console.log(`[AdminNotif] Fetching rates for branch ID: ${watchTargetBranchForNotif}`);
-            try {
-                const ratesData = await getRatesForBranchSimple(tenantId, watchTargetBranchForNotif);
-                if (isMounted) {
-                    // console.log(`[AdminNotif] Rates fetched for branch ${watchTargetBranchForNotif}:`, ratesData);
-                    setRatesForAddNotificationSubForm(ratesData);
-                }
-            } catch (error) {
-                // console.error(`[AdminNotif] Error fetching rates for branch ${watchTargetBranchForNotif}:`, error);
-                if (isMounted) {
-                    toast({title: "Error", description: "Could not fetch rates for the selected branch.", variant: "destructive"});
-                    setRatesForAddNotificationSubForm([]);
-                }
-            }
-        };
-        fetchRatesForSubForm();
-    } else {
-        // console.log("[AdminNotif] Conditions not met or dialog closed, clearing ratesForAddNotificationSubForm.");
-        // Only clear if it actually has items, to prevent unnecessary re-renders if already empty.
-        if (ratesForAddNotificationSubForm.length > 0 && isMounted) {
+      const fetchRates = async () => {
+        try {
+          const ratesData = await getRatesForBranchSimple(tenantId, watchTargetBranchForNotif as number);
+          if (isMounted) {
+            setRatesForAddNotificationSubForm(ratesData);
+          }
+        } catch (error) {
+          if (isMounted) {
+            toast({title: "Error", description: "Could not fetch rates for the selected branch.", variant: "destructive"});
             setRatesForAddNotificationSubForm([]);
+          }
         }
+      };
+      fetchRates();
+    } else {
+      if (isMounted && ratesForAddNotificationSubForm.length > 0) {
+        setRatesForAddNotificationSubForm([]);
+      }
     }
     return () => { isMounted = false; };
-  }, [watchDoReservationForNotif, watchTargetBranchForNotif, tenantId, isAddNotificationDialogOpen, toast]); // Removed ratesForAddNotificationSubForm.length from deps
+  }, [watchDoReservationForNotif, watchTargetBranchForNotif, tenantId, isAddNotificationDialogOpen, toast, ratesForAddNotificationSubForm.length]);
 
 
   useEffect(() => {
@@ -345,7 +338,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
   const renderReservationSubFormFields = (formInstance: any, rates: SimpleRate[], prefix: string, isRateOptional: boolean, isPaidState: any) => (
     <div className="border p-3 rounded-md mt-2 space-y-3 bg-muted/50">
         <FormField control={formInstance.control} name={`${prefix}_client_name`} render={({ field }) => (
-            <FormItem><FormLabel>Client Name for Reservation {isRateOptional ? '(Optional)' : '*'}</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
+            <FormItem><FormLabel>Client Name for Reservation *</FormLabel><FormControl><Input placeholder="Client Name" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
         )} />
         <FormField control={formInstance.control} name={`${prefix}_selected_rate_id`} render={({ field }) => (
             <FormItem>
@@ -377,7 +370,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 <Checkbox
                   checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                   onCheckedChange={(checked) => {
-                    field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.PAID : TRANSACTION_PAYMENT_STATUS.UNPAID); 
+                    field.onChange(checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.UNPAID); 
                     if (!checked) {
                         formInstance.setValue(`${prefix}_tender_amount_at_checkin`, null, { shouldValidate: true });
                     }
@@ -385,7 +378,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                 />
               </FormControl>
               <div className="space-y-1 leading-none">
-                <FormLabel>Mark as Paid?</FormLabel>
+                <FormLabel>Mark as Paid in Advance?</FormLabel>
               </div>
             </FormItem>
           )}
@@ -462,7 +455,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
             <Dialog open={isAddNotificationDialogOpen} onOpenChange={(open) => {
                 if (!open) { 
                     addNotificationForm.reset(defaultNotificationFormValues); 
-                    setRatesForAddNotificationSubForm([]); // Clear rates when dialog closes
+                    setRatesForAddNotificationSubForm([]); 
                 }
                 setIsAddNotificationDialogOpen(open);
             }}>
@@ -485,7 +478,6 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                                         <Select 
                                             onValueChange={(value) => {
                                                 field.onChange(value ? parseInt(value) : undefined);
-                                                // Reset rate selection if branch changes
                                                 addNotificationForm.setValue('reservation_selected_rate_id', undefined);
                                             }} 
                                             value={field.value?.toString()}
@@ -508,7 +500,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                             </div>
                             <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                                <Button type="submit" disabled={isSubmitting || (watchDoReservationForNotif && ratesForAddNotificationSubForm.length === 0 && !addNotificationForm.getValues('reservation_selected_rate_id') && !notificationCreateSchema.shape.reservation_selected_rate_id.isOptional())}>
+                                <Button type="submit" disabled={isSubmitting || (watchDoReservationForNotif && ratesForAddNotificationSubForm.length === 0 && !addNotificationForm.getValues('reservation_selected_rate_id') && !(notificationCreateSchema._def.schema.shape.reservation_selected_rate_id as any).isOptional())}>
                                     {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Notification"}
                                 </Button>
                             </DialogFooter>
@@ -541,8 +533,8 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                   <TableCell className="max-w-xs truncate" title={notif.message}>{notif.message}</TableCell>
                   <TableCell>{notif.creator_username || 'System'}</TableCell>
                   <TableCell>{notif.target_branch_name || 'N/A'}</TableCell>
-                  <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status]}</TableCell>
-                  <TableCell>{NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT[notif.transaction_status]}</TableCell>
+                  <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status as keyof typeof NOTIFICATION_STATUS_TEXT]}</TableCell>
+                  <TableCell>{NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT[notif.transaction_status as keyof typeof NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT]}</TableCell>
                   <TableCell>{notif.transaction_id ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]) : 'N/A'}</TableCell>
                   <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
                   <TableCell className="text-right space-x-2">
@@ -609,7 +601,7 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
                     </div>
                     <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                         <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                        <Button type="submit" disabled={isSubmitting || (isLoading && ratesForCreateReservationDialog.length === 0 && !createReservationForm.getValues('selected_rate_id') && !notificationCreateSchema.shape.reservation_selected_rate_id.isOptional())}>
+                        <Button type="submit" disabled={isSubmitting || (isLoading && ratesForCreateReservationDialog.length === 0 && !createReservationForm.getValues('selected_rate_id') && !(notificationCreateSchema._def.schema.shape.reservation_selected_rate_id as any).isOptional())}>
                             {isSubmitting ? <Loader2 className="animate-spin" /> : "Create Reservation"}
                         </Button>
                     </DialogFooter>
@@ -620,3 +612,5 @@ export default function NotificationsContent({ tenantId, adminUserId }: Notifica
     </Card>
   );
 }
+
+    
