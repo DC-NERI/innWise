@@ -18,7 +18,7 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_PAYMENT_STATUS,
   TRANSACTION_IS_ACCEPTED_STATUS
-} from '../../../lib/constants';
+} from '../../../lib/constants'; // Adjusted import path
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -38,7 +38,6 @@ export async function createUnassignedReservation(
 ): Promise<{ success: boolean; message?: string; transaction?: Transaction }> {
 
   if (!staffUserId || typeof staffUserId !== 'number' || staffUserId <= 0) {
-    console.error("[createUnassignedReservation] Invalid staffUserId received:", staffUserId, "Data:", data);
     return { success: false, message: "Invalid user identifier for creating reservation." };
   }
 
@@ -48,26 +47,26 @@ export async function createUnassignedReservation(
     !TRANSACTION_PAYMENT_STATUS ||
     !TRANSACTION_IS_ACCEPTED_STATUS ||
     (is_admin_created_flag && typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined') ||
-    (!is_admin_created_flag && (typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION === 'undefined' || typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID === 'undefined')) ||
+    (!is_admin_created_flag && (typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM === 'undefined' || typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM === 'undefined')) ||
     typeof TRANSACTION_PAYMENT_STATUS.PAID === 'undefined' ||
     typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined' ||
     (is_admin_created_flag && typeof TRANSACTION_IS_ACCEPTED_STATUS.PENDING === 'undefined') ||
     (!is_admin_created_flag && typeof TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED === 'undefined')
   ) {
     const errorMessage = "Server configuration error: Critical status constants are missing or undefined in createUnassignedReservation.";
-    // console.error('[createUnassignedReservation] CRITICAL ERROR:', errorMessage, {
-    //     TRANSACTION_LIFECYCLE_STATUS_defined: !!TRANSACTION_LIFECYCLE_STATUS,
-    //     PENDING_BRANCH_ACCEPTANCE_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE,
-    //     ADVANCE_RESERVATION_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_RESERVATION,
-    //     ADVANCE_PAID_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.ADVANCE_PAID,
-    //     TRANSACTION_PAYMENT_STATUS_defined: !!TRANSACTION_PAYMENT_STATUS,
-    //     PAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.PAID,
-    //     UNPAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.UNPAID,
-    //     TRANSACTION_IS_ACCEPTED_STATUS_defined: !!TRANSACTION_IS_ACCEPTED_STATUS,
-    //     PENDING_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.PENDING,
-    //     ACCEPTED_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.ACCEPTED,
-    //     is_admin_created_flag,
-    // });
+    console.error('[createUnassignedReservation] CRITICAL ERROR:', errorMessage, {
+        TRANSACTION_LIFECYCLE_STATUS_defined: !!TRANSACTION_LIFECYCLE_STATUS,
+        PENDING_BRANCH_ACCEPTANCE_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE,
+        RESERVATION_NO_ROOM_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_NO_ROOM,
+        RESERVATION_WITH_ROOM_defined: typeof TRANSACTION_LIFECYCLE_STATUS?.RESERVATION_WITH_ROOM,
+        TRANSACTION_PAYMENT_STATUS_defined: !!TRANSACTION_PAYMENT_STATUS,
+        PAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.PAID,
+        UNPAID_defined: typeof TRANSACTION_PAYMENT_STATUS?.UNPAID,
+        TRANSACTION_IS_ACCEPTED_STATUS_defined: !!TRANSACTION_IS_ACCEPTED_STATUS,
+        PENDING_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.PENDING,
+        ACCEPTED_defined: typeof TRANSACTION_IS_ACCEPTED_STATUS?.ACCEPTED,
+        is_admin_created_flag,
+    });
     return { success: false, message: errorMessage };
   }
 
@@ -102,8 +101,8 @@ export async function createUnassignedReservation(
       finalIsAcceptedStatusValue = TRANSACTION_IS_ACCEPTED_STATUS.PENDING; // 3
     } else { // Staff creating for their own branch
       transactionLifecycleStatusValue = is_advance_reservation
-        ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION // 3
-        : (is_paid === TRANSACTION_PAYMENT_STATUS.PAID ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID : TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION); // 2 or 3
+        ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM // 3
+        : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM; // 2
       finalIsAcceptedStatusValue = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // 2
     }
     
@@ -188,7 +187,9 @@ export async function createUnassignedReservation(
     // This part should ideally not be reached if RETURNING * worked and transaction was committed
     return { success: false, message: "Reservation creation failed after commit." };
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) {
+        try { await client.query('ROLLBACK'); } catch (rbError) { console.error('[createUnassignedReservation] Error during rollback:', rbError); }
+    }
     console.error('[createUnassignedReservation DB Error]', error);
     const dbError = error as any; // Cast to any to access potential code/constraint
     let detailedMessage = `Database error: ${dbError.message || String(dbError)}`;
@@ -197,6 +198,8 @@ export async function createUnassignedReservation(
     }
     return { success: false, message: detailedMessage };
   } finally {
-    client.release();
+    if (client) {
+        client.release();
+    }
   }
 }

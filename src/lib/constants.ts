@@ -3,7 +3,7 @@
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2,
+  RESERVED: 2, // Room is held for a reservation
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -14,9 +14,9 @@ export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
 
 // HOTEL_ENTITY_STATUS: String values for general entity status (active, archived, etc.)
 export const HOTEL_ENTITY_STATUS = {
-  ARCHIVED: '0', // Intentionally string '0'
-  ACTIVE: '1',   // Intentionally string '1'
-  SUSPENDED: '2', // Intentionally string '2' for tenants
+  ARCHIVED: '0',
+  ACTIVE: '1',
+  SUSPENDED: '2',
 } as const;
 
 export const HOTEL_ENTITY_STATUS_TEXT: { [key: string]: string } = {
@@ -45,7 +45,7 @@ export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).
   label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT]
 }));
 
-// NOTIFICATION_STATUS (Read/Unread for notifications table)
+// NOTIFICATION_STATUS (Read/Unread for notifications table) - Integers
 export const NOTIFICATION_STATUS = {
   UNREAD: 0,
   READ: 1,
@@ -56,7 +56,7 @@ export const NOTIFICATION_STATUS_TEXT: { [key: number]: string } = {
   [NOTIFICATION_STATUS.READ]: 'Read',
 };
 
-// NOTIFICATION_TRANSACTION_LINK_STATUS (Whether a notification is linked to a transaction)
+// NOTIFICATION_TRANSACTION_LINK_STATUS (Whether a notification is linked to a transaction) - Integers
 export const NOTIFICATION_TRANSACTION_LINK_STATUS = {
   NO_TRANSACTION_LINK: 0,
   TRANSACTION_LINKED: 1,
@@ -67,15 +67,15 @@ export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string 
   [NOTIFICATION_TRANSACTION_LINK_STATUS.TRANSACTION_LINKED]: 'Reservation Linked',
 };
 
-// TRANSACTION_LIFECYCLE_STATUS (Status of a transaction record)
+// TRANSACTION_LIFECYCLE_STATUS (Status of a transaction record) - Integers based on user DDL
 export const TRANSACTION_LIFECYCLE_STATUS = {
-  CHECKED_IN: 0,
-  CHECKED_OUT: 1,
-  RESERVATION_WITH_ROOM: 2, // Also used for Advance Paid reservations WITH a room
-  RESERVATION_NO_ROOM: 3,   // Also used for Advance Reservation WITHOUT a room yet
-  PENDING_BRANCH_ACCEPTANCE: 4, // Admin-created reservation awaiting branch action
-  ADMIN_RESERVATION_DECLINED: 5, // Admin-created reservation declined by branch
-  VOIDED_CANCELLED: 6,
+  CHECKED_IN: 0,                      // '0': check-in
+  CHECKED_OUT: 1,                     // '1': check-out
+  RESERVATION_WITH_ROOM: 2,           // '2': reservation w/ room assignment
+  RESERVATION_NO_ROOM: 3,             // '3': reservation w/ no room assignment
+  PENDING_BRANCH_ACCEPTANCE: 4,       // '4': reservation transaction made by admin
+  ADMIN_RESERVATION_DECLINED: 5,      // '5': declined reservation from admin
+  VOIDED_CANCELLED: 6,                // '6': voided/cancelled reservation
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
@@ -88,11 +88,11 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
 };
 
-// TRANSACTION_PAYMENT_STATUS (is_paid column in transactions table)
+// TRANSACTION_PAYMENT_STATUS (is_paid column in transactions table) - Integers
 export const TRANSACTION_PAYMENT_STATUS = {
   UNPAID: 0,
   PAID: 1,
-  ADVANCE_PAID: 2, // If a reservation is paid in advance
+  ADVANCE_PAID: 2, // If a reservation (type 2 or 3) is paid in advance
 } as const;
 
 export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
@@ -101,7 +101,7 @@ export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID]: 'Advance Paid',
 };
 
-// TRANSACTION_IS_ACCEPTED_STATUS (is_accepted column in transactions, for admin-created ones)
+// TRANSACTION_IS_ACCEPTED_STATUS (is_accepted column in transactions, for admin-created ones) - Integers
 export const TRANSACTION_IS_ACCEPTED_STATUS = {
     DEFAULT: 0,      // Not applicable or default state (e.g., staff-created for own branch)
     NOT_ACCEPTED: 1, // Declined by branch
@@ -134,7 +134,7 @@ export const LOST_AND_FOUND_STATUS_OPTIONS = Object.values(LOST_AND_FOUND_STATUS
   label: LOST_AND_FOUND_STATUS_TEXT[value as keyof typeof LOST_AND_FOUND_STATUS_TEXT]
 }));
 
-// LOGIN_LOG_STATUS
+// LOGIN_LOG_STATUS (0 for failed, 1 for success)
 export const LOGIN_LOG_STATUS = {
   FAILED: 0,
   SUCCESS: 1,

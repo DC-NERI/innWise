@@ -19,7 +19,7 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_PAYMENT_STATUS,
   TRANSACTION_IS_ACCEPTED_STATUS
-} from '../../../lib/constants'; // Corrected import path
+} from '../../../lib/constants';
 import { logActivity } from '../../activityLogger';
 
 
@@ -43,21 +43,20 @@ export async function acceptReservationByStaff(
   if (
     !TRANSACTION_LIFECYCLE_STATUS ||
     typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID === 'undefined' ||
+    typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM === 'undefined' ||
+    typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM === 'undefined' ||
     !TRANSACTION_IS_ACCEPTED_STATUS ||
     typeof TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED === 'undefined' ||
     !TRANSACTION_PAYMENT_STATUS ||
     typeof TRANSACTION_PAYMENT_STATUS.PAID === 'undefined' ||
-    typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined' ||
-    typeof TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID === 'undefined'
+    typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined'
   ) {
     let missingConstantDetails = [];
     if (!TRANSACTION_LIFECYCLE_STATUS) missingConstantDetails.push("TRANSACTION_LIFECYCLE_STATUS is undefined.");
     else {
         if (typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined') missingConstantDetails.push("PENDING_BRANCH_ACCEPTANCE is undefined in TRANSACTION_LIFECYCLE_STATUS.");
-        if (typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION === 'undefined') missingConstantDetails.push("ADVANCE_RESERVATION is undefined in TRANSACTION_LIFECYCLE_STATUS.");
-        if (typeof TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID === 'undefined') missingConstantDetails.push("ADVANCE_PAID is undefined in TRANSACTION_LIFECYCLE_STATUS.");
+        if (typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM === 'undefined') missingConstantDetails.push("RESERVATION_NO_ROOM is undefined in TRANSACTION_LIFECYCLE_STATUS.");
+        if (typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM === 'undefined') missingConstantDetails.push("RESERVATION_WITH_ROOM is undefined in TRANSACTION_LIFECYCLE_STATUS.");
     }
     if (!TRANSACTION_IS_ACCEPTED_STATUS) missingConstantDetails.push("TRANSACTION_IS_ACCEPTED_STATUS is undefined.");
     else {
@@ -67,7 +66,6 @@ export async function acceptReservationByStaff(
     else {
         if (typeof TRANSACTION_PAYMENT_STATUS.PAID === 'undefined') missingConstantDetails.push("PAID is undefined in TRANSACTION_PAYMENT_STATUS.");
         if (typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined') missingConstantDetails.push("UNPAID is undefined in TRANSACTION_PAYMENT_STATUS.");
-        if (typeof TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID === 'undefined') missingConstantDetails.push("ADVANCE_PAID is undefined in TRANSACTION_PAYMENT_STATUS.");
     }
     const errorMessage = `Server configuration error: Critical status constants are missing or undefined in acceptReservationByStaff. Details: ${missingConstantDetails.join('; ')}`;
     console.error('[acceptReservationByStaff] CRITICAL ERROR:', errorMessage);
@@ -105,14 +103,13 @@ export async function acceptReservationByStaff(
 
     if (currentTxRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      client.release();
       return { success: false, message: "Reservation not found or not pending branch acceptance." };
     }
     const originalClientName = currentTxRes.rows[0].client_name;
 
     const newTransactionStatus = is_advance_reservation
-        ? TRANSACTION_LIFECYCLE_STATUS.ADVANCE_RESERVATION
-        : TRANSACTION_LIFECYCLE_STATUS.ADVANCE_PAID; // When staff accepts, it's for a reservation.
+        ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM // '3'
+        : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM; // '2'
 
     const finalIsPaidStatus = is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID;
 
@@ -154,7 +151,6 @@ export async function acceptReservationByStaff(
 
     if (res.rows.length === 0) {
       await client.query('ROLLBACK');
-      client.release();
       return { success: false, message: "Reservation not found, already processed, or not pending acceptance when attempting update." };
     }
 
@@ -183,7 +179,7 @@ export async function acceptReservationByStaff(
 
 
     await client.query('COMMIT');
-    client.release();
+    
 
     let rateName = null;
     if (updatedTransactionRow.hotel_rate_id) {
@@ -205,7 +201,7 @@ export async function acceptReservationByStaff(
         status: Number(updatedTransactionRow.status),
         is_paid: Number(updatedTransactionRow.is_paid),
         is_accepted: Number(updatedTransactionRow.is_accepted),
-        is_admin_created: Number(updatedTransactionRow.is_admin_created),
+        is_admin_created: updatedTransactionRow.is_admin_created !== null ? Number(updatedTransactionRow.is_admin_created) : null,
         rate_name: rateName
       } as Transaction
     };
@@ -221,8 +217,8 @@ export async function acceptReservationByStaff(
     console.error('[acceptReservationByStaff DB Error]', error);
     return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
   } finally {
-    if (client && !client.release) { // Check if client might have been released in catch block's finally
-        // client.release(); // This was causing an issue - client might be released already
+    if (client) {
+        client.release();
     }
   }
 }
