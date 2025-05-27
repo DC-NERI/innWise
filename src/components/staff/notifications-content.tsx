@@ -31,14 +31,14 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { MessageSquare, Loader2, RefreshCw, CalendarCheck, XCircle, Edit3, CheckCircle2, User, CalendarClock, Ban } from "lucide-react";
+import { MessageSquare, Loader2, RefreshCw, CalendarCheck, XCircle, Ban, CheckCircle2, User, CalendarClock } from "lucide-react"; // Removed Edit3
 import type { Notification, Transaction, SimpleRate } from '@/lib/types';
 
 import { listNotificationsForBranch } from '@/actions/staff/notifications/listNotificationsForBranch';
 import { markStaffNotificationAsRead } from '@/actions/staff/notifications/markStaffNotificationAsRead';
+import { getTransactionDetailsForManagement } from '@/actions/staff/transactions/getTransactionDetailsForManagement'; // New action
 import { acceptReservationByStaff } from '@/actions/staff/reservations/acceptReservationByStaff';
 import { declineReservationByStaff } from '@/actions/staff/reservations/declineReservationByStaff';
-import { getActiveTransactionForRoom } from '@/actions/staff/transactions/getActiveTransactionForRoom';
 import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
 
 import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
@@ -60,7 +60,7 @@ import { cn } from '@/lib/utils';
 
 interface NotificationsContentProps {
   tenantId: number;
-  branchId: number; // Staff's current branch ID
+  branchId: number; 
   staffUserId: number;
   refreshReservationCount?: () => void;
 }
@@ -68,12 +68,10 @@ interface NotificationsContentProps {
 const formatDateTimeForInput = (dateString?: string | null): string => {
   if (!dateString) return "";
   try {
-    // Ensure the string is in a format parseISO can handle (YYYY-MM-DDTHH:mm:ss or YYYY-MM-DD HH:mm:ss)
     const parsableDateString = dateString.includes('T') ? dateString : dateString.replace(' ', 'T');
     return format(parseISO(parsableDateString), "yyyy-MM-dd'T'HH:mm");
   } catch (e) {
-    console.error("Error formatting date for input:", e);
-    return ""; // Fallback to empty string if parsing fails
+    return ""; 
   }
 };
 
@@ -94,10 +92,8 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
         }
     } catch (e) { /* ignore, use current date */ }
   } else {
-    // If no check-in is provided, default to today at 2 PM for calculation base
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  // Default checkout to next day at 12 PM
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
@@ -106,15 +102,16 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
 export default function NotificationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: NotificationsContentProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoadingNotifications, setIsLoadingNotifications] = useState(true);
-  const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+  const [selectedNotificationForDetails, setSelectedNotificationForDetails] = useState<Notification | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
-  const [isAcceptManageModalOpen, setIsAcceptManageModalOpen] = useState(false);
+  
   const [transactionToManage, setTransactionToManage] = useState<Transaction | null>(null);
+  const [isAcceptManageModalOpen, setIsAcceptManageModalOpen] = useState(false);
   const [ratesForAcceptModal, setRatesForAcceptModal] = useState<SimpleRate[]>([]);
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
-  const [transactionToDecline, setTransactionToDecline] = useState<Transaction | null>(null);
+  
+  const [notificationToDeclineViaManageModal, setNotificationToDeclineViaManageModal] = useState<Notification | null>(null);
   const [isDeclineConfirmOpen, setIsDeclineConfirmOpen] = useState(false);
-
 
   const { toast } = useToast();
 
@@ -132,9 +129,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         tender_amount_at_checkin: null,
     }
   });
-  const watchIsAdvanceReservationForm = acceptManageForm.watch("is_advance_reservation");
-  const watchIsPaidAcceptManageForm = acceptManageForm.watch("is_paid");
-
+  const watchIsAdvanceReservationForm = useWatch({ control: acceptManageForm.control, name: 'is_advance_reservation' });
+  const watchIsPaidAcceptManageForm = useWatch({ control: acceptManageForm.control, name: 'is_paid' });
 
   const fetchNotifications = useCallback(async () => {
     if (!tenantId || !branchId) {
@@ -165,83 +161,61 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         if (!acceptManageForm.getValues('reserved_check_out_datetime')) {
              acceptManageForm.setValue('reserved_check_out_datetime', getDefaultCheckOutDateTimeString(currentCheckIn), { shouldValidate: true, shouldDirty: true });
         }
-    } else if (isAcceptManageModalOpen) { // If not advance, clear the date fields
+    } else if (isAcceptManageModalOpen) { 
         acceptManageForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
         acceptManageForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
     }
   }, [watchIsAdvanceReservationForm, acceptManageForm, isAcceptManageModalOpen]);
 
-
   const handleCardClick = async (notification: Notification) => {
     if (!tenantId || !branchId) return;
-    setSelectedNotification(notification);
+    setSelectedNotificationForDetails(notification);
     setIsDetailsModalOpen(true);
     if (notification.status === NOTIFICATION_STATUS.UNREAD) {
-      // Optimistically update UI
       setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.READ, read_at: new Date().toISOString() } : n)
         .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-
       try {
-        // Call server to mark as read
         const result = await markStaffNotificationAsRead(notification.id, tenantId, branchId);
-        if (!result.success && result.notification === undefined) { // If server failed and didn't return updated notif
+        if (!result.success && result.notification === undefined) { 
           toast({title: "Info", description: result.message || "Failed to mark notification as read on server.", variant:"default"})
-           // Revert optimistic update
            setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         } else if (result.success && result.notification) {
-            // If server confirms, update with server data just in case
             setNotifications(prev => prev.map(n => n.id === notification.id ? result.notification! : n)
             .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
         }
       } catch (error) {
-        // Revert optimistic update on network error
          setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, status: NOTIFICATION_STATUS.UNREAD, read_at: null } : n)
           .sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
       }
     }
   };
 
-  const handleOpenAcceptManageModal = async () => {
-    if (!selectedNotification || !selectedNotification.transaction_id || !tenantId || !staffUserId ) {
-      toast({ title: "Error", description: "Notification, transaction, or user ID not available for managing reservation.", variant: "destructive" });
-      setIsAcceptManageModalOpen(false);
+  const handleOpenManageReservationModal = async () => {
+    if (!selectedNotificationForDetails || !selectedNotificationForDetails.transaction_id || !tenantId || !staffUserId || !selectedNotificationForDetails.target_branch_id ) {
+      toast({ title: "Error", description: "Notification, transaction, user ID, or target branch ID not available for managing reservation.", variant: "destructive" });
       return;
     }
-    if (!selectedNotification.target_branch_id) { // Ensure target_branch_id is present for this notification
-      toast({ title: "Error", description: "Target branch ID is missing from the notification.", variant: "destructive" });
-      setIsAcceptManageModalOpen(false);
-      return;
-    }
-
-    setIsSubmittingAction(true); // Use a general loading state for modal prep
+    setIsSubmittingAction(true);
     try {
-      console.log(`[NotificationsContent] Opening Accept/Manage Modal. Notification ID: ${selectedNotification.id}, Target Branch ID: ${selectedNotification.target_branch_id}`);
-      const ratesForTargetBranch = await getRatesForBranchSimple(tenantId, selectedNotification.target_branch_id);
-      console.log(`[NotificationsContent] Fetched ${ratesForTargetBranch.length} active rates for branch ${selectedNotification.target_branch_id}:`, ratesForTargetBranch);
-      setRatesForAcceptModal(ratesForTargetBranch);
-
-      const transaction = await getActiveTransactionForRoom(selectedNotification.transaction_id, tenantId, selectedNotification.target_branch_id);
-      console.log(`[NotificationsContent] Fetched transaction details for Tx ID ${selectedNotification.transaction_id}:`, transaction);
-
+      const transaction = await getTransactionDetailsForManagement(selectedNotificationForDetails.transaction_id, tenantId, selectedNotificationForDetails.target_branch_id);
       if (!transaction) {
-        toast({ title: "Error", description: "Linked transaction not found or is not in a manageable state.", variant: "destructive" });
+        toast({ title: "Error", description: "Linked transaction not found or is not in a state pending acceptance.", variant: "destructive" });
         setIsSubmittingAction(false);
         return;
       }
       setTransactionToManage(transaction);
 
-      // Determine initial rate for the form
+      const rates = await getRatesForBranchSimple(tenantId, selectedNotificationForDetails.target_branch_id);
+      setRatesForAcceptModal(rates);
+      
       let initialRateId = transaction.hotel_rate_id ?? undefined;
-      if (ratesForTargetBranch.length > 0) {
-        // If the transaction's rate is not among active rates, or if no rate is set, default to undefined or first available
-        if (initialRateId && !ratesForTargetBranch.some(rate => rate.id === initialRateId)) {
-          initialRateId = ratesForTargetBranch[0].id; // Or undefined to force selection
-        } else if (!initialRateId && ratesForTargetBranch.length > 0) {
-          initialRateId = ratesForTargetBranch[0].id; // Default to first if no rate set
+      if (rates.length > 0) {
+        if (initialRateId && !rates.some(rate => rate.id === initialRateId)) {
+          initialRateId = undefined; // Force selection if old rate is not active
         }
       } else {
-        initialRateId = undefined; // No active rates, so no rate can be selected
+        initialRateId = undefined; // No active rates
       }
       
       acceptManageForm.reset({
@@ -249,15 +223,15 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         selected_rate_id: initialRateId,
         client_payment_method: transaction.client_payment_method ?? undefined,
         notes: transaction.notes ?? '',
-        is_advance_reservation: transaction.reserved_check_in_datetime ? true : false,
+        is_advance_reservation: !!transaction.reserved_check_in_datetime,
         reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
         is_paid: transaction.is_paid !== null && transaction.is_paid !== undefined ? transaction.is_paid : TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: transaction.tender_amount ?? null,
       });
 
-      setIsDetailsModalOpen(false); // Close details modal
-      setIsAcceptManageModalOpen(true); // Open accept/manage modal
+      setIsDetailsModalOpen(false); 
+      setIsAcceptManageModalOpen(true);
     } catch (error) {
       toast({ title: "Error Loading Details", description: `Failed to load reservation details or rates. ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
       setRatesForAcceptModal([]);
@@ -267,59 +241,57 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
   };
 
   const handleAcceptReservationSubmit = async (data: TransactionUnassignedUpdateData) => {
-    if (!transactionToManage || !transactionToManage.id || !tenantId || !selectedNotification?.target_branch_id || !staffUserId) { // Use selectedNotification.target_branch_id
+    if (!transactionToManage || !transactionToManage.id || !tenantId || !selectedNotificationForDetails?.target_branch_id || !staffUserId) { 
         toast({ title: "Error", description: "Required data for accepting reservation is missing.", variant: "destructive" });
         return;
     }
     setIsSubmittingAction(true);
     try {
-      // Use the notification's target_branch_id as the branchId for the action
-      const result = await acceptReservationByStaff(transactionToManage.id, data, tenantId, selectedNotification.target_branch_id, staffUserId);
+      const result = await acceptReservationByStaff(transactionToManage.id, data, tenantId, selectedNotificationForDetails.target_branch_id, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: result.message });
         setIsAcceptManageModalOpen(false);
-        fetchNotifications(); // Re-fetch notifications to update their status
-        refreshReservationCount?.(); // Refresh unassigned reservation count on main dashboard
+        fetchNotifications(); 
+        refreshReservationCount?.();
       } else {
         toast({ title: "Acceptance Failed", description: result.message || "Could not accept reservation.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: `Could not accept reservation due to an unexpected error: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+      toast({ title: "Error", description: `Could not accept reservation: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
     }
   };
 
-  const handleOpenDeclineConfirmation = (transaction: Transaction | null) => {
-    if (transaction) {
-        setTransactionToDecline(transaction);
-        setIsDeclineConfirmOpen(true);
-    }
+  const handleOpenDeclineConfirmation = () => {
+    if (!selectedNotificationForDetails) return;
+    setNotificationToDeclineViaManageModal(selectedNotificationForDetails); // Use notification to get transactionId and branchId
+    setIsDeclineConfirmOpen(true);
   };
 
   const handleConfirmDeclineReservation = async () => {
-    if (!transactionToDecline || !transactionToDecline.id || !tenantId || !selectedNotification?.target_branch_id || !staffUserId) {
+    if (!notificationToDeclineViaManageModal || !notificationToDeclineViaManageModal.transaction_id || !notificationToDeclineViaManageModal.target_branch_id || !tenantId || !staffUserId) {
         toast({ title: "Error", description: "Required data for declining reservation is missing.", variant: "destructive" });
+        setIsDeclineConfirmOpen(false);
         return;
     }
     setIsSubmittingAction(true);
     try {
-      // Use the notification's target_branch_id as the branchId for the action
-      const result = await declineReservationByStaff(transactionToDecline.id, tenantId, selectedNotification.target_branch_id, staffUserId);
+      const result = await declineReservationByStaff(notificationToDeclineViaManageModal.transaction_id, tenantId, notificationToDeclineViaManageModal.target_branch_id, staffUserId);
       if (result.success) {
         toast({ title: "Success", description: "Reservation declined." });
-        setIsAcceptManageModalOpen(false); // Close the manage modal if it was open
-        setIsDetailsModalOpen(false); // Close details modal if it was open
-        fetchNotifications(); // Re-fetch notifications
-        refreshReservationCount?.(); // Refresh count on main dashboard
+        setIsAcceptManageModalOpen(false); 
+        setIsDetailsModalOpen(false); 
+        fetchNotifications(); 
+        refreshReservationCount?.(); 
       } else {
         toast({ title: "Decline Failed", description: result.message || "Could not decline reservation.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: `Could not decline reservation due to an unexpected error: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
+      toast({ title: "Error", description: `Could not decline reservation: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
     } finally {
       setIsSubmittingAction(false);
-      setTransactionToDecline(null);
+      setNotificationToDeclineViaManageModal(null);
       setIsDeclineConfirmOpen(false);
     }
   };
@@ -332,7 +304,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
             <MessageSquare className="h-6 w-6 text-primary" />
             <CardTitle>Branch Notifications</CardTitle>
           </div>
-          <ShadCardDescription>View messages and notifications for your branch.</ShadCardDescription>
+          <ShadCardDescription>View messages and notifications for your branch. Click a notification to view details and take action.</ShadCardDescription>
         </div>
         <Button variant="outline" onClick={fetchNotifications} disabled={isLoadingNotifications}>
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingNotifications ? 'animate-spin' : ''}`} /> Refresh List
@@ -350,41 +322,22 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               let cardTitleClass = "text-card-foreground";
               let cardDescriptionClass = "text-muted-foreground";
               let cardContentTextClass = "text-card-foreground";
-              let cardStatusTextClass = Number(notif.status) === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-primary" : "text-muted-foreground";
-              let cardLinkedStatusTextClass = "font-semibold";
-              let cardAcceptanceTextClass = "font-semibold";
+              
+              const isUnread = Number(notif.status) === NOTIFICATION_STATUS.UNREAD;
+              const isPendingAcceptance = notif.transaction_id && Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.PENDING && Number(notif.linked_transaction_lifecycle_status) === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE;
+              const isAcceptedByBranch = notif.transaction_id && Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED;
+              const isDeclinedByBranch = notif.transaction_id && Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED;
 
-              if (notif.transaction_id && notif.transaction_is_accepted !== null && notif.transaction_is_accepted !== undefined) {
-                 if (Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) {
-                    cardBgClass = "bg-red-500 border-red-700 animate-pulse-opacity-gentle";
-                    cardTitleClass = "text-white";
-                    cardDescriptionClass = "text-red-100";
-                    cardContentTextClass = "text-red-50";
-                    cardStatusTextClass = Number(notif.status) === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-white" : "text-red-100";
-                    cardLinkedStatusTextClass = "font-semibold text-red-50";
-                    cardAcceptanceTextClass = "font-semibold text-red-50";
-                } else if (Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED) {
-                    cardBgClass = "bg-green-100 dark:bg-green-800/30 border-green-300 dark:border-green-700";
-                    cardTitleClass = "text-green-700 dark:text-green-200";
-                    cardDescriptionClass = "text-green-600 dark:text-green-300";
-                    cardContentTextClass = "text-green-700 dark:text-green-200";
-                    cardStatusTextClass = Number(notif.status) === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-green-700 dark:text-green-200" : "text-green-600 dark:text-green-300";
-                    cardLinkedStatusTextClass = "font-semibold text-green-700 dark:text-green-200";
-                    cardAcceptanceTextClass = "font-semibold text-green-700 dark:text-green-200";
-                } else if (Number(notif.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED) {
-                    cardBgClass = "bg-red-500 border-red-700"; // Solid red, no blink
-                    cardTitleClass = "text-white";
-                    cardDescriptionClass = "text-red-100";
-                    cardContentTextClass = "text-red-50";
-                    cardStatusTextClass = Number(notif.status) === NOTIFICATION_STATUS.UNREAD ? "font-semibold text-white" : "text-red-100";
-                    cardLinkedStatusTextClass = "font-semibold text-red-50";
-                    cardAcceptanceTextClass = "font-semibold text-red-50";
-                } else { 
-                  cardLinkedStatusTextClass = "text-muted-foreground";
-                  cardAcceptanceTextClass = "text-muted-foreground";
-                }
-              }
-              if (Number(notif.status) === NOTIFICATION_STATUS.UNREAD && !cardBgClass.includes('bg-red-500') && !cardBgClass.includes('bg-green-100')) {
+              if (isPendingAcceptance) {
+                cardBgClass = "bg-red-500 border-red-700 animate-pulse-opacity-gentle";
+                cardTitleClass = "text-white"; cardDescriptionClass = "text-red-100"; cardContentTextClass = "text-red-50";
+              } else if (isAcceptedByBranch) {
+                cardBgClass = "bg-green-100 dark:bg-green-800/30 border-green-300 dark:border-green-700";
+                cardTitleClass = "text-green-700 dark:text-green-200"; cardDescriptionClass = "text-green-600 dark:text-green-300"; cardContentTextClass = "text-green-700 dark:text-green-200";
+              } else if (isDeclinedByBranch) {
+                cardBgClass = "bg-red-500 border-red-700"; 
+                cardTitleClass = "text-white"; cardDescriptionClass = "text-red-100"; cardContentTextClass = "text-red-50";
+              } else if (isUnread) {
                 cardBgClass = cn(cardBgClass, "border-primary");
               }
 
@@ -403,11 +356,18 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                     </ShadCardDescription>
                   </CardHeader>
                   <CardContent className={cn("text-xs pb-3", cardContentTextClass)}>
-                  <p>Status: <span className={cardStatusTextClass}>{NOTIFICATION_STATUS_TEXT[notif.status as keyof typeof NOTIFICATION_STATUS_TEXT]}</span></p>
-                  {notif.transaction_id && (
-                    <p>Linked Reservation: Status <span className={cardLinkedStatusTextClass}>{notif.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</span> | Acceptance <span className={cardAcceptanceTextClass}>{TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted ?? 0]}</span> </p>
-                  )}
-                </CardContent>
+                    <p>Status: <span className={cn(isUnread && !isPendingAcceptance ? "font-semibold text-primary" : "font-normal", cardContentTextClass)}>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
+                    {notif.transaction_id && (
+                      <p>Linked Reservation: 
+                        {notif.linked_transaction_lifecycle_status !== null && (
+                          <span className={cn("font-semibold", cardContentTextClass)}> {TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_lifecycle_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A'}</span>
+                        )}
+                        {notif.transaction_is_accepted !== null && (
+                          <span className={cn("font-semibold", cardContentTextClass)}> | Acceptance: {TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted]}</span>
+                        )}
+                      </p>
+                    )}
+                  </CardContent>
                 </Card>
               );
             })}
@@ -420,32 +380,31 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
           <DialogHeader>
             <ShadDialogTitle>Notification Details</ShadDialogTitle>
           </DialogHeader>
-          {selectedNotification && (
+          {selectedNotificationForDetails && (
             <div className="py-4 space-y-2">
               <div>
                 <p><strong>Message:</strong></p>
-                <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1">{selectedNotification.message}</pre>
+                <pre className="whitespace-pre-wrap text-sm bg-muted p-2 rounded-md mt-1">{selectedNotificationForDetails.message}</pre>
               </div>
-              <p><strong>From:</strong> {selectedNotification.creator_username || "System"}</p>
-              <p><strong>Target Branch:</strong> {selectedNotification.target_branch_name || "N/A (Tenant-wide)"}</p>
-              <p><strong>Date:</strong> {selectedNotification.created_at ? format(parseISO(selectedNotification.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</p>
-              <p><strong>Status:</strong> {NOTIFICATION_STATUS_TEXT[selectedNotification.status as keyof typeof NOTIFICATION_STATUS_TEXT]}</p>
-              {selectedNotification.transaction_id && (
+              <p><strong>From:</strong> {selectedNotificationForDetails.creator_username || "System"}</p>
+              <p><strong>Target Branch:</strong> {selectedNotificationForDetails.target_branch_name || "Tenant-wide"}</p>
+              <p><strong>Date:</strong> {selectedNotificationForDetails.created_at ? format(parseISO(selectedNotificationForDetails.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm:ss aa') : 'N/A'}</p>
+              <p><strong>Status:</strong> {NOTIFICATION_STATUS_TEXT[selectedNotificationForDetails.status]}</p>
+              {selectedNotificationForDetails.transaction_id && (
                 <>
-                  <p><strong>Linked Transaction ID:</strong> {selectedNotification.transaction_id}</p>
-                  <p><strong>Linked Reservation Status:</strong> {selectedNotification.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(selectedNotification.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</p>
-                  <p><strong>Acceptance by Branch:</strong> {TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotification.transaction_is_accepted ?? 0]}</p>
+                  <p><strong>Linked Transaction ID:</strong> {selectedNotificationForDetails.transaction_id}</p>
+                  <p><strong>Linked Reservation Status:</strong> {selectedNotificationForDetails.linked_transaction_lifecycle_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(selectedNotificationForDetails.linked_transaction_lifecycle_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</p>
+                  <p><strong>Acceptance by Branch:</strong> {selectedNotificationForDetails.transaction_is_accepted !== null ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotificationForDetails.transaction_is_accepted] : 'N/A'}</p>
                 </>
               )}
             </div>
           )}
           <DialogFooter className="sm:justify-between">
-            {selectedNotification?.transaction_id &&
-             Number(selectedNotification?.linked_transaction_status) === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE &&
-             (selectedNotification?.transaction_is_accepted === TRANSACTION_IS_ACCEPTED_STATUS.PENDING) && (
-              <Button onClick={handleOpenAcceptManageModal} disabled={isSubmittingAction || !selectedNotification.target_branch_id}>
-                {(isSubmittingAction && transactionToManage?.id === selectedNotification.transaction_id) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                <CalendarCheck className="mr-2 h-4 w-4" />
+            {selectedNotificationForDetails?.transaction_id &&
+             Number(selectedNotificationForDetails?.linked_transaction_lifecycle_status) === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE &&
+             Number(selectedNotificationForDetails?.transaction_is_accepted) === TRANSACTION_IS_ACCEPTED_STATUS.PENDING && (
+              <Button onClick={handleOpenManageReservationModal} disabled={isSubmittingAction || !selectedNotificationForDetails.target_branch_id}>
+                {(isSubmittingAction && transactionToManage?.id === selectedNotificationForDetails.transaction_id) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarCheck className="mr-2 h-4 w-4" />}
                 Manage Reservation
               </Button>
             )}
@@ -480,7 +439,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                         <FormControl><SelectTrigger className="w-full"><SelectValue placeholder={ratesForAcceptModal.length === 0 ? "No active rates for target branch" : "Select a rate *"} /></SelectTrigger></FormControl>
                         <SelectContent>{ratesForAcceptModal.map(rate => (<SelectItem key={rate.id} value={rate.id.toString()}>{rate.name} (₱{Number(rate.price).toFixed(2)} for {rate.hours}hr/s)</SelectItem>))}</SelectContent>
                       </Select><FormMessage />
-                      {ratesForAcceptModal.length === 0 && !isSubmittingAction && <p className="text-xs text-destructive mt-1">No active rates found for the notification's target branch. A rate is required to accept.</p>}
+                      {ratesForAcceptModal.length === 0 && !isSubmittingAction && <p className="text-xs text-destructive mt-1">No active rates found. A rate is required to accept.</p>}
                     </FormItem>
                   )} />
                   <FormField control={acceptManageForm.control} name="client_payment_method" render={({ field }) => (
@@ -533,7 +492,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                                 onChange={(e) => {
                                   const val = e.target.value;
                                   if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) {
-                                    field.onChange(val === "" ? null : val); 
+                                    field.onChange(val === "" ? null : parseFloat(val)); 
                                   }
                                 }}
                                 className="w-full"
@@ -549,12 +508,12 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                       <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-3 shadow-sm w-full">
                         <FormControl>
                           <Checkbox
-                            checked={field.value}
+                            checked={!!field.value} 
                             onCheckedChange={(checked) => {
-                                field.onChange(!!checked); // Ensure boolean
+                                field.onChange(!!checked); 
                                 const currentIsPaid = acceptManageForm.getValues("is_paid");
                                 if (currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
-                                    acceptManageForm.setValue("is_paid", checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
+                                    acceptManageForm.setValue("is_paid", !!checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
                                 }
                             }}
                           />
@@ -575,8 +534,8 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   )}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex flex-row justify-between sm:justify-between space-x-2">
-                    <Button type="button" variant="destructive" className="flex-1 w-1/3" onClick={() => handleOpenDeclineConfirmation(transactionToManage)} disabled={isSubmittingAction}>
-                        <XCircle className="mr-2 h-4 w-4" /> Decline
+                    <Button type="button" variant="destructive" className="flex-1 w-1/3" onClick={handleOpenDeclineConfirmation} disabled={isSubmittingAction}>
+                        <Ban className="mr-2 h-4 w-4" /> Decline
                     </Button>
                     <DialogClose asChild className="flex-1 w-1/3">
                         <Button type="button" variant="outline">Cancel</Button>
@@ -588,7 +547,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                         disabled={isSubmittingAction || !acceptManageForm.formState.isValid || (ratesForAcceptModal.length === 0 && !acceptManageForm.getValues('selected_rate_id')) }
                     >
                         {isSubmittingAction && <Loader2 className="mr-2 h-4 w-4 animate-spin" /> }
-                        <CalendarCheck className="mr-2 h-4 w-4"/> Accept
+                        <CheckCircle2 className="mr-2 h-4 w-4"/> Accept
                     </Button>
                 </DialogFooter>
               </form>
@@ -597,13 +556,13 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         </DialogContent>
       </Dialog>
 
-       <AlertDialog open={isDeclineConfirmOpen} onOpenChange={(open) => { if(!open) { setTransactionToDecline(null); setIsDeclineConfirmOpen(false); }}}>
+       <AlertDialog open={isDeclineConfirmOpen} onOpenChange={(open) => { if(!open) { setNotificationToDeclineViaManageModal(null); setIsDeclineConfirmOpen(false); }}}>
             <AlertDialogContent>
                 <AlertDialogHeader><ShadAlertDialogTitleConfirm>Confirm Decline</ShadAlertDialogTitleConfirm>
-                    <ShadAlertDialogDescriptionConfirm>Are you sure you want to decline this reservation for "{transactionToDecline?.client_name}"? This action cannot be undone.</ShadAlertDialogDescriptionConfirm>
+                    <ShadAlertDialogDescriptionConfirm>Are you sure you want to decline this reservation for "{notificationToDeclineViaManageModal?.message.substring(0,30)}..." (linked to Notification ID: {notificationToDeclineViaManageModal?.id})?</ShadAlertDialogDescriptionConfirm>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                    <AlertDialogCancel onClick={() => {setTransactionToDecline(null); setIsDeclineConfirmOpen(false);}}>No</AlertDialogCancel>
+                    <AlertDialogCancel onClick={() => {setNotificationToDeclineViaManageModal(null); setIsDeclineConfirmOpen(false);}}>No</AlertDialogCancel>
                     <AlertDialogAction onClick={handleConfirmDeclineReservation} disabled={isSubmittingAction}>
                         {isSubmittingAction ? <Loader2 className="animate-spin" /> : "Yes, Decline"}
                     </AlertDialogAction>
@@ -613,5 +572,3 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
     </Card>
   );
 }
-
-    

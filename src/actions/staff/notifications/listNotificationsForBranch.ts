@@ -23,17 +23,17 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client in staff/notifications/listNotificationsForBranch action', err);
+  console.error('[listNotificationsForBranch Pool Error] Unexpected error on idle client:', err);
 });
 
 export async function listNotificationsForBranch(tenantId: number, branchId: number): Promise<Notification[]> {
-  if (typeof tenantId !== 'number' || typeof branchId !== 'number' || isNaN(tenantId) || isNaN(branchId)) {
+  if (typeof tenantId !== 'number' || isNaN(tenantId) || typeof branchId !== 'number' || isNaN(branchId)) {
     console.warn(`[listNotificationsForBranch] Invalid tenantId (${tenantId}) or branchId (${branchId}). Aborting fetch.`);
     return [];
   }
+  
   const client = await pool.connect();
   try {
-    // console.log(`[listNotificationsForBranch Server] Fetching for tenantId: ${tenantId}, branchId: ${branchId}`);
     const query = `
       SELECT
         n.id,
@@ -74,27 +74,23 @@ export async function listNotificationsForBranch(tenantId: number, branchId: num
         creator_user_id: row.creator_user_id ? Number(row.creator_user_id) : null,
         creator_username: row.creator_username,
         transaction_id: row.transaction_id ? Number(row.transaction_id) : null,
-        created_at: row.created_at,
-        read_at: row.read_at,
+        created_at: String(row.created_at), // Keep as string from DB
+        read_at: row.read_at ? String(row.read_at) : null, // Keep as string from DB
         transaction_status: Number(row.notification_link_status), // Link status
         transaction_is_accepted: row.transaction_is_accepted !== null ? Number(row.transaction_is_accepted) : null,
-        linked_transaction_status: row.linked_transaction_lifecycle_status !== null ? Number(row.linked_transaction_lifecycle_status) : null,
+        linked_transaction_lifecycle_status: row.linked_transaction_lifecycle_status !== null ? String(row.linked_transaction_lifecycle_status) : null, // Keep as string from DB
         notification_type: row.notification_type,
         priority: row.priority !== null ? Number(row.priority) : null,
-        acknowledged_at: row.acknowledged_at,
+        acknowledged_at: row.acknowledged_at ? String(row.acknowledged_at) : null, // Keep as string
         acknowledged_by_user_id: row.acknowledged_by_user_id ? Number(row.acknowledged_by_user_id) : null,
       };
       return notification;
     });
   } catch (dbError: any) {
-    console.error('[listNotificationsForBranch DB Error Raw]', dbError); // Log the raw error
-    // console.error(`Query was: ${query} with params: [${tenantId}, ${branchId}]`); // Be careful logging queries with sensitive data
-    const errorMessage = dbError && dbError.message ? dbError.message : 'Unknown database error occurred while fetching notifications.';
+    console.error('[listNotificationsForBranch DB Error Raw]', dbError);
+    const errorMessage = dbError?.message || 'Unknown database error occurred while fetching notifications.';
     throw new Error(`Database error in listNotificationsForBranch: ${errorMessage}`);
   } finally {
     client.release();
   }
 }
-    
-
-    
