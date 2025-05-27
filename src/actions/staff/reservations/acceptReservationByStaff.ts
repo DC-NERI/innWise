@@ -19,7 +19,7 @@ import {
   TRANSACTION_LIFECYCLE_STATUS,
   TRANSACTION_PAYMENT_STATUS,
   TRANSACTION_IS_ACCEPTED_STATUS
-} from '../../../lib/constants';
+} from '../../../lib/constants'; // Adjusted import path
 import { logActivity } from '../../activityLogger';
 
 
@@ -29,7 +29,7 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client in staff/reservations/acceptReservationByStaff action', err);
+  console.error('[acceptReservationByStaff Pool Error] Unexpected error on idle client:', err);
 });
 
 export async function acceptReservationByStaff(
@@ -39,38 +39,43 @@ export async function acceptReservationByStaff(
   branchId: number,
   staffUserId: number
 ): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
-  // More specific constant check
-  if (
-    !TRANSACTION_LIFECYCLE_STATUS ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM === 'undefined' ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM === 'undefined' ||
-    !TRANSACTION_IS_ACCEPTED_STATUS ||
-    typeof TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED === 'undefined' ||
-    !TRANSACTION_PAYMENT_STATUS ||
-    typeof TRANSACTION_PAYMENT_STATUS.PAID === 'undefined' ||
-    typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined'
-  ) {
-    let missingConstantDetails = [];
-    if (!TRANSACTION_LIFECYCLE_STATUS) missingConstantDetails.push("TRANSACTION_LIFECYCLE_STATUS is undefined.");
-    else {
-        if (typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined') missingConstantDetails.push("PENDING_BRANCH_ACCEPTANCE is undefined in TRANSACTION_LIFECYCLE_STATUS.");
-        if (typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM === 'undefined') missingConstantDetails.push("RESERVATION_NO_ROOM is undefined in TRANSACTION_LIFECYCLE_STATUS.");
-        if (typeof TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM === 'undefined') missingConstantDetails.push("RESERVATION_WITH_ROOM is undefined in TRANSACTION_LIFECYCLE_STATUS.");
-    }
-    if (!TRANSACTION_IS_ACCEPTED_STATUS) missingConstantDetails.push("TRANSACTION_IS_ACCEPTED_STATUS is undefined.");
-    else {
-        if (typeof TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED === 'undefined') missingConstantDetails.push("ACCEPTED is undefined in TRANSACTION_IS_ACCEPTED_STATUS.");
-    }
-    if (!TRANSACTION_PAYMENT_STATUS) missingConstantDetails.push("TRANSACTION_PAYMENT_STATUS is undefined.");
-    else {
-        if (typeof TRANSACTION_PAYMENT_STATUS.PAID === 'undefined') missingConstantDetails.push("PAID is undefined in TRANSACTION_PAYMENT_STATUS.");
-        if (typeof TRANSACTION_PAYMENT_STATUS.UNPAID === 'undefined') missingConstantDetails.push("UNPAID is undefined in TRANSACTION_PAYMENT_STATUS.");
-    }
+  // Critical check for constants
+  const requiredLifecycleStatuses = [
+    TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE,
+    TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM,
+    TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM, // Although this action sets to RESERVATION_NO_ROOM, we check it for completeness
+  ];
+  const requiredPaymentStatuses = [
+    TRANSACTION_PAYMENT_STATUS.PAID,
+    TRANSACTION_PAYMENT_STATUS.UNPAID,
+    TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID
+  ];
+  const requiredAcceptedStatuses = [
+    TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
+  ];
+
+  let missingConstantDetails = [];
+  if (!TRANSACTION_LIFECYCLE_STATUS) missingConstantDetails.push("TRANSACTION_LIFECYCLE_STATUS is undefined.");
+  else requiredLifecycleStatuses.forEach(statusKey => {
+    if (typeof statusKey === 'undefined') missingConstantDetails.push(`A key used for lifecycle status is undefined in TRANSACTION_LIFECYCLE_STATUS.`);
+  });
+
+  if (!TRANSACTION_PAYMENT_STATUS) missingConstantDetails.push("TRANSACTION_PAYMENT_STATUS is undefined.");
+  else requiredPaymentStatuses.forEach(statusKey => {
+    if (typeof statusKey === 'undefined') missingConstantDetails.push(`A key used for payment status is undefined in TRANSACTION_PAYMENT_STATUS.`);
+  });
+  
+  if (!TRANSACTION_IS_ACCEPTED_STATUS) missingConstantDetails.push("TRANSACTION_IS_ACCEPTED_STATUS is undefined.");
+  else requiredAcceptedStatuses.forEach(statusKey => {
+    if (typeof statusKey === 'undefined') missingConstantDetails.push(`A key used for accepted status is undefined in TRANSACTION_IS_ACCEPTED_STATUS.`);
+  });
+
+  if (missingConstantDetails.length > 0) {
     const errorMessage = `Server configuration error: Critical status constants are missing or undefined in acceptReservationByStaff. Details: ${missingConstantDetails.join('; ')}`;
     console.error('[acceptReservationByStaff] CRITICAL ERROR:', errorMessage);
     return { success: false, message: errorMessage };
   }
+
 
   const validatedFields = transactionUnassignedUpdateSchema.safeParse(data);
   if (!validatedFields.success) {
@@ -103,13 +108,15 @@ export async function acceptReservationByStaff(
 
     if (currentTxRes.rows.length === 0) {
       await client.query('ROLLBACK');
+      client.release();
       return { success: false, message: "Reservation not found or not pending branch acceptance." };
     }
     const originalClientName = currentTxRes.rows[0].client_name;
 
-    const newTransactionStatus = is_advance_reservation
-        ? TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM // '3'
-        : TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM; // '2'
+    // When staff accept, it becomes an unassigned reservation ready for room allocation.
+    // The is_advance_reservation flag determines if date/times are stored, but the status
+    // indicates it's now waiting for a room.
+    const newTransactionLifecycleStatus = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
 
     const finalIsPaidStatus = is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID;
 
@@ -120,7 +127,7 @@ export async function acceptReservationByStaff(
         hotel_rate_id = $2,
         client_payment_method = $3,
         notes = $4,
-        status = $5,
+        status = $5, -- Updated: Now consistently RESERVATION_NO_ROOM upon acceptance
         is_accepted = $6,
         accepted_by_user_id = $7,
         reserved_check_in_datetime = $8,
@@ -128,16 +135,16 @@ export async function acceptReservationByStaff(
         is_paid = $10,
         tender_amount = $11,
         updated_at = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')
-      WHERE id = $12 AND tenant_id = $13 AND branch_id = $14 AND status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE}
+      WHERE id = $12 AND tenant_id = $13 AND branch_id = $14 AND status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE.toString()}
       RETURNING id, tenant_id, branch_id, hotel_room_id, hotel_rate_id, client_name, client_payment_method, notes, check_in_time, check_out_time, hours_used, total_amount, tender_amount, is_paid, created_by_user_id, check_out_by_user_id, accepted_by_user_id, declined_by_user_id, status, created_at, updated_at, reserved_check_in_datetime, reserved_check_out_datetime, is_admin_created, is_accepted;
     `;
 
     const res = await client.query(updateQuery, [
       client_name,
-      selected_rate_id, // This is now required by transactionUnassignedUpdateSchema
+      selected_rate_id,
       client_payment_method ?? null,
       notes ?? null,
-      newTransactionStatus.toString(),
+      newTransactionLifecycleStatus.toString(),
       TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED,
       staffUserId,
       is_advance_reservation ? reserved_check_in_datetime : null,
@@ -151,6 +158,7 @@ export async function acceptReservationByStaff(
 
     if (res.rows.length === 0) {
       await client.query('ROLLBACK');
+      client.release();
       return { success: false, message: "Reservation not found, already processed, or not pending acceptance when attempting update." };
     }
 
@@ -158,16 +166,16 @@ export async function acceptReservationByStaff(
 
     try {
         await logActivity({
-            tenant_id: tenantId,
-            branch_id: branchId,
+            tenant_id: Number(tenantId),
+            branch_id: Number(branchId),
             actor_user_id: staffUserId,
             action_type: 'STAFF_ACCEPTED_ADMIN_RESERVATION',
-            description: `Staff (ID: ${staffUserId}) accepted admin-created reservation for '${client_name || originalClientName}' (Transaction ID: ${transactionId}). Status set to ${newTransactionStatus}.`,
+            description: `Staff (ID: ${staffUserId}) accepted admin-created reservation for '${updatedTransactionRow.client_name}' (Transaction ID: ${transactionId}). Status set to ${newTransactionLifecycleStatus}.`,
             target_entity_type: 'Transaction',
             target_entity_id: transactionId.toString(),
             details: {
-                client_name: client_name || originalClientName,
-                new_status: newTransactionStatus,
+                client_name: updatedTransactionRow.client_name,
+                new_status: newTransactionLifecycleStatus,
                 rate_id: selected_rate_id,
                 is_paid: finalIsPaidStatus
             }
@@ -177,19 +185,18 @@ export async function acceptReservationByStaff(
         // Do not let logging failure roll back the primary action
     }
 
-
     await client.query('COMMIT');
-    
+    client.release();
 
     let rateName = null;
+    let rateClient;
     if (updatedTransactionRow.hotel_rate_id) {
-      // Use a new client for read-after-write to avoid issues with transaction state if any
-      const rateClient = await pool.connect();
+      rateClient = await pool.connect();
       try {
         const rateRes = await rateClient.query('SELECT name FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [updatedTransactionRow.hotel_rate_id, tenantId, branchId]);
         if (rateRes.rows.length > 0) rateName = rateRes.rows[0].name;
       } finally {
-        rateClient.release();
+        if (rateClient) rateClient.release();
       }
     }
 
@@ -206,19 +213,19 @@ export async function acceptReservationByStaff(
       } as Transaction
     };
 
-  } catch (error) {
+  } catch (dbError: any) {
     if (client) {
       try {
         await client.query('ROLLBACK');
-      } catch (rbError) {
-        console.error('[acceptReservationByStaff] Error during rollback:', rbError);
+      } catch (rbError: any) {
+        console.error('[acceptReservationByStaff] Error during rollback:', rbError.message, rbError.stack);
+      } finally {
+        client.release();
       }
     }
-    console.error('[acceptReservationByStaff DB Error]', error);
-    return { success: false, message: `Database error: ${error instanceof Error ? error.message : String(error)}` };
-  } finally {
-    if (client) {
-        client.release();
-    }
+    console.error('[acceptReservationByStaff DB Error]', dbError);
+    return { success: false, message: `Database error: ${dbError.message || String(dbError)}` };
   }
 }
+
+    
