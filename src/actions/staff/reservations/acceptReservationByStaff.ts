@@ -5,21 +5,23 @@ import pg from 'pg';
 // Configure pg to return numeric types as numbers
 pg.types.setTypeParser(pg.types.builtins.INT2, (val: string) => parseInt(val, 10));
 pg.types.setTypeParser(pg.types.builtins.INT4, (val: string) => parseInt(val, 10));
-pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
+pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10)); // bigint
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
 // Configure pg to return timestamp without timezone as strings
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (stringValue: string) => stringValue);
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (stringValue: string) => stringValue);
 
+
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
-import { transactionUnassignedUpdateSchema, TransactionUnassignedUpdateData } from '@/lib/schemas';
+import { transactionUnassignedUpdateSchema, type TransactionUnassignedUpdateData } from '@/lib/schemas';
 import {
   TRANSACTION_LIFECYCLE_STATUS,
+  TRANSACTION_IS_ACCEPTED_STATUS,
   TRANSACTION_PAYMENT_STATUS,
-  TRANSACTION_IS_ACCEPTED_STATUS
+  HOTEL_ENTITY_STATUS
 } from '../../../lib/constants';
-import { logActivity } from '../../activityLogger';
+import { logActivity } from '@/actions/activityLogger';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -34,39 +36,43 @@ export async function acceptReservationByStaff(
   transactionId: number,
   data: TransactionUnassignedUpdateData,
   tenantId: number,
-  branchId: number,
+  branchId: number, // This must be the target_branch_id of the reservation
   staffUserId: number
 ): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
-  console.log('[acceptReservationByStaff] Action started. TxID:', transactionId, 'TenantID:', tenantId, 'BranchID:', branchId, 'StaffID:', staffUserId);
+  console.log(`[acceptReservationByStaff] Action started. TxID: ${transactionId}, TenantID: ${tenantId}, BranchID: ${branchId}, StaffID: ${staffUserId}`);
   console.log('[acceptReservationByStaff] Received data:', JSON.stringify(data, null, 2));
 
-  // Define target statuses based on constants
-  const PENDING_BRANCH_ACCEPTANCE_DB_STATUS = TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE; // This is '4'
-  const RESERVATION_NO_ROOM_DB_STATUS = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM; // This is '3'
-  const ACCEPTED_DB_IS_ACCEPTED_STATUS = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // This is 2
-  const PENDING_DB_IS_ACCEPTED_STATUS = TRANSACTION_IS_ACCEPTED_STATUS.PENDING; // This is 3
+  // Parameter Validation
+  if (!transactionId || transactionId <= 0) return { success: false, message: "Invalid Transaction ID." };
+  if (!tenantId || tenantId <= 0) return { success: false, message: "Invalid Tenant ID." };
+  if (!branchId || branchId <= 0) return { success: false, message: "Invalid Branch ID." };
+  if (!staffUserId || staffUserId <= 0) return { success: false, message: "Invalid Staff User ID." };
+
+  // Constants Check and Local Assignment
+  const PENDING_BRANCH_ACCEPTANCE_STATUS_INT = TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE;
+  const PENDING_IS_ACCEPTED_STATUS_INT = TRANSACTION_IS_ACCEPTED_STATUS.PENDING;
+  const TARGET_LIFECYCLE_STATUS_INT = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM;
+  const TARGET_IS_ACCEPTED_STATUS_INT = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED;
 
   if (
-    typeof PENDING_BRANCH_ACCEPTANCE_DB_STATUS === 'undefined' ||
-    typeof RESERVATION_NO_ROOM_DB_STATUS === 'undefined' ||
-    typeof ACCEPTED_DB_IS_ACCEPTED_STATUS === 'undefined' ||
-    typeof PENDING_DB_IS_ACCEPTED_STATUS === 'undefined' ||
-    typeof TRANSACTION_PAYMENT_STATUS?.UNPAID === 'undefined'
+    PENDING_BRANCH_ACCEPTANCE_STATUS_INT === undefined ||
+    PENDING_IS_ACCEPTED_STATUS_INT === undefined ||
+    TARGET_LIFECYCLE_STATUS_INT === undefined ||
+    TARGET_IS_ACCEPTED_STATUS_INT === undefined ||
+    TRANSACTION_PAYMENT_STATUS.UNPAID === undefined
   ) {
     const errorMessage = "Server configuration error: Critical status constants are missing or undefined in acceptReservationByStaff.";
-    console.error('[acceptReservationByStaff] CRITICAL ERROR on constants:', errorMessage);
+    console.error('[acceptReservationByStaff] CRITICAL ERROR on constants:', errorMessage, {
+        PENDING_BRANCH_ACCEPTANCE_STATUS_INT, PENDING_IS_ACCEPTED_STATUS_INT, TARGET_LIFECYCLE_STATUS_INT, TARGET_IS_ACCEPTED_STATUS_INT
+    });
     return { success: false, message: errorMessage };
   }
-   if (!staffUserId || staffUserId <= 0) {
-    console.error("[acceptReservationByStaff] Invalid staffUserId:", staffUserId);
-    return { success: false, message: "Invalid staff user ID." };
-  }
-
+  console.log(`[acceptReservationByStaff] Using constants: PENDING_BRANCH_ACCEPTANCE=${PENDING_BRANCH_ACCEPTANCE_STATUS_INT}, PENDING_IS_ACCEPTED=${PENDING_IS_ACCEPTED_STATUS_INT}, TARGET_LIFECYCLE_STATUS=${TARGET_LIFECYCLE_STATUS_INT}, TARGET_IS_ACCEPTED=${TARGET_IS_ACCEPTED_STATUS_INT}`);
 
   const validatedFields = transactionUnassignedUpdateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessages = JSON.stringify(validatedFields.error.flatten().fieldErrors);
-    console.error("[acceptReservationByStaff] Validation failed:", errorMessages);
+    console.warn("[acceptReservationByStaff] Validation failed:", errorMessages);
     return { success: false, message: "Invalid data: " + errorMessages };
   }
 
@@ -78,46 +84,40 @@ export async function acceptReservationByStaff(
     is_advance_reservation,
     reserved_check_in_datetime,
     reserved_check_out_datetime,
-    is_paid, // This is a number (0, 1, or 2) from the schema
+    is_paid,
     tender_amount_at_checkin,
   } = validatedFields.data;
 
-  let client: pg.PoolClient | undefined;
+  const finalIsPaidDbValue = is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID;
+  const finalTenderAmount = (finalIsPaidDbValue === TRANSACTION_PAYMENT_STATUS.UNPAID || finalIsPaidDbValue === null) ? null : tender_amount_at_checkin;
+
+  let client;
   try {
     client = await pool.connect();
     console.log('[acceptReservationByStaff] Database client connected.');
+    await client.query('BEGIN');
+    console.log(`[acceptReservationByStaff] BEGIN transaction for TxID: ${transactionId}`);
 
-    // Pre-Update Check to ensure the transaction is in the correct state
+    // Pre-Update Check
     const PRE_CHECK_SQL = 'SELECT status, is_accepted FROM transactions WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 FOR UPDATE';
-    console.log(`[acceptReservationByStaff] Executing PRE_CHECK_SQL for TxID ${transactionId}`);
+    console.log(`[acceptReservationByStaff] Executing PRE_CHECK_SQL for TxID ${transactionId}, TenantID ${tenantId}, BranchID ${branchId}`);
     const preCheckRes = await client.query(PRE_CHECK_SQL, [transactionId, tenantId, branchId]);
 
     if (preCheckRes.rows.length === 0) {
-      console.warn(`[acceptReservationByStaff] Pre-check: Transaction ${transactionId} not found for tenant ${tenantId}, branch ${branchId}.`);
-      if (client) await client.query('ROLLBACK'); // Rollback if we started a transaction implicitly with FOR UPDATE
-      return { success: false, message: "Reservation not found for this branch." };
+      await client.query('ROLLBACK');
+      console.warn(`[acceptReservationByStaff] ROLLBACK (PRE_CHECK): Transaction ${transactionId} not found for tenant ${tenantId}, branch ${branchId}.`);
+      return { success: false, message: "Reservation not found for this branch, or already processed." };
     }
 
     const currentDbStatus = Number(preCheckRes.rows[0].status);
     const currentDbIsAccepted = Number(preCheckRes.rows[0].is_accepted);
-    console.log(`[acceptReservationByStaff] Pre-check: Current DB status for Tx ${transactionId}: ${currentDbStatus}, is_accepted: ${currentDbIsAccepted}`);
+    console.log(`[acceptReservationByStaff] Pre-check for TxID ${transactionId}: Current DB status: ${currentDbStatus}, is_accepted: ${currentDbIsAccepted}`);
 
-    if (currentDbStatus !== PENDING_BRANCH_ACCEPTANCE_DB_STATUS || currentDbIsAccepted !== PENDING_DB_IS_ACCEPTED_STATUS) {
-      console.warn(`[acceptReservationByStaff] Transaction ${transactionId} is not in the correct state to be accepted by branch. Expected status ${PENDING_BRANCH_ACCEPTANCE_DB_STATUS} (is ${currentDbStatus}) and is_accepted ${PENDING_DB_IS_ACCEPTED_STATUS} (is ${currentDbIsAccepted}).`);
-      if (client) await client.query('ROLLBACK');
+    if (currentDbStatus !== PENDING_BRANCH_ACCEPTANCE_STATUS_INT || currentDbIsAccepted !== PENDING_IS_ACCEPTED_STATUS_INT) {
+      await client.query('ROLLBACK');
+      console.warn(`[acceptReservationByStaff] ROLLBACK (PRE_CHECK): TxID ${transactionId} not in PENDING_BRANCH_ACCEPTANCE ('${PENDING_BRANCH_ACCEPTANCE_STATUS_INT}') and PENDING_IS_ACCEPTED ('${PENDING_IS_ACCEPTED_STATUS_INT}') state. Actual: status=${currentDbStatus}, is_accepted=${currentDbIsAccepted}.`);
       return { success: false, message: "Reservation is not in a state pending branch acceptance or has already been processed." };
     }
-    // Pre-check passed, proceed with transaction
-    console.log('[acceptReservationByStaff] Attempting to BEGIN transaction...');
-    await client.query('BEGIN');
-    console.log('[acceptReservationByStaff] Transaction BEGUN.');
-
-
-    const finalNewTransactionLifecycleStatusString = RESERVATION_NO_ROOM_DB_STATUS.toString();
-    const finalIsAcceptedStatusNumber = ACCEPTED_DB_IS_ACCEPTED_STATUS;
-
-    const finalIsPaidDbValue = is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID;
-    const finalTenderAmount = (finalIsPaidDbValue === TRANSACTION_PAYMENT_STATUS.UNPAID || finalIsPaidDbValue === null) ? null : tender_amount_at_checkin;
 
     const UPDATE_TRANSACTION_SQL = `
       UPDATE transactions
@@ -137,8 +137,8 @@ export async function acceptReservationByStaff(
       WHERE id = $12 
         AND tenant_id = $13 
         AND branch_id = $14 
-        AND status::INTEGER = $15 -- Current: PENDING_BRANCH_ACCEPTANCE ('4')
-        AND is_accepted = $16 -- Current: PENDING (3)
+        AND status::INTEGER = $15 
+        AND is_accepted = $16
       RETURNING *;
     `;
 
@@ -147,73 +147,79 @@ export async function acceptReservationByStaff(
       selected_rate_id, // $2
       client_payment_method ?? null, // $3
       notes ?? null, // $4
-      finalNewTransactionLifecycleStatusString, // $5 (status '3')
-      finalIsAcceptedStatusNumber, // $6 (is_accepted 2)
-      staffUserId, // $7 accepted_by_user_id
+      TARGET_LIFECYCLE_STATUS_INT.toString(), // $5 Target status '3'
+      TARGET_IS_ACCEPTED_STATUS_INT,         // $6 Target is_accepted 2
+      staffUserId, // $7
       is_advance_reservation ? reserved_check_in_datetime : null, // $8
       is_advance_reservation ? reserved_check_out_datetime : null, // $9
-      finalIsPaidDbValue, // $10 is_paid (number 0, 1, or 2)
-      finalTenderAmount, // $11 tender_amount (number or null)
+      finalIsPaidDbValue, // $10
+      finalTenderAmount, // $11
       transactionId, // $12
       tenantId, // $13
       branchId, // $14
-      PENDING_BRANCH_ACCEPTANCE_DB_STATUS, // $15 (current status '4')
-      PENDING_DB_IS_ACCEPTED_STATUS // $16 (current is_accepted 3)
+      PENDING_BRANCH_ACCEPTANCE_STATUS_INT, // $15 Current status '4'
+      PENDING_IS_ACCEPTED_STATUS_INT  // $16 Current is_accepted 3
     ];
 
-    console.log('[acceptReservationByStaff] Executing UPDATE query with params:', JSON.stringify(queryParams));
+    console.log('[acceptReservationByStaff] Executing UPDATE query with params:', JSON.stringify(queryParams.map(p => p === undefined ? null : p), null, 2));
     const res = await client.query(UPDATE_TRANSACTION_SQL, queryParams);
     console.log('[acceptReservationByStaff] UPDATE query executed. Row count:', res.rowCount);
 
     if (res.rowCount === 0) {
       await client.query('ROLLBACK');
-      console.warn('[acceptReservationByStaff] Rollback: UPDATE affected 0 rows. Transaction state might have changed or IDs mismatch.');
-      return { success: false, message: "Failed to update reservation. It might have been processed by another user or its state changed." };
+      console.warn(`[acceptReservationByStaff] ROLLBACK (UPDATE): UPDATE affected 0 rows for TxID ${transactionId}. Transaction state might have changed between pre-check and update, or IDs mismatch. Expected current status '${PENDING_BRANCH_ACCEPTANCE_STATUS_INT}', is_accepted '${PENDING_IS_ACCEPTED_STATUS_INT}'.`);
+      return { success: false, message: "Failed to update reservation. It might have been processed by another user or its state changed very recently." };
     }
 
     const updatedTransactionRow = res.rows[0];
-    console.log('[acceptReservationByStaff] Transaction updated in DB:', JSON.stringify(updatedTransactionRow));
+    console.log('[acceptReservationByStaff] Transaction updated in DB:', JSON.stringify(updatedTransactionRow, null, 2));
 
     try {
-      console.log('[acceptReservationByStaff] Attempting to log activity...');
+      const logDescription = `Staff (ID: ${staffUserId}) accepted admin-created reservation for '${updatedTransactionRow.client_name}' (Transaction ID: ${transactionId}). Status set to ${TARGET_LIFECYCLE_STATUS_INT}, Is Accepted: ${TARGET_IS_ACCEPTED_STATUS_INT}.`;
+      console.log(`[acceptReservationByStaff] Attempting to log activity for TxID: ${transactionId}. Description: ${logDescription}`);
       await logActivity({
         tenant_id: tenantId,
         branch_id: branchId,
         actor_user_id: staffUserId,
         action_type: 'STAFF_ACCEPTED_ADMIN_RESERVATION',
-        description: `Staff (ID: ${staffUserId}) accepted admin-created reservation for '${updatedTransactionRow.client_name}' (Transaction ID: ${transactionId}). Status set to ${finalNewTransactionLifecycleStatusString}, Is Accepted: ${finalIsAcceptedStatusNumber}.`,
+        description: logDescription,
         target_entity_type: 'Transaction',
         target_entity_id: transactionId.toString(),
         details: {
           client_name: updatedTransactionRow.client_name,
-          new_status: finalNewTransactionLifecycleStatusString,
-          new_is_accepted: finalIsAcceptedStatusNumber,
+          new_status: TARGET_LIFECYCLE_STATUS_INT,
+          new_is_accepted: TARGET_IS_ACCEPTED_STATUS_INT,
           rate_id: selected_rate_id,
           is_paid: finalIsPaidDbValue
         }
       }, client);
-      console.log('[acceptReservationByStaff] Activity logged successfully.');
+      console.log(`[acceptReservationByStaff] Activity logged successfully for TxID: ${transactionId}.`);
     } catch (logError: any) {
-        console.error('[acceptReservationByStaff] Failed to log activity (inside main transaction), but continuing. Error:', logError.message, logError.stack);
+        console.error(`[acceptReservationByStaff] Failed to log activity for TxID: ${transactionId} (inside main transaction), but continuing. Error:`, logError.message, logError.stack);
     }
 
     await client.query('COMMIT');
-    console.log('[acceptReservationByStaff] Transaction COMMITTED successfully.');
+    console.log(`[acceptReservationByStaff] Transaction COMMITTED successfully for TxID: ${transactionId}. New status: ${updatedTransactionRow.status}, is_accepted: ${updatedTransactionRow.is_accepted}`);
 
-    let rateName = null;
-    let ratePrice = null;
-    let rateHours = null;
-    let rateExcessHourPrice = null;
+    // Fetch rate name for the updated transaction
+    let rateName: string | null = null;
+    let ratePrice: number | null = null;
+    let rateHours: number | null = null;
+    let rateExcessHourPrice: number | null = null;
 
     if (updatedTransactionRow.hotel_rate_id) {
-      const rateRes = await client.query('SELECT name, price, hours, excess_hour_price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3', [updatedTransactionRow.hotel_rate_id, tenantId, branchId]);
+      const rateRes = await client.query( // Use the same client, it's still valid after commit for reads if it wasn't released. Or use pool.
+        'SELECT name, price, hours, excess_hour_price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4',
+        [updatedTransactionRow.hotel_rate_id, tenantId, branchId, HOTEL_ENTITY_STATUS.ACTIVE]
+      );
       if (rateRes.rows.length > 0) {
         rateName = rateRes.rows[0].name;
-        ratePrice = rateRes.rows[0].price;
-        rateHours = rateRes.rows[0].hours;
-        rateExcessHourPrice = rateRes.rows[0].excess_hour_price;
+        ratePrice = parseFloat(rateRes.rows[0].price);
+        rateHours = parseInt(rateRes.rows[0].hours, 10);
+        rateExcessHourPrice = rateRes.rows[0].excess_hour_price ? parseFloat(rateRes.rows[0].excess_hour_price) : null;
       }
     }
+    console.log(`[acceptReservationByStaff] Fetched rate details for TxID ${transactionId}: Name: ${rateName}`);
 
     const finalUpdatedTransaction: Transaction = {
       id: Number(updatedTransactionRow.id),
@@ -224,8 +230,8 @@ export async function acceptReservationByStaff(
       client_name: String(updatedTransactionRow.client_name),
       client_payment_method: updatedTransactionRow.client_payment_method,
       notes: updatedTransactionRow.notes,
-      check_in_time: updatedTransactionRow.check_in_time,
-      check_out_time: updatedTransactionRow.check_out_time,
+      check_in_time: updatedTransactionRow.check_in_time, // String from DB
+      check_out_time: updatedTransactionRow.check_out_time, // String from DB
       hours_used: updatedTransactionRow.hours_used ? Number(updatedTransactionRow.hours_used) : null,
       total_amount: updatedTransactionRow.total_amount ? parseFloat(updatedTransactionRow.total_amount) : null,
       tender_amount: updatedTransactionRow.tender_amount !== null ? parseFloat(updatedTransactionRow.tender_amount) : null,
@@ -235,10 +241,10 @@ export async function acceptReservationByStaff(
       accepted_by_user_id: updatedTransactionRow.accepted_by_user_id ? Number(updatedTransactionRow.accepted_by_user_id) : null,
       declined_by_user_id: updatedTransactionRow.declined_by_user_id ? Number(updatedTransactionRow.declined_by_user_id) : null,
       status: Number(updatedTransactionRow.status),
-      created_at: updatedTransactionRow.created_at,
-      updated_at: updatedTransactionRow.updated_at,
-      reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime,
-      reserved_check_out_datetime: updatedTransactionRow.reserved_check_out_datetime,
+      created_at: updatedTransactionRow.created_at, // String from DB
+      updated_at: updatedTransactionRow.updated_at, // String from DB
+      reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime, // String from DB
+      reserved_check_out_datetime: updatedTransactionRow.reserved_check_out_datetime, // String from DB
       is_admin_created: Number(updatedTransactionRow.is_admin_created),
       is_accepted: Number(updatedTransactionRow.is_accepted),
       rate_name: rateName,
@@ -246,31 +252,29 @@ export async function acceptReservationByStaff(
       rate_hours: rateHours,
       rate_excess_hour_price: rateExcessHourPrice,
     };
-    console.log('[acceptReservationByStaff] Returning updated transaction:', JSON.stringify(finalUpdatedTransaction, null, 2));
+    console.log(`[acceptReservationByStaff] Returning updated transaction for TxID ${transactionId}:`, JSON.stringify(finalUpdatedTransaction, null, 2));
 
     return {
       success: true,
-      message: `Reservation for '${finalUpdatedTransaction.client_name}' accepted by branch.`,
+      message: `Reservation for '${finalUpdatedTransaction.client_name}' accepted by branch. Now in 'Reservation - No Room Assigned' state.`,
       updatedTransaction: finalUpdatedTransaction,
     };
 
   } catch (dbError: any) {
+    console.error(`[acceptReservationByStaff DB Full Error for TxID: ${transactionId}]`, dbError);
     if (client) {
-      try {
-        console.warn('[acceptReservationByStaff] Error occurred during main operation. Attempting to ROLLBACK transaction...');
-        await client.query('ROLLBACK');
-        console.warn('[acceptReservationByStaff] Transaction ROLLED BACK due to error:', dbError.message);
-      } catch (rbError: any) {
-        console.error('[acceptReservationByStaff] Error during rollback:', rbError.message, rbError.stack);
-      }
+        try {
+            await client.query('ROLLBACK');
+            console.warn(`[acceptReservationByStaff] Transaction ROLLED BACK for TxID: ${transactionId} due to error: ${dbError.message}`);
+        } catch (rbError: any) {
+            console.error(`[acceptReservationByStaff] Error during rollback for TxID: ${transactionId}:`, rbError);
+        }
     }
-    console.error('[acceptReservationByStaff DB Full Error]', dbError);
-    const errorMessage = dbError.message || String(dbError);
-    return { success: false, message: `Database error during reservation acceptance: ${errorMessage}` };
+    return { success: false, message: `Database error during reservation acceptance: ${dbError.message}` };
   } finally {
     if (client) {
       client.release();
-      console.log('[acceptReservationByStaff] Client released.');
+      console.log(`[acceptReservationByStaff] Client released for TxID: ${transactionId}`);
     }
   }
 }
