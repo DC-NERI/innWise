@@ -1,9 +1,10 @@
 
+
 // ROOM_AVAILABILITY_STATUS: Integer values
 export const ROOM_AVAILABILITY_STATUS = {
   AVAILABLE: 0,
   OCCUPIED: 1,
-  RESERVED: 2,
+  RESERVED: 2, // Added for clarity, though driven by transaction status
 } as const;
 
 export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
@@ -13,6 +14,7 @@ export const ROOM_AVAILABILITY_STATUS_TEXT: { [key: number]: string } = {
 };
 
 // HOTEL_ENTITY_STATUS: String values for general entity status (active, archived, etc.)
+// Used for tenants, users, branches, rates, room definitions
 export const HOTEL_ENTITY_STATUS = {
   ARCHIVED: '0',
   ACTIVE: '1',
@@ -29,7 +31,7 @@ export const HOTEL_ENTITY_STATUS_TEXT: { [key: string]: string } = {
 export const ROOM_CLEANING_STATUS = {
   CLEAN: 0,
   DIRTY: 1,
-  INSPECTION: 2, // Renamed from 'for instpection'
+  INSPECTION: 2,
   OUT_OF_ORDER: 3,
 } as const;
 
@@ -41,9 +43,10 @@ export const ROOM_CLEANING_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const ROOM_CLEANING_STATUS_OPTIONS = Object.values(ROOM_CLEANING_STATUS).map(value => ({
-  value: value,
+  value: String(value), // Ensure value is string for SelectItem
   label: ROOM_CLEANING_STATUS_TEXT[value as keyof typeof ROOM_CLEANING_STATUS_TEXT]
 }));
+
 
 // NOTIFICATION_STATUS (Read/Unread for notifications table) - Integers
 export const NOTIFICATION_STATUS = {
@@ -59,7 +62,7 @@ export const NOTIFICATION_STATUS_TEXT: { [key: number]: string } = {
 // NOTIFICATION_TRANSACTION_LINK_STATUS (Whether a notification is linked to a transaction) - Integers
 export const NOTIFICATION_TRANSACTION_LINK_STATUS = {
   NO_TRANSACTION_LINK: 0,
-  TRANSACTION_LINKED: 1, // This indicates a transaction ID is present on the notification
+  TRANSACTION_LINKED: 1,
 } as const;
 
 export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string } = {
@@ -69,13 +72,13 @@ export const NOTIFICATION_TRANSACTION_LINK_STATUS_TEXT: { [key: number]: string 
 
 // TRANSACTION_LIFECYCLE_STATUS (Status of a transaction record) - Integers
 export const TRANSACTION_LIFECYCLE_STATUS = {
-  CHECKED_IN: 0,                      // '0': check-in (implies unpaid or partially paid)
-  CHECKED_OUT: 1,                     // '1': check-out (implies fully paid for the stay)
-  RESERVATION_WITH_ROOM: 2,           // '2': reservation w/ room assignment (can be advance paid or unpaid)
-  RESERVATION_NO_ROOM: 3,             // '3': reservation w/ no room assignment (can be advance paid or unpaid, ready for room assign)
-  PENDING_BRANCH_ACCEPTANCE: 4,       // '4': Admin-created reservation awaiting branch action
-  ADMIN_RESERVATION_DECLINED: 5,      // '5': Admin-created reservation DECLINED by branch
-  VOIDED_CANCELLED: 6,                // '6': voided/cancelled reservation by staff/admin
+  CHECKED_IN: 0,
+  CHECKED_OUT: 1,
+  RESERVATION_WITH_ROOM: 2, // Staff made, room assigned (was ADVANCE_PAID if paid)
+  RESERVATION_NO_ROOM: 3,   // Staff made, no room (was ADVANCE_RESERVATION if for future)
+  PENDING_BRANCH_ACCEPTANCE: 4, // Admin created reservation, needs branch action
+  ADMIN_RESERVATION_DECLINED: 5,  // Admin-created reservation explicitly DECLINED by branch
+  VOIDED_CANCELLED: 6,      // Voided/cancelled by staff/admin (general cancellation)
 } as const;
 
 export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
@@ -84,7 +87,7 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
   [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM]: 'Reservation (Room Assigned)',
   [TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM]: 'Reservation (No Room)',
   [TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE]: 'Pending Branch Acceptance',
-  [TRANSACTION_LIFECYCLE_STATUS.ADMIN_RESERVATION_DECLINED]: 'Declined by Branch',
+  [TRANSACTION_LIFECYCLE_STATUS.ADMIN_RESERVATION_DECLINED]: 'Declined by Branch', // Was: Admin Reservation Declined
   [TRANSACTION_LIFECYCLE_STATUS.VOIDED_CANCELLED]: 'Voided/Cancelled',
 };
 
@@ -92,7 +95,7 @@ export const TRANSACTION_LIFECYCLE_STATUS_TEXT: { [key: number]: string } = {
 export const TRANSACTION_PAYMENT_STATUS = {
   UNPAID: 0,
   PAID: 1,
-  ADVANCE_PAID: 2, // Signifies an advance reservation is paid, may or may not be full amount.
+  ADVANCE_PAID: 2,
 } as const;
 
 export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
@@ -103,19 +106,18 @@ export const TRANSACTION_PAYMENT_STATUS_TEXT: { [key: number]: string } = {
 
 // TRANSACTION_IS_ACCEPTED_STATUS (is_accepted column in transactions, for admin-created ones) - Integers
 export const TRANSACTION_IS_ACCEPTED_STATUS = {
-    DEFAULT: 0,      // Not applicable or default state (e.g., staff-created for own branch)
+    DEFAULT: 0,
     NOT_ACCEPTED: 1, // Declined by branch
     ACCEPTED: 2,     // Accepted by branch
-    PENDING: 3,      // Pending branch action (for admin-created reservations with status '4')
+    PENDING: 3,      // Pending branch action (for admin-created reservations with lifecycle status PENDING_BRANCH_ACCEPTANCE)
 } as const;
 
 export const TRANSACTION_IS_ACCEPTED_STATUS_TEXT: { [key: number]: string} = {
-    [TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT]: 'N/A',
+    [TRANSACTION_IS_ACCEPTED_STATUS.DEFAULT]: 'N/A (Staff Created)',
     [TRANSACTION_IS_ACCEPTED_STATUS.NOT_ACCEPTED]: 'Declined by Branch',
     [TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED]: 'Accepted by Branch',
     [TRANSACTION_IS_ACCEPTED_STATUS.PENDING]: 'Pending Branch Action',
 };
-
 
 // LOST_AND_FOUND_STATUS: Integer values
 export const LOST_AND_FOUND_STATUS = {
@@ -131,7 +133,7 @@ export const LOST_AND_FOUND_STATUS_TEXT: { [key: number]: string } = {
 };
 
 export const LOST_AND_FOUND_STATUS_OPTIONS = Object.values(LOST_AND_FOUND_STATUS).map(value => ({
-  value: value,
+  value: String(value),
   label: LOST_AND_FOUND_STATUS_TEXT[value as keyof typeof LOST_AND_FOUND_STATUS_TEXT]
 }));
 

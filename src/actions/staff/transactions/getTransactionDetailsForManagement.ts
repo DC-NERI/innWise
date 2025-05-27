@@ -3,17 +3,17 @@
 
 import pg from 'pg';
 // Configure pg to return numeric types as numbers
-pg.types.setTypeParser(20, (val) => parseInt(val, 10)); // int8/bigint
-pg.types.setTypeParser(21, (val) => parseInt(val, 10)); // int2/smallint
-pg.types.setTypeParser(23, (val) => parseInt(val, 10)); // int4/integer
-pg.types.setTypeParser(1700, (val) => parseFloat(val)); // numeric/decimal
+pg.types.setTypeParser(pg.types.builtins.INT2, (val: string) => parseInt(val, 10));
+pg.types.setTypeParser(pg.types.builtins.INT4, (val: string) => parseInt(val, 10));
+pg.types.setTypeParser(pg.types.builtins.INT8, (val: string) => parseInt(val, 10));
+pg.types.setTypeParser(pg.types.builtins.NUMERIC, (val: string) => parseFloat(val));
 // Configure pg to return timestamp without timezone as strings
-pg.types.setTypeParser(1114, (stringValue) => stringValue); // TIMESTAMP WITHOUT TIME ZONE
-pg.types.setTypeParser(1184, (stringValue) => stringValue); // TIMESTAMP WITH TIME ZONE
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (stringValue: string) => stringValue);
+pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (stringValue: string) => stringValue);
 
 import { Pool } from 'pg';
 import type { Transaction } from '@/lib/types';
-import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '../../../lib/constants';
+import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '../../../lib/constants'; // Adjusted path
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -27,23 +27,21 @@ pool.on('error', (err) => {
 export async function getTransactionDetailsForManagement(
   transactionId: number,
   tenantId: number,
-  branchId: number // The branchId where the transaction is expected to be
+  branchId: number
 ): Promise<Transaction | null> {
-  
+
   if (
-    !TRANSACTION_LIFECYCLE_STATUS ||
-    typeof TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE === 'undefined' ||
-    !TRANSACTION_IS_ACCEPTED_STATUS ||
-    typeof TRANSACTION_IS_ACCEPTED_STATUS.PENDING === 'undefined'
+    typeof TRANSACTION_LIFECYCLE_STATUS?.PENDING_BRANCH_ACCEPTANCE === 'undefined' ||
+    typeof TRANSACTION_IS_ACCEPTED_STATUS?.PENDING === 'undefined'
   ) {
     const errorMessage = "Server configuration error: Critical status constants are missing or undefined in getTransactionDetailsForManagement.";
     console.error('[getTransactionDetailsForManagement] CRITICAL ERROR:', errorMessage);
-    // It's better to throw an error here so the calling function knows something fundamental is wrong.
     throw new Error(errorMessage);
   }
 
-  const client = await pool.connect();
+  let client;
   try {
+    client = await pool.connect();
     const query = `
       SELECT
         t.*,
@@ -55,8 +53,8 @@ export async function getTransactionDetailsForManagement(
       LEFT JOIN hotel_rates hrt ON t.hotel_rate_id = hrt.id AND t.tenant_id = hrt.tenant_id AND t.branch_id = hrt.branch_id
       WHERE t.id = $1
         AND t.tenant_id = $2
-        AND t.branch_id = $3 -- Ensure transaction is for the specified branch
-        AND t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE} 
+        AND t.branch_id = $3
+        AND t.status::INTEGER = ${TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE}
         AND t.is_accepted = ${TRANSACTION_IS_ACCEPTED_STATUS.PENDING}
       LIMIT 1;
     `;
@@ -73,7 +71,7 @@ export async function getTransactionDetailsForManagement(
         client_name: String(row.client_name),
         client_payment_method: row.client_payment_method,
         notes: row.notes,
-        check_in_time: String(row.check_in_time), // Represents creation time for this status
+        check_in_time: row.check_in_time,
         check_out_time: row.check_out_time,
         hours_used: row.hours_used ? Number(row.hours_used) : null,
         total_amount: row.total_amount ? parseFloat(row.total_amount) : null,
@@ -96,13 +94,14 @@ export async function getTransactionDetailsForManagement(
         rate_excess_hour_price: row.rate_excess_hour_price !== null ? parseFloat(row.rate_excess_hour_price) : null,
       } as Transaction;
     }
-    return null; // Explicitly return null if no transaction found matching criteria
+    return null;
   } catch (dbError: any) {
     console.error('[getTransactionDetailsForManagement DB Error Raw]', dbError);
     const errorMessage = dbError?.message || 'Unknown database error occurred while fetching transaction details for management.';
     throw new Error(`Database error in getTransactionDetailsForManagement: ${errorMessage}`);
   } finally {
-    client.release();
+    if (client) {
+        client.release();
+    }
   }
 }
-
