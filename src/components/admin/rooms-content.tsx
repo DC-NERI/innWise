@@ -2,17 +2,16 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription as ShadCardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from "@/components/ui/checkbox";
-// Removed unused Textarea import
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose, DialogDescription } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription as ShadAlertDialogDescriptionConfirm, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle as ShadAlertDialogTitleConfirm, AlertDialogTrigger } from "@/components/ui/alert-dialog"; // Aliased to avoid conflict
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from '@/hooks/use-toast';
@@ -28,7 +27,7 @@ import { createRoom } from '@/actions/admin/rooms/createRoom';
 import { updateRoom } from '@/actions/admin/rooms/updateRoom';
 import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
 import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
-import { Textarea } from '@/components/ui/textarea'; // Added Textarea import
+import { Textarea } from '@/components/ui/textarea';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -228,6 +227,12 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
 
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
 
+  const extractHoursFromName = (name: string | undefined): number => {
+    if (!name) return Infinity;
+    const match = name.match(/(\d+)\s*hr/i);
+    return match ? parseInt(match[1], 10) : Infinity;
+  };
+
   const renderFormFields = () => (
     <React.Fragment>
       <FormField control={form.control} name="room_name" render={({ field }) => (<FormItem><RHFFormLabel>Room Name *</RHFFormLabel><FormControl><Input placeholder="Deluxe Room 101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
@@ -280,7 +285,6 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <SelectContent>
                 <SelectItem value={String(ROOM_AVAILABILITY_STATUS.AVAILABLE)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
                 <SelectItem value={String(ROOM_AVAILABILITY_STATUS.OCCUPIED)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.OCCUPIED]}</SelectItem>
-                 <SelectItem value={String(ROOM_AVAILABILITY_STATUS.RESERVED)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.RESERVED]}</SelectItem>
               </SelectContent>
             </Select>
             <FormMessage />
@@ -346,7 +350,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       <Card>
         <CardHeader>
           <CardTitle>Room Management</CardTitle>
-          <CardDescription>Tenant information is not available.</CardDescription>
+          <ShadCardDescription>Tenant information is not available.</ShadCardDescription>
         </CardHeader>
         <CardContent>
           <p>Please ensure you are properly logged in and tenant information is loaded.</p>
@@ -363,7 +367,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
             <Building className="h-6 w-6 text-primary" />
             <CardTitle>Select Branch</CardTitle>
           </div>
-          <CardDescription>Click a branch to view its rooms and associated rates.</CardDescription>
+          <ShadCardDescription>Click a branch to view its rooms and associated rates.</ShadCardDescription>
         </CardHeader>
         <CardContent className="flex-grow overflow-y-auto p-1">
           {isLoadingBranches ? (
@@ -400,9 +404,9 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                         {selectedBranchId ? `Rooms for: ${branches.find(b=>b.id === selectedBranchId)?.branch_name || 'Branch'}` : 'Hotel Room Management'}
                     </CardTitle>
                 </div>
-                <CardDescription>
+                <ShadCardDescription>
                     {selectedBranchId ? 'Manage rooms for the selected branch.' : 'Please select a branch to view and manage its rooms.'}
-                </CardDescription>
+                </ShadCardDescription>
             </div>
             {selectedBranchId && (
                 <Dialog
@@ -478,30 +482,45 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                               <PopoverContent className="w-auto p-3 max-w-xs">
                                 <div className="text-sm">
                                   <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
-                                  {r.hotel_rate_id.length > 0 ? (
-                                    <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
-                                      {availableRates
-                                        .filter(ar => r.hotel_rate_id!.includes(ar.id))
-                                        .sort((a,b) => a.name.localeCompare(b.name))
-                                        .map(rate => (
-                                          <li key={rate.id}>
-                                            {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
-                                          </li>
-                                        ))
-                                      }
-                                      {/* Display IDs for rates not found in active list (e.g., if they were archived) */}
-                                      {r.hotel_rate_id
-                                        .filter(rateId => !availableRates.some(ar => ar.id === rateId))
-                                        .map(rateId => (
-                                          <li key={rateId} className="text-xs text-muted-foreground italic">
-                                            Rate ID: {rateId} (Inactive/Not Found)
-                                          </li>
-                                        ))
-                                      }
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">No rates assigned.</p>
-                                  )}
+                                  {(() => {
+                                    const extractHours = (name: string | undefined): number => {
+                                      if (!name) return Infinity;
+                                      const match = name.match(/(\d+)\s*hr/i);
+                                      return match ? parseInt(match[1], 10) : Infinity;
+                                    };
+
+                                    const ratesForRoom = availableRates
+                                      .filter(ar => r.hotel_rate_id!.includes(ar.id))
+                                      .sort((a, b) => {
+                                        const hoursA = extractHours(a.name);
+                                        const hoursB = extractHours(b.name);
+                                        if (hoursA !== hoursB) {
+                                          return hoursA - hoursB;
+                                        }
+                                        return a.name.localeCompare(b.name);
+                                      });
+
+                                    if (ratesForRoom.length > 0) {
+                                      return (
+                                        <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
+                                          {ratesForRoom.map(rate => (
+                                            <li key={rate.id}>
+                                              {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
+                                            </li>
+                                          ))}
+                                          {r.hotel_rate_id
+                                            .filter(rateId => !availableRates.some(ar => ar.id === rateId))
+                                            .map(rateId => (
+                                              <li key={rateId} className="text-xs text-muted-foreground italic">
+                                                Rate ID: {rateId} (Inactive/Not Found)
+                                              </li>
+                                            ))
+                                          }
+                                        </ul>
+                                      );
+                                    }
+                                    return <p className="text-xs text-muted-foreground">No active rates assigned or found.</p>;
+                                  })()}
                                 </div>
                               </PopoverContent>
                             </Popover>
@@ -515,7 +534,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                           <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
                           <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
                             <AlertDialogContent>
-                              <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive room "{r.room_name}"?</AlertDialogDescription></AlertDialogHeader>
+                              <AlertDialogHeader><ShadAlertDialogTitleConfirm>Confirm Archive</ShadAlertDialogTitleConfirm><ShadAlertDialogDescriptionConfirm>Are you sure you want to archive room "{r.room_name}"?</ShadAlertDialogDescriptionConfirm></AlertDialogHeader>
                               <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(r)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
@@ -549,29 +568,45 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                               <PopoverContent className="w-auto p-3 max-w-xs">
                                 <div className="text-sm">
                                   <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
-                                  {r.hotel_rate_id.length > 0 ? (
-                                    <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
-                                      {availableRates
-                                        .filter(ar => r.hotel_rate_id!.includes(ar.id))
-                                        .sort((a,b) => a.name.localeCompare(b.name))
-                                        .map(rate => (
-                                          <li key={rate.id}>
-                                            {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
-                                          </li>
-                                        ))
-                                      }
-                                      {r.hotel_rate_id
-                                        .filter(rateId => !availableRates.some(ar => ar.id === rateId))
-                                        .map(rateId => (
-                                          <li key={rateId} className="text-xs text-muted-foreground italic">
-                                            Rate ID: {rateId} (Inactive/Not Found)
-                                          </li>
-                                        ))
-                                      }
-                                    </ul>
-                                  ) : (
-                                    <p className="text-xs text-muted-foreground">No rates assigned.</p>
-                                  )}
+                                   {(() => {
+                                    const extractHours = (name: string | undefined): number => {
+                                      if (!name) return Infinity;
+                                      const match = name.match(/(\d+)\s*hr/i);
+                                      return match ? parseInt(match[1], 10) : Infinity;
+                                    };
+
+                                    const ratesForRoom = availableRates
+                                      .filter(ar => r.hotel_rate_id!.includes(ar.id))
+                                      .sort((a, b) => {
+                                        const hoursA = extractHours(a.name);
+                                        const hoursB = extractHours(b.name);
+                                        if (hoursA !== hoursB) {
+                                          return hoursA - hoursB;
+                                        }
+                                        return a.name.localeCompare(b.name);
+                                      });
+
+                                    if (ratesForRoom.length > 0) {
+                                      return (
+                                        <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
+                                          {ratesForRoom.map(rate => (
+                                            <li key={rate.id}>
+                                              {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
+                                            </li>
+                                          ))}
+                                          {r.hotel_rate_id
+                                            .filter(rateId => !availableRates.some(ar => ar.id === rateId))
+                                            .map(rateId => (
+                                              <li key={rateId} className="text-xs text-muted-foreground italic">
+                                                Rate ID: {rateId} (Inactive/Not Found)
+                                              </li>
+                                            ))
+                                          }
+                                        </ul>
+                                      );
+                                    }
+                                    return <p className="text-xs text-muted-foreground">No active rates assigned or found.</p>;
+                                  })()}
                                 </div>
                               </PopoverContent>
                             </Popover>
