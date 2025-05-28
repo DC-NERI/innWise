@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"; // Added AlertDialogTrigger
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from '@/hooks/use-toast';
@@ -139,7 +139,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         hotel_rate_ids: [],
         is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
         cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
-        status: HOTEL_ENTITY_STATUS.ACTIVE // This is part of hotelRoomUpdateSchema, but good to set for create too
+        status: HOTEL_ENTITY_STATUS.ACTIVE
       };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -156,10 +156,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await createRoom(data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
-        // Optimistic update or re-fetch
-        // setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsAddDialogOpen(false);
-        fetchBranchData(selectedBranchId); // Re-fetch to get the complete list
+        fetchBranchData(selectedBranchId); 
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create room.", variant: "destructive" });
       }
@@ -174,10 +172,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(selectedRoom.id, data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
-        // Optimistic update or re-fetch
-        // setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsEditDialogOpen(false); setSelectedRoom(null);
-        fetchBranchData(selectedBranchId); // Re-fetch
+        fetchBranchData(selectedBranchId); 
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update room.", variant: "destructive" });
       }
@@ -192,7 +188,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id); // Re-fetch
+        fetchBranchData(room.branch_id); 
       } else {
         toast({ title: "Archive Failed", description: result.message || "Could not archive room.", variant: "destructive" });
       }
@@ -214,13 +210,13 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       is_available: Number(room.is_available),
       cleaning_status: room.cleaning_status !== null && room.cleaning_status !== undefined ? Number(room.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
       cleaning_notes: room.cleaning_notes || '',
-      status: HOTEL_ENTITY_STATUS.ACTIVE, // Target status for restore
+      status: HOTEL_ENTITY_STATUS.ACTIVE, 
     };
     try {
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id); // Re-fetch
+        fetchBranchData(room.branch_id); 
       } else {
         toast({ title: "Restore Failed", description: result.message || "Could not restore room.", variant: "destructive" });
       }
@@ -229,11 +225,6 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   };
 
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
-
-  const getRateNames = useCallback((rateIds: number[] | null) => {
-    if (!rateIds || rateIds.length === 0) return "N/A";
-    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `Rate ID: ${id}`).join(', ');
-  }, [availableRates]);
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -298,7 +289,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         render={({ field }) => (
           <FormItem>
             <RHFFormLabel>Cleaning Status *</RHFFormLabel>
-            <Select onValueChange={(value) => field.onChange(Number(value))} value={field.value?.toString() ?? ROOM_CLEANING_STATUS.CLEAN.toString()}>
+            <Select onValueChange={(value) => field.onChange(Number(value))} value={String(field.value ?? ROOM_CLEANING_STATUS.CLEAN)}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select cleaning status" /></SelectTrigger></FormControl>
               <SelectContent>
                 {ROOM_CLEANING_STATUS_OPTIONS.map(option => (
@@ -449,10 +440,25 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
-                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Room Information</TableHead>
+                        <TableHead>Rates</TableHead>
+                        <TableHead>Availability</TableHead>
+                        <TableHead>Cleaning</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{r.room_name}</div>
+                            <div className="text-xs text-muted-foreground">Room Number: {r.room_code}</div>
+                            <div className="text-xs text-muted-foreground">Floor: {r.floor ?? 'N/A'}</div>
+                          </div>
+                        </TableCell>
                         <TableCell>
                           {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
                             <Popover>
@@ -482,7 +488,6 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                             <span className="text-xs text-muted-foreground">N/A</span>
                           )}
                         </TableCell>
-                        <TableCell>{r.floor ?? '-'}</TableCell>
                         <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
                         <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
                         <TableCell className="text-right space-x-2">
@@ -501,10 +506,24 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
-                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                  <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Room Information</TableHead>
+                            <TableHead>Rates</TableHead>
+                            <TableHead>Cleaning</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell>
+                        <TableCell>
+                            <div>
+                                <div className="font-medium">{r.room_name}</div>
+                                <div className="text-xs text-muted-foreground">Room Number: {r.room_code}</div>
+                                <div className="text-xs text-muted-foreground">Floor: {r.floor ?? 'N/A'}</div>
+                            </div>
+                        </TableCell>
                         <TableCell>
                           {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
                             <Popover>
