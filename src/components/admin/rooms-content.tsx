@@ -11,11 +11,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"; // Added AlertDialogTrigger
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"; // Added Popover imports
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, BedDouble, Building, PlusCircle, Edit, Trash2, ArchiveRestore, Tags } from 'lucide-react'; // Added Tags icon
+import { Loader2, BedDouble, Building, PlusCircle, Edit, Trash2, ArchiveRestore, Tags } from 'lucide-react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
@@ -139,7 +139,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         hotel_rate_ids: [],
         is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
         cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
-        status: HOTEL_ENTITY_STATUS.ACTIVE
+        status: HOTEL_ENTITY_STATUS.ACTIVE // This is part of hotelRoomUpdateSchema, but good to set for create too
       };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -156,11 +156,12 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await createRoom(data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
-        setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
+        // Optimistic update or re-fetch
+        // setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsAddDialogOpen(false);
-        fetchBranchData(selectedBranchId);
+        fetchBranchData(selectedBranchId); // Re-fetch to get the complete list
       } else {
-        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Creation Failed", description: result.message || "Could not create room.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during room creation.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
@@ -173,11 +174,12 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(selectedRoom.id, data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
-        setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
+        // Optimistic update or re-fetch
+        // setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsEditDialogOpen(false); setSelectedRoom(null);
-        fetchBranchData(selectedBranchId);
+        fetchBranchData(selectedBranchId); // Re-fetch
       } else {
-        toast({ title: "Update Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Update Failed", description: result.message || "Could not update room.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during room update.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
@@ -190,9 +192,9 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id);
+        fetchBranchData(room.branch_id); // Re-fetch
       } else {
-        toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Archive Failed", description: result.message || "Could not archive room.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during room archiving.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
@@ -212,21 +214,26 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       is_available: Number(room.is_available),
       cleaning_status: room.cleaning_status !== null && room.cleaning_status !== undefined ? Number(room.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
       cleaning_notes: room.cleaning_notes || '',
-      status: HOTEL_ENTITY_STATUS.ACTIVE,
+      status: HOTEL_ENTITY_STATUS.ACTIVE, // Target status for restore
     };
     try {
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id);
+        fetchBranchData(room.branch_id); // Re-fetch
       } else {
-        toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Restore Failed", description: result.message || "Could not restore room.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during room restoration.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
   };
 
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
+
+  const getRateNames = useCallback((rateIds: number[] | null) => {
+    if (!rateIds || rateIds.length === 0) return "N/A";
+    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `Rate ID: ${id}`).join(', ');
+  }, [availableRates]);
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -249,7 +256,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                       <Checkbox
                         checked={field.value?.includes(rate.id)}
                         onCheckedChange={(checked) => {
-                          const currentSelectedIds = field.value || [];
+                          const currentSelectedIds = Array.isArray(field.value) ? field.value : [];
                           return checked
                             ? field.onChange([...currentSelectedIds, rate.id])
                             : field.onChange(currentSelectedIds.filter(value => value !== rate.id));
@@ -275,7 +282,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         render={({ field }) => (
           <FormItem>
             <RHFFormLabel>Availability Status *</RHFFormLabel>
-            <Select onValueChange={(value) => field.onChange(parseInt(value))} value={field.value?.toString()}>
+            <Select onValueChange={(value) => field.onChange(Number(value))} value={field.value?.toString()}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select availability status" /></SelectTrigger></FormControl>
               <SelectContent>
                 <SelectItem value={ROOM_AVAILABILITY_STATUS.AVAILABLE.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
@@ -437,7 +444,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
           ) : isLoadingData ? (
             <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room data...</p></div>
           ) : (
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <Tabs value={String(activeTab)} onValueChange={setActiveTab}>
               <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE).length})</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ARCHIVED).length})</TabsTrigger></TabsList>
               <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
@@ -554,6 +561,3 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     </div>
   );
 }
-
-
-    
