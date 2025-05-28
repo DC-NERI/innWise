@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -17,7 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
   DialogClose,
-  DialogTrigger, // Added DialogTrigger
+  DialogTrigger,
   DialogDescription as ShadDialogDescription,
 } from '@/components/ui/dialog';
 import {
@@ -51,9 +51,10 @@ import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranch
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
 import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
 import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
-import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
-import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
 import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
+import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
+import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
+
 
 import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
 import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO, isValid } from 'date-fns';
@@ -69,7 +70,6 @@ interface ReservationsContentProps {
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
-  // Default to 2 PM for check-in
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
@@ -78,20 +78,17 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
-        // Ensure the date string is in a format parseISO can handle, typically 'YYYY-MM-DDTHH:mm:ss'
         const parsableDateString = checkInDateString.includes('T') ? checkInDateString : checkInDateString.replace(' ', 'T');
         const parsedCheckIn = parseISO(parsableDateString);
-        if (!isNaN(parsedCheckIn.getTime())) { // Check if parseISO returned a valid date
+        if (!isNaN(parsedCheckIn.getTime())) {
             baseDate = parsedCheckIn;
         }
     } catch (e) {
-        // If parsing fails, baseDate remains new Date()
+      // If parsing fails, baseDate remains new Date()
     }
   } else {
-    // If no checkInDateString, default baseDate's time to 2 PM as well
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  // Default to 12 PM (noon) the next day for check-out
   const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12),0),0),0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
@@ -110,7 +107,7 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 };
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number, // Zod requires a number, but initial state can be undefined
+  selected_room_id: undefined as unknown as number,
 };
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
@@ -118,7 +115,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const [availableRooms, setAvailableRooms] = useState<Array<Pick<HotelRoom, 'id' | 'room_name' | 'room_code' | 'hotel_rate_id'>>>([]);
   const [allBranchRates, setAllBranchRates] = useState<SimpleRate[]>([]);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // For main list loading
+  const [isLoadingAvailableRoomsForModal, setIsLoadingAvailableRoomsForModal] = useState(false); // For modal room list
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isAddReservationDialogOpen, setIsAddReservationDialogOpen] = useState(false);
@@ -143,7 +141,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const editReservationForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
-    // defaultValues will be set when dialog opens
   });
   const watchIsAdvanceReservationEdit = useWatch({ control: editReservationForm.control, name: 'is_advance_reservation'});
   const watchIsPaidEdit = useWatch({ control: editReservationForm.control, name: 'is_paid'});
@@ -174,7 +171,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   useEffect(() => {
     if (isEditReservationDialogOpen && selectedReservationForEdit) {
         const currentIsAdvance = editReservationForm.getValues('is_advance_reservation');
-        if (currentIsAdvance) { // Only set if is_advance_reservation is true
+        if (currentIsAdvance) {
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
                  editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
             }
@@ -182,7 +179,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             if (!editReservationForm.getValues('reserved_check_out_datetime')) {
                 editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(currentCheckInEdit), { shouldValidate: true, shouldDirty: true });
             }
-        } else { // If not advance, clear the dates
+        } else {
             editReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
             editReservationForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
         }
@@ -349,7 +346,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true); // Using main isLoading for room fetching
+    setIsLoadingAvailableRoomsForModal(true);
     try {
       const roomsData = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
@@ -360,7 +357,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
       toast({ title: "Error", description: `Could not fetch available rooms: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
       setAvailableRooms([]);
     } finally {
-      setIsLoading(false);
+      setIsLoadingAvailableRoomsForModal(false);
       setIsAssignRoomDialogOpen(true);
     }
   };
@@ -670,7 +667,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
       }}>
         <DialogContent className="sm:max-w-md p-3">
           <DialogHeader className="border-b pb-2 mb-2">
-            <DialogTitle>Assign Room & Check-in</DialogTitle>
+            <DialogTitle>Assign Room &amp; Check-in</DialogTitle>
             {selectedReservationForAssignment && (
               <ShadDialogDescription className="text-sm">
                 Client: {selectedReservationForAssignment.client_name} <br/>
@@ -683,10 +680,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
               <FormField control={assignRoomForm.control} name="selected_room_id" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Select Available Room *</FormLabel>
-                  <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={isLoading || availableRooms.length === 0}>
+                  <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={isLoadingAvailableRoomsForModal || availableRooms.length === 0}>
                     <FormControl>
                       <SelectTrigger className="w-[90%]">
-                        <SelectValue placeholder={isLoading ? "Loading rooms..." : availableRooms.length === 0 ? "No rooms available" : "Select a room"} />
+                        <SelectValue placeholder={isLoadingAvailableRoomsForModal ? "Loading rooms..." : availableRooms.length === 0 ? "No rooms available" : "Select a room"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -702,7 +699,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
               )} />
               <DialogFooter className="pt-4">
                 <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                <Button type="submit" disabled={isSubmitting || availableRooms.length === 0 || isLoading}>
+                <Button type="submit" disabled={isSubmitting || availableRooms.length === 0 || isLoadingAvailableRoomsForModal}>
                   {isSubmitting ? <Loader2 className="animate-spin" /> : "Confirm Check-in"}
                 </Button>
               </DialogFooter>
