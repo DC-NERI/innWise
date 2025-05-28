@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -47,13 +46,14 @@ import {
   transactionUnassignedUpdateSchema,
   TransactionUnassignedUpdateData
 } from '@/lib/schemas';
-import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
+
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
 import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
 import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
 import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
 import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
 import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
+import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
 
 
 import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
@@ -116,7 +116,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const [allBranchRates, setAllBranchRates] = useState<SimpleRate[]>([]);
 
   const [isLoading, setIsLoading] = useState(true); // For main list loading
-  const [isLoadingAvailableRoomsForModal, setIsLoadingAvailableRoomsForModal] = useState(false); // For modal room list
+  const [isLoadingAvailableRoomsForModal, setIsLoadingAvailableRoomsForModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [isAddReservationDialogOpen, setIsAddReservationDialogOpen] = useState(false);
@@ -344,14 +344,22 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         toast({title: "Error", description: "User, tenant, or branch info missing.", variant: "destructive"});
         return;
     }
+    if (!reservation.hotel_rate_id) {
+        toast({title: "Action Required", description: "This reservation has no rate selected. Please edit the reservation to select a rate before assigning a room.", variant: "default"});
+        return;
+    }
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
     setIsLoadingAvailableRoomsForModal(true);
     try {
       const roomsData = await listAvailableRoomsForBranch(tenantId, branchId);
-      setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
-      if (roomsData.length === 0) {
-        toast({ title: "No Rooms Available", description: "There are no currently available and clean rooms in this branch to assign.", variant: "default"});
+      const compatibleRooms = roomsData.filter(room => 
+        room.hotel_rate_id && room.hotel_rate_id.includes(reservation.hotel_rate_id!)
+      );
+      setAvailableRooms(compatibleRooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
+      
+      if (compatibleRooms.length === 0) {
+        toast({ title: "No Compatible Rooms", description: "There are no currently available and clean rooms that offer the rate selected for this reservation.", variant: "default"});
       }
     } catch (error) {
       toast({ title: "Error", description: `Could not fetch available rooms: ${error instanceof Error ? error.message : String(error)}`, variant: "destructive" });
@@ -382,6 +390,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         setIsAssignRoomDialogOpen(false);
         setSelectedReservationForAssignment(null);
         refreshReservationCount?.();
+        // TODO: Potentially trigger a refresh of RoomStatusContent as well if it's visible
       } else {
         toast({ title: "Assignment Failed", description: result.message || "Could not assign room.", variant: "destructive" });
       }
@@ -395,7 +404,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const renderReservationFormFields = (
     formInstance: typeof addReservationForm | typeof editReservationForm,
     isAdvance: boolean | undefined,
-    isPaid: TRANSACTION_PAYMENT_STATUS | undefined | null
+    isPaid: TRANSACTION_PAYMENT_STATUS | undefined | null,
+    isRateOptional: boolean = false
   ) => {
     const formValues = formInstance.getValues();
     return (
@@ -405,11 +415,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         )} />
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
-            <FormLabel>Select Rate</FormLabel>
+            <FormLabel>Select Rate {isRateOptional ? '(Optional)' : '*'}</FormLabel>
             <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={allBranchRates.length === 0}>
               <FormControl>
                 <SelectTrigger className="w-[90%]">
-                  <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available for branch" : "Select a rate (Optional)"} />
+                  <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available for branch" : `Select a rate ${isRateOptional ? '(Optional)' : '*'}`} />
                 </SelectTrigger>
               </FormControl>
               <SelectContent>
@@ -424,9 +434,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           </FormItem>
         )} />
         <FormField control={formInstance.control} name="client_payment_method" render={({ field }) => (
-          <FormItem><FormLabel>Payment Method</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value ?? undefined}>
-              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select payment method (Optional)" /></SelectTrigger></FormControl>
+          <FormItem><FormLabel>Payment Method {isRateOptional ? '(Optional)' : '*'}</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value ?? undefined} defaultValue={isRateOptional ? undefined : "Cash"}>
+              <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder={`Select payment method ${isRateOptional ? '(Optional)' : ''}`} /></SelectTrigger></FormControl>
               <SelectContent>
                 <SelectItem value="Cash">Cash</SelectItem><SelectItem value="Card">Card</SelectItem>
                 <SelectItem value="Online Payment">Online Payment</SelectItem><SelectItem value="Other">Other</SelectItem>
@@ -497,7 +507,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     onCheckedChange={(checked) => {
                         field.onChange(!!checked);
                         const currentIsPaid = formInstance.getValues("is_paid");
-                        if (currentIsPaid && currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
+                        if (Number(currentIsPaid) !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
                             formInstance.setValue("is_paid", !!checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
                         }
                     }}
@@ -510,7 +520,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
           <>
             <FormField control={formInstance.control} name="reserved_check_in_datetime" render={({ field }) => (
               <FormItem>
-                <FormLabel>Reserved Check-in Date & Time *</FormLabel>
+                <FormLabel>Reserved Check-in Date &amp; Time *</FormLabel>
                 <FormControl>
                   <Input
                     type="datetime-local"
@@ -525,14 +535,14 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             )} />
             <FormField control={formInstance.control} name="reserved_check_out_datetime" render={({ field }) => (
               <FormItem>
-                <FormLabel>Reserved Check-out Date & Time *</FormLabel>
+                <FormLabel>Reserved Check-out Date &amp; Time *</FormLabel>
                 <FormControl>
                   <Input
                     type="datetime-local"
                     className="w-[90%]"
                     {...field}
                     value={field.value || ""}
-                    min={(formValues as TransactionCreateData).reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
+                    min={((formInstance.getValues() as TransactionCreateData).reserved_check_in_datetime) || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
                 <FormMessage />
@@ -575,7 +585,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             <Form {...addReservationForm}>
               <form onSubmit={addReservationForm.handleSubmit(handleAddReservationSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                  <div className="flex-grow overflow-y-auto p-1">
-                    {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd, watchIsPaidAdd)}
+                    {renderReservationFormFields(addReservationForm, watchIsAdvanceReservationAdd, watchIsPaidAdd, true)}
                 </div>
                 <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
                   <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -616,7 +626,13 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                             <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
                                 <Ban className="mr-1 h-3 w-3" /> Cancel
                             </Button>
-                            <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
+                            <Button 
+                                variant="default" 
+                                size="sm" 
+                                onClick={() => handleOpenAssignRoomDialog(res)}
+                                disabled={!res.hotel_rate_id}
+                                title={!res.hotel_rate_id ? "Select a rate in 'Edit' before assigning room." : "Assign Room & Check-in"}
+                            >
                                 <Bed className="mr-1 h-3 w-3" /> Assign & Check-in
                             </Button>
                         </div>
@@ -683,7 +699,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                   <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={isLoadingAvailableRoomsForModal || availableRooms.length === 0}>
                     <FormControl>
                       <SelectTrigger className="w-[90%]">
-                        <SelectValue placeholder={isLoadingAvailableRoomsForModal ? "Loading rooms..." : availableRooms.length === 0 ? "No rooms available" : "Select a room"} />
+                        <SelectValue placeholder={isLoadingAvailableRoomsForModal ? "Loading rooms..." : availableRooms.length === 0 ? "No compatible rooms available" : "Select a room"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
