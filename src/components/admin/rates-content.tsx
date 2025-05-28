@@ -64,10 +64,11 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
     setIsLoadingBranches(true);
     try {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
-      setBranches(fetchedBranches.filter(b => b.status === HOTEL_ENTITY_STATUS.ACTIVE)); // Only show active branches for selection
-      if (fetchedBranches.length > 0 && !selectedBranchId) {
+      const activeBranches = fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE);
+      setBranches(activeBranches);
+      if (activeBranches.length > 0 && !selectedBranchId) {
         // Optionally auto-select the first branch
-        // setSelectedBranchId(fetchedBranches[0].id);
+        // setSelectedBranchId(activeBranches[0].id);
       }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
@@ -124,18 +125,18 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
 
 
   const handleAddSubmit = async (data: HotelRateCreateData) => {
-    if (!selectedBranchId || !tenantId || !adminUserId) {
-      toast({ title: "Error", description: "Branch, Tenant, or Admin User ID must be selected/available.", variant: "destructive" });
+    if (!selectedBranchId || !tenantId) {
+      toast({ title: "Error", description: "Branch or Tenant ID must be selected/available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
-      const result = await createRate(data, tenantId, selectedBranchId); // Removed adminUserId as createRate action doesn't expect it
+      const result = await createRate(data, tenantId, selectedBranchId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate created." });
         setRates(prev => [...prev, result.rate!].sort((a, b) => a.name.localeCompare(b.name)));
         setIsAddDialogOpen(false);
-        fetchRates(selectedBranchId); // Re-fetch rates for the current branch
+        fetchRates(selectedBranchId); 
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -144,15 +145,15 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   };
 
   const handleEditSubmit = async (data: HotelRateUpdateData) => {
-    if (!selectedRate || !selectedBranchId || !tenantId || !adminUserId) return;
+    if (!selectedRate || !selectedBranchId || !tenantId) return;
     setIsSubmitting(true);
     try {
-      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId); // Removed adminUserId as updateRate action doesn't expect it
+      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId); 
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate updated." });
         setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r).sort((a, b) => a.name.localeCompare(b.name)));
         setIsEditDialogOpen(false); setSelectedRate(null);
-        fetchRates(selectedBranchId); // Re-fetch rates
+        fetchRates(selectedBranchId); 
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
@@ -161,10 +162,10 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   };
 
   const handleArchive = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id || !adminUserId) return;
+    if (!tenantId || !rate.branch_id) return;
     setIsSubmitting(true);
     try {
-      const result = await archiveRate(rate.id, tenantId, rate.branch_id); // Removed adminUserId as archiveRate action doesn't expect it
+      const result = await archiveRate(rate.id, tenantId, rate.branch_id); 
       if (result.success) {
         toast({ title: "Success", description: `Rate "${rate.name}" archived.` });
         setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
@@ -176,7 +177,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   };
 
   const handleRestore = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id || !adminUserId) return;
+    if (!tenantId || !rate.branch_id) return;
     setIsSubmitting(true);
     const payload: HotelRateUpdateData = {
         name: rate.name,
@@ -187,7 +188,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
-      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id); // Removed adminUserId
+      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id);
       if (result.success && result.rate) {
         toast({ title: "Success", description: `Rate "${rate.name}" restored.` });
         setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r));
@@ -198,7 +199,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
     finally { setIsSubmitting(false); }
   };
 
-  const filteredRates = rates.filter(rate => rate.status === activeTab);
+  const filteredRates = rates.filter(rate => String(rate.status) === activeTab);
 
   const renderRateFormFields = () => (
     <React.Fragment>
@@ -229,8 +230,8 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   const selectedBranchName = branches.find(b => b.id === selectedBranchId)?.branch_name;
 
   return (
-    <div className="flex flex-col md:flex-row gap-6">
-      <Card className="md:w-2/5"> {/* Approx 40% width */}
+    <div className="flex flex-col md:flex-row gap-6 h-full"> {/* Added h-full to encourage filling */}
+      <Card className="md:w-2/5 flex flex-col h-full"> {/* Added flex flex-col h-full */}
         <CardHeader>
           <div className="flex items-center space-x-2">
             <Building className="h-6 w-6 text-primary" />
@@ -238,7 +239,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
           </div>
           <CardDescription>Click a branch to view its rates.</CardDescription>
         </CardHeader>
-        <CardContent className="max-h-[70vh] overflow-y-auto">
+        <CardContent className="flex-grow overflow-y-auto p-1"> {/* Changed padding to p-1 for content */}
           {isLoadingBranches ? (
             <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
           ) : branches.length === 0 ? (
@@ -249,12 +250,11 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
                 <li key={branch.id}>
                   <Button
                     variant={selectedBranchId === branch.id ? "secondary" : "ghost"}
-                    className="w-full justify-start text-left h-auto py-2"
+                    className="w-full justify-start text-left h-auto py-2 px-2" // Adjusted padding for items
                     onClick={() => setSelectedBranchId(branch.id)}
                   >
                     <div className="flex flex-col">
                       <span className="font-medium">{branch.branch_name}</span>
-                      {/* <span className="text-xs text-muted-foreground">{branch.branch_code}</span> */}
                     </div>
                   </Button>
                 </li>
@@ -264,7 +264,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         </CardContent>
       </Card>
 
-      <Card className="md:w-3/5"> {/* Approx 60% width */}
+      <Card className="md:w-3/5 flex flex-col h-full"> {/* Added flex flex-col h-full */}
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -314,9 +314,9 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
             )}
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-grow overflow-y-auto p-1"> {/* Changed padding to p-1 */}
           {!selectedBranchId ? (
-            <div className="text-center py-10 text-muted-foreground">
+            <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
               <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
               Please select a branch from the left to view its rates.
             </div>
@@ -324,7 +324,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
             <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading rates...</p></div>
           ) : (
             <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive</TabsTrigger></TabsList>
+              <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active ({rates.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE).length})</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive ({rates.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ARCHIVED).length})</TabsTrigger></TabsList>
               <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
                 {filteredRates.length === 0 && <p className="text-muted-foreground text-center py-8">No active rates found for this branch.</p>}
                 {filteredRates.length > 0 && (
@@ -371,3 +371,4 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
     </div>
   );
 }
+
