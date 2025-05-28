@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from '@/components/ui/textarea';
+// Removed unused Textarea import
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -28,6 +28,7 @@ import { createRoom } from '@/actions/admin/rooms/createRoom';
 import { updateRoom } from '@/actions/admin/rooms/updateRoom';
 import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
 import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { Textarea } from '@/components/ui/textarea'; // Added Textarea import
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -53,9 +54,9 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   const [branches, setBranches] = useState<SimpleBranch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
-  const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]); // Active rates for the selected branch
+  const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]);
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
-  const [isLoadingData, setIsLoadingData] = useState(false); // For rooms and rates of a branch
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -93,10 +94,10 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
-        getRatesForBranchSimple(tenantId, branchId) // Fetches active rates
+        getRatesForBranchSimple(tenantId, branchId)
       ]);
       setRooms(fetchedRooms);
-      setAvailableRates(fetchedRates); // Already filtered for active by the action
+      setAvailableRates(fetchedRates);
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch room and rate data for the branch.", variant: "destructive" });
       setRooms([]);
@@ -158,7 +159,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
         setIsAddDialogOpen(false);
-        fetchBranchData(selectedBranchId); // Re-fetch data for the branch
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create room.", variant: "destructive" });
       }
@@ -174,7 +175,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
         setIsEditDialogOpen(false); setSelectedRoom(null);
-        fetchBranchData(selectedBranchId); // Re-fetch data for the branch
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update room.", variant: "destructive" });
       }
@@ -189,7 +190,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id); // Re-fetch data
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Archive Failed", description: result.message || "Could not archive room.", variant: "destructive" });
       }
@@ -217,7 +218,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id); // Re-fetch data
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Restore Failed", description: result.message || "Could not restore room.", variant: "destructive" });
       }
@@ -294,7 +295,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select cleaning status" /></SelectTrigger></FormControl>
               <SelectContent>
                 {ROOM_CLEANING_STATUS_OPTIONS.map(option => (
-                  <SelectItem key={option.value} value={option.value.toString()}>{option.label}</SelectItem>
+                  <SelectItem key={option.value} value={String(option.value)}>{option.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -479,10 +480,24 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                                   <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
                                   {r.hotel_rate_id.length > 0 ? (
                                     <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
-                                      {r.hotel_rate_id.map(rateId => {
-                                        const rate = availableRates.find(ar => ar.id === rateId);
-                                        return <li key={rateId}>{rate && rate.name ? `${rate.name} (₱${typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})` : `Rate ID: ${rateId} (Not Active/Found)`}</li>;
-                                      })}
+                                      {availableRates
+                                        .filter(ar => r.hotel_rate_id!.includes(ar.id))
+                                        .sort((a,b) => a.name.localeCompare(b.name))
+                                        .map(rate => (
+                                          <li key={rate.id}>
+                                            {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
+                                          </li>
+                                        ))
+                                      }
+                                      {/* Display IDs for rates not found in active list (e.g., if they were archived) */}
+                                      {r.hotel_rate_id
+                                        .filter(rateId => !availableRates.some(ar => ar.id === rateId))
+                                        .map(rateId => (
+                                          <li key={rateId} className="text-xs text-muted-foreground italic">
+                                            Rate ID: {rateId} (Inactive/Not Found)
+                                          </li>
+                                        ))
+                                      }
                                     </ul>
                                   ) : (
                                     <p className="text-xs text-muted-foreground">No rates assigned.</p>
@@ -536,12 +551,23 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                                   <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
                                   {r.hotel_rate_id.length > 0 ? (
                                     <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
-                                      {r.hotel_rate_id.map(rateId => {
-                                        const rate = availableRates.find(ar => ar.id === rateId);
-                                        // If the rate is not in availableRates (e.g., it's archived), we won't have its details.
-                                        // A more robust solution might fetch all rates for display purposes, or store rate names on the room if they are critical for archived display.
-                                        return <li key={rateId}>{rate && rate.name ? `${rate.name} (₱${typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})` : `Rate ID: ${rateId} (Details unavailable)`}</li>;
-                                      })}
+                                      {availableRates
+                                        .filter(ar => r.hotel_rate_id!.includes(ar.id))
+                                        .sort((a,b) => a.name.localeCompare(b.name))
+                                        .map(rate => (
+                                          <li key={rate.id}>
+                                            {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
+                                          </li>
+                                        ))
+                                      }
+                                      {r.hotel_rate_id
+                                        .filter(rateId => !availableRates.some(ar => ar.id === rateId))
+                                        .map(rateId => (
+                                          <li key={rateId} className="text-xs text-muted-foreground italic">
+                                            Rate ID: {rateId} (Inactive/Not Found)
+                                          </li>
+                                        ))
+                                      }
                                     </ul>
                                   ) : (
                                     <p className="text-xs text-muted-foreground">No rates assigned.</p>
@@ -581,4 +607,3 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   );
 }
 
-    
