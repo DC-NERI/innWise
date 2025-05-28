@@ -24,7 +24,7 @@ import {
   ROOM_CLEANING_STATUS_TEXT,
   TRANSACTION_PAYMENT_STATUS
 } from '@/lib/constants';
-import { logActivity } from '../../activityLogger'; // Adjusted path assuming activityLogger is in src/actions
+import { logActivity } from '@/actions/activityLogger'; // Adjusted path
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -40,13 +40,11 @@ const SELECT_RESERVATION_FOR_ASSIGNMENT_SQL = `
   FROM transactions
   WHERE id = $1 AND tenant_id = $2 AND branch_id = $3
     AND hotel_room_id IS NULL
-    AND status::INTEGER = $4
-    AND is_accepted = $5
   FOR UPDATE;
 `;
 
 const ROOM_CHECK_FOR_ASSIGNMENT_SQL = `
-  SELECT is_available, cleaning_status, room_name, hotel_rate_id AS room_hotel_rate_ids_json -- Renamed for clarity
+  SELECT is_available, cleaning_status, room_name, hotel_rate_id AS room_hotel_rate_ids_json
   FROM hotel_room
   WHERE id = $1 AND tenant_id = $2 AND branch_id = $3 AND status = $4
   FOR UPDATE;
@@ -66,7 +64,6 @@ export async function assignRoomAndCheckIn(
   branchId: number
 ): Promise<{ success: boolean; message?: string; updatedRoomData?: Partial<HotelRoom> & { id: number }, updatedTransaction?: Transaction }> {
 
-  // Critical constants check
   const EXPECTED_RESERVATION_LIFECYCLE_STATUS_INT = TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM; // 3
   const EXPECTED_IS_ACCEPTED_STATUS_INT = TRANSACTION_IS_ACCEPTED_STATUS.ACCEPTED; // 2
   const NEW_TRANSACTION_LIFECYCLE_STATUS_INT = TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN; // 0
@@ -101,8 +98,13 @@ export async function assignRoomAndCheckIn(
   if (!branchId || branchId <= 0) return { success: false, message: "Invalid Branch ID." };
 
   let client: PoolClient | undefined;
+  let updatedTransactionRow: any = null; // To store the result of the transaction update
+  let updatedRoomDbRow: any = null; // To store the result of the room update
+  let checkInTimeForReturn: string | null = null;
+
   try {
     client = await pool.connect();
+    console.log(`[assignRoomAndCheckIn] Database client connected for TxID: ${transactionId}.`);
     await client.query('BEGIN');
     console.log(`[assignRoomAndCheckIn] BEGIN transaction for TxID: ${transactionId}`);
 
@@ -110,43 +112,53 @@ export async function assignRoomAndCheckIn(
       transactionId,
       tenantId,
       branchId,
-      EXPECTED_RESERVATION_LIFECYCLE_STATUS_INT,
-      EXPECTED_IS_ACCEPTED_STATUS_INT
     ]);
-
+    
     if (reservationRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      const debugTxRes = await client.query('SELECT id, status, is_accepted, hotel_room_id, branch_id FROM transactions WHERE id = $1 AND tenant_id = $2', [transactionId, tenantId]);
+      const debugQuery = 'SELECT id, status, is_accepted, hotel_room_id, branch_id FROM transactions WHERE id = $1 AND tenant_id = $2';
+      const debugTxRes = await pool.query(debugQuery, [transactionId, tenantId]); // Use pool for read-only debug after rollback
       const currentTxState = debugTxRes.rows[0];
       const errorMessage = `Reservation (ID: ${transactionId}) not found, already assigned, or not in a valid state for assignment. Current state (if found): Status ${currentTxState?.status}, Accepted ${currentTxState?.is_accepted}, Room ${currentTxState?.hotel_room_id}, Branch ${currentTxState?.branch_id}. Expected status '${EXPECTED_RESERVATION_LIFECYCLE_STATUS_INT}' and accepted '${EXPECTED_IS_ACCEPTED_STATUS_INT}'.`;
-      console.warn(`[assignRoomAndCheckIn] ROLLBACK (Pre-check): ${errorMessage}`);
+      console.warn(`[assignRoomAndCheckIn] ROLLBACK (Pre-check - reservation select): ${errorMessage}`);
       return { success: false, message: errorMessage };
     }
+
     const reservation = reservationRes.rows[0];
     console.log('[assignRoomAndCheckIn] Found reservation for assignment:', reservation);
+
+    const currentDbStatus = Number(reservation.status);
+    const currentDbIsAccepted = Number(reservation.is_accepted);
+
+    if (currentDbStatus !== EXPECTED_RESERVATION_LIFECYCLE_STATUS_INT || currentDbIsAccepted !== EXPECTED_IS_ACCEPTED_STATUS_INT) {
+        await client.query('ROLLBACK');
+        const errorMessage = `Reservation (ID: ${transactionId}) not in a valid state for assignment. Current status: ${currentDbStatus}, Accepted: ${currentDbIsAccepted}. Expected status '${EXPECTED_RESERVATION_LIFECYCLE_STATUS_INT}' and accepted '${EXPECTED_IS_ACCEPTED_STATUS_INT}'.`;
+        console.warn(`[assignRoomAndCheckIn] ROLLBACK (Pre-check - reservation status/acceptance): ${errorMessage}`);
+        return { success: false, message: errorMessage };
+    }
+
 
     const roomRes = await client.query(ROOM_CHECK_FOR_ASSIGNMENT_SQL, [roomId, tenantId, branchId, ROOM_DEFINITION_ACTIVE_STATUS_STR]);
 
     if (roomRes.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.warn(`[assignRoomAndCheckIn] Rollback: Room ID ${roomId} not found or inactive.`);
+      console.warn(`[assignRoomAndCheckIn] Rollback (Pre-check - room select): Room ID ${roomId} not found or inactive.`);
       return { success: false, message: "Selected room not found or is not active." };
     }
-    const room = roomRes.rows[0];
-    console.log('[assignRoomAndCheckIn] Found room for assignment:', room);
+    updatedRoomDbRow = roomRes.rows[0]; // Store initial room details
+    console.log('[assignRoomAndCheckIn] Found room for assignment:', updatedRoomDbRow);
 
-    if (Number(room.is_available) !== ROOM_AVAILABILITY_STATUS.AVAILABLE) {
+    if (Number(updatedRoomDbRow.is_available) !== ROOM_AVAILABILITY_STATUS.AVAILABLE) {
       await client.query('ROLLBACK');
-      console.warn(`[assignRoomAndCheckIn] Rollback: Room ID ${roomId} is not available. Current availability: ${room.is_available}`);
-      return { success: false, message: `Selected room is not available. Current status: ${ROOM_AVAILABILITY_STATUS_TEXT[Number(room.is_available)]}` };
+      console.warn(`[assignRoomAndCheckIn] Rollback: Room ID ${roomId} is not available. Current availability: ${updatedRoomDbRow.is_available}`);
+      return { success: false, message: `Selected room is not available. Current status: ${ROOM_AVAILABILITY_STATUS_TEXT[Number(updatedRoomDbRow.is_available)]}` };
     }
-    if (Number(room.cleaning_status) !== ROOM_CLEANING_STATUS_CLEAN_INT) {
+    if (Number(updatedRoomDbRow.cleaning_status) !== ROOM_CLEANING_STATUS_CLEAN_INT) {
       await client.query('ROLLBACK');
-      console.warn(`[assignRoomAndCheckIn] Rollback: Room ID ${roomId} is not clean. Current cleaning status: ${room.cleaning_status}`);
-      return { success: false, message: `Selected room is not clean (Current status: ${ROOM_CLEANING_STATUS_TEXT[Number(room.cleaning_status)] || 'Unknown'}). Cannot assign.` };
+      console.warn(`[assignRoomAndCheckIn] Rollback: Room ID ${roomId} is not clean. Current cleaning status: ${updatedRoomDbRow.cleaning_status}`);
+      return { success: false, message: `Selected room is not clean (Current status: ${ROOM_CLEANING_STATUS_TEXT[Number(updatedRoomDbRow.cleaning_status)] || 'Unknown'}). Cannot assign.` };
     }
 
-    // Determine payment status and amounts from the reservation
     const finalIsPaidStatus = Number(reservation.is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID);
     const finalTenderAmount = reservation.tender_amount !== null ? parseFloat(String(reservation.tender_amount)) : null;
     
@@ -168,15 +180,14 @@ export async function assignRoomAndCheckIn(
         console.warn(`[assignRoomAndCheckIn] Rollback: Reservation TxID ${transactionId} does not have an associated rate. Cannot proceed with check-in.`);
         return { success: false, message: "Reservation does not have an associated rate. Cannot proceed with check-in." };
     }
-    // Total amount for transaction upon check-in if paid upfront is the base rate price.
-    // If not paid upfront, total_amount can be null until checkout, or use the existing one from reservation.
+    
     const totalAmountForTransaction = (finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.PAID || finalIsPaidStatus === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID) 
         ? ratePrice 
         : (reservation.total_amount !== null ? parseFloat(String(reservation.total_amount)) : null);
 
     let actualCheckInTimeParam: string | null = null;
     if (reservation.reserved_check_in_datetime) {
-      actualCheckInTimeParam = reservation.reserved_check_in_datetime; // This is already a string from DB
+      actualCheckInTimeParam = reservation.reserved_check_in_datetime;
     }
 
     const UPDATE_TRANSACTION_SQL = `
@@ -193,15 +204,15 @@ export async function assignRoomAndCheckIn(
     `;
 
     const transactionUpdateParams = [
-      roomId, // $1 hotel_room_id
-      NEW_TRANSACTION_LIFECYCLE_STATUS_INT.toString(), // $2 status
-      actualCheckInTimeParam, // $3 check_in_time (can be null)
-      finalIsPaidStatus, // $4 is_paid
-      finalTenderAmount, // $5 tender_amount
-      totalAmountForTransaction, // $6 total_amount
-      transactionId, // $7 id for WHERE
-      tenantId, // $8 tenant_id for WHERE
-      branchId, // $9 branch_id for WHERE
+      roomId,
+      NEW_TRANSACTION_LIFECYCLE_STATUS_INT.toString(),
+      actualCheckInTimeParam, 
+      finalIsPaidStatus,
+      finalTenderAmount,
+      totalAmountForTransaction,
+      transactionId,
+      tenantId,
+      branchId,
     ];
     
     console.log('[assignRoomAndCheckIn] Attempting to UPDATE transaction with params:', JSON.stringify(transactionUpdateParams));
@@ -209,11 +220,11 @@ export async function assignRoomAndCheckIn(
 
     if (transactionUpdateResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.warn(`[assignRoomAndCheckIn] Rollback: Failed to UPDATE transaction details for check-in (TxID: ${transactionId}). Row count 0.`);
-      return { success: false, message: "Failed to update transaction details for check-in." };
+      console.warn(`[assignRoomAndCheckIn] Rollback (Transaction Update): Failed to UPDATE transaction details for check-in (TxID: ${transactionId}). Row count 0.`);
+      return { success: false, message: "Failed to update transaction details for check-in. Transaction may have been modified." };
     }
-    const updatedTransactionRow = transactionUpdateResult.rows[0];
-    const checkInTimeForReturn = updatedTransactionRow.effective_check_in_time; 
+    updatedTransactionRow = transactionUpdateResult.rows[0];
+    checkInTimeForReturn = updatedTransactionRow.effective_check_in_time; 
     console.log(`[assignRoomAndCheckIn] Transaction TxID ${transactionId} updated for check-in. Effective check-in time: ${checkInTimeForReturn}`);
 
     const UPDATE_ROOM_SQL = `
@@ -230,7 +241,7 @@ export async function assignRoomAndCheckIn(
       ROOM_NOW_OCCUPIED_STATUS_INT,
       transactionId,
       ROOM_NEEDS_INSPECTION_STATUS_INT,
-      `Checked-in guest: ${updatedTransactionRow.client_name}. Room set to 'Needs Inspection'.`,
+      `Checked-in guest: ${updatedTransactionRow.client_name}. Room set to '${ROOM_CLEANING_STATUS_TEXT[ROOM_NEEDS_INSPECTION_STATUS_INT]}'.`,
       roomId,
       tenantId,
       branchId
@@ -238,10 +249,10 @@ export async function assignRoomAndCheckIn(
 
     if (roomUpdateResult.rows.length === 0) {
       await client.query('ROLLBACK');
-      console.warn(`[assignRoomAndCheckIn] Rollback: Failed to UPDATE room status for RoomID ${roomId}.`);
+      console.warn(`[assignRoomAndCheckIn] Rollback (Room Update): Failed to UPDATE room status for RoomID ${roomId}.`);
       return { success: false, message: "Failed to update room status." };
     }
-    const updatedRoomDbRow = roomUpdateResult.rows[0];
+    updatedRoomDbRow = roomUpdateResult.rows[0]; // Re-assign with updated room details
     console.log(`[assignRoomAndCheckIn] RoomID ${roomId} status updated.`);
 
     await client.query(LOG_CLEANING_SQL, [
@@ -254,12 +265,40 @@ export async function assignRoomAndCheckIn(
     ]);
     console.log(`[assignRoomAndCheckIn] Cleaning log created for RoomID ${roomId}.`);
 
-    let rateNameFromDb: string | null = null;
-    let rateHoursFromDb: number | null = null;
-    let rateExcessHourPriceFromDb: number | null = null;
+    console.log(`[assignRoomAndCheckIn] Attempting to COMMIT transaction for TxID: ${transactionId}.`);
+    await client.query('COMMIT');
+    console.log(`[assignRoomAndCheckIn] Transaction COMMITTED successfully for TxID: ${transactionId}.`);
 
-    if (updatedTransactionRow.hotel_rate_id) {
-      const rateNameRes = await client.query(
+  } catch (error) {
+    if (client) {
+      try {
+        console.warn(`[assignRoomAndCheckIn] Error occurred. Attempting to ROLLBACK for TxID: ${transactionId}`, error);
+        await client.query('ROLLBACK');
+        console.warn(`[assignRoomAndCheckIn] Transaction ROLLED BACK for TxID: ${transactionId} due to error.`);
+      } catch (rbError) {
+        console.error(`[assignRoomAndCheckIn] Error during rollback for TxID: ${transactionId}:`, rbError);
+      }
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[assignRoomAndCheckIn DB Full Error]', error);
+    return { success: false, message: `Database error during room assignment and check-in: ${errorMessage}` };
+  } finally {
+    if (client) {
+      client.release();
+      console.log(`[assignRoomAndCheckIn] Client released for TxID: ${transactionId}`);
+    }
+  }
+
+  // Post-commit operations (fetch rate name, log activity)
+  let rateNameFromDb: string | null = null;
+  let rateHoursFromDb: number | null = null;
+  let rateExcessHourPriceFromDb: number | null = null;
+  let fetchedRatePrice: number | null = null;
+
+  if (updatedTransactionRow && updatedTransactionRow.hotel_rate_id) {
+    try {
+      const rateClient = await pool.connect();
+      const rateNameRes = await rateClient.query(
         'SELECT name, hours, excess_hour_price, price FROM hotel_rates WHERE id = $1 AND tenant_id = $2 AND branch_id = $3',
         [updatedTransactionRow.hotel_rate_id, tenantId, branchId]
       );
@@ -267,10 +306,15 @@ export async function assignRoomAndCheckIn(
           rateNameFromDb = rateNameRes.rows[0].name;
           rateHoursFromDb = rateNameRes.rows[0].hours ? parseInt(String(rateNameRes.rows[0].hours), 10) : null;
           rateExcessHourPriceFromDb = rateNameRes.rows[0].excess_hour_price ? parseFloat(String(rateNameRes.rows[0].excess_hour_price)) : null;
-          // ratePrice is already fetched and used for totalAmountForTransaction
+          fetchedRatePrice = rateNameRes.rows[0].price ? parseFloat(String(rateNameRes.rows[0].price)) : null;
       }
+      rateClient.release();
+    } catch(rateError) {
+      console.error(`[assignRoomAndCheckIn] Error fetching rate details post-commit for TxID ${transactionId}:`, rateError);
     }
+  }
 
+  try {
     await logActivity({
       tenant_id: tenantId,
       branch_id: branchId,
@@ -290,105 +334,83 @@ export async function assignRoomAndCheckIn(
         new_room_cleaning_status: ROOM_NEEDS_INSPECTION_STATUS_INT,
         checked_in_staff_id: staffUserId
       }
-    }, client);
-    console.log(`[assignRoomAndCheckIn] Activity logged for TxID ${transactionId}.`);
-
-    await client.query('COMMIT');
-    console.log(`[assignRoomAndCheckIn] Transaction COMMITTED successfully for TxID: ${transactionId}.`);
-
-    let parsedRoomRateIds: number[] = [];
-    try {
-        const rawRateIdJson = updatedRoomDbRow.room_hotel_rate_ids_json;
-        if (rawRateIdJson) {
-            if (Array.isArray(rawRateIdJson)) {
-                parsedRoomRateIds = rawRateIdJson.map((id: any) => Number(id));
-            } else if (typeof rawRateIdJson === 'string') { // Should be a JSON string if from DB JSON column
-                const parsed = JSON.parse(rawRateIdJson);
-                if (Array.isArray(parsed)) {
-                    parsedRoomRateIds = parsed.map((id: any) => Number(id));
-                }
-            }
-        }
-    } catch (e) {
-        console.error(`[assignRoomAndCheckIn] Failed to parse room_hotel_rate_ids_json for room ${roomId}: ${updatedRoomDbRow.room_hotel_rate_ids_json}`, e);
-    }
-
-
-    const finalUpdatedTransaction: Transaction = {
-      id: Number(updatedTransactionRow.id),
-      tenant_id: Number(updatedTransactionRow.tenant_id),
-      branch_id: Number(updatedTransactionRow.branch_id),
-      hotel_room_id: updatedTransactionRow.hotel_room_id ? Number(updatedTransactionRow.hotel_room_id) : null,
-      hotel_rate_id: updatedTransactionRow.hotel_rate_id ? Number(updatedTransactionRow.hotel_rate_id) : null,
-      client_name: String(updatedTransactionRow.client_name),
-      client_payment_method: updatedTransactionRow.client_payment_method,
-      notes: updatedTransactionRow.notes,
-      check_in_time: String(checkInTimeForReturn),
-      check_out_time: updatedTransactionRow.check_out_time ? String(updatedTransactionRow.check_out_time) : null,
-      hours_used: updatedTransactionRow.hours_used ? Number(updatedTransactionRow.hours_used) : null,
-      total_amount: updatedTransactionRow.total_amount !== null ? parseFloat(String(updatedTransactionRow.total_amount)) : null,
-      tender_amount: updatedTransactionRow.tender_amount !== null ? parseFloat(String(updatedTransactionRow.tender_amount)) : null,
-      is_paid: Number(updatedTransactionRow.is_paid),
-      created_by_user_id: Number(updatedTransactionRow.created_by_user_id),
-      check_out_by_user_id: updatedTransactionRow.check_out_by_user_id ? Number(updatedTransactionRow.check_out_by_user_id) : null,
-      accepted_by_user_id: updatedTransactionRow.accepted_by_user_id ? Number(updatedTransactionRow.accepted_by_user_id) : null,
-      declined_by_user_id: updatedTransactionRow.declined_by_user_id ? Number(updatedTransactionRow.declined_by_user_id) : null,
-      status: Number(updatedTransactionRow.status),
-      created_at: String(updatedTransactionRow.created_at),
-      updated_at: String(updatedTransactionRow.updated_at),
-      reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime ? String(updatedTransactionRow.reserved_check_in_datetime) : null,
-      reserved_check_out_datetime: updatedTransactionRow.reserved_check_out_datetime ? String(updatedTransactionRow.reserved_check_out_datetime) : null,
-      is_admin_created: updatedTransactionRow.is_admin_created !== null ? Number(updatedTransactionRow.is_admin_created) : null,
-      is_accepted: Number(updatedTransactionRow.is_accepted),
-      rate_name: rateNameFromDb,
-      room_name: updatedRoomDbRow.room_name,
-      rate_price: ratePrice, // Fetched rate price
-      rate_hours: rateHoursFromDb,
-      rate_excess_hour_price: rateExcessHourPriceFromDb,
-    };
-
-    const updatedRoomData: Partial<HotelRoom> & { id: number } = {
-      id: roomId,
-      is_available: ROOM_NOW_OCCUPIED_STATUS_INT,
-      transaction_id: transactionId,
-      active_transaction_id: transactionId,
-      active_transaction_client_name: finalUpdatedTransaction.client_name,
-      active_transaction_check_in_time: finalUpdatedTransaction.check_in_time,
-      active_transaction_rate_name: finalUpdatedTransaction.rate_name,
-      active_transaction_rate_hours: finalUpdatedTransaction.rate_hours,
-      active_transaction_lifecycle_status: finalUpdatedTransaction.status,
-      cleaning_status: Number(updatedRoomDbRow.cleaning_status),
-      cleaning_notes: updatedRoomDbRow.cleaning_notes,
-      hotel_rate_id: parsedRoomRateIds,
-    };
-
-    return {
-      success: true,
-      message: `Room '${updatedRoomDbRow.room_name}' assigned and client '${updatedTransactionRow.client_name}' checked in. Room set to ${ROOM_CLEANING_STATUS_TEXT[ROOM_NEEDS_INSPECTION_STATUS_INT]}.`,
-      updatedRoomData,
-      updatedTransaction: finalUpdatedTransaction,
-    };
-
-  } catch (error) {
-    if (client) {
-      try {
-        await client.query('ROLLBACK');
-        console.warn(`[assignRoomAndCheckIn] Transaction ROLLED BACK for TxID: ${transactionId} due to error: ${error instanceof Error ? error.message : String(error)}`);
-      } catch (rbError) {
-        console.error(`[assignRoomAndCheckIn] Error during rollback for TxID: ${transactionId}:`, rbError);
-      }
-    }
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[assignRoomAndCheckIn DB Full Error]', error);
-    return { success: false, message: `Database error during room assignment and check-in: ${errorMessage}` };
-  } finally {
-    if (client) {
-      client.release();
-      console.log(`[assignRoomAndCheckIn] Client released for TxID: ${transactionId}`);
-    }
+    });
+    console.log(`[assignRoomAndCheckIn] Activity logged post-commit for TxID ${transactionId}.`);
+  } catch (logError) {
+      console.error(`[assignRoomAndCheckIn] Failed to log activity post-commit for TxID ${transactionId}:`, logError);
   }
+  
+  let parsedRoomRateIds: number[] = [];
+  try {
+      const rawRateIdJson = updatedRoomDbRow.room_hotel_rate_ids_json;
+      if (rawRateIdJson) {
+          if (Array.isArray(rawRateIdJson)) {
+              parsedRoomRateIds = rawRateIdJson.map((id: any) => Number(id));
+          } else if (typeof rawRateIdJson === 'string') {
+              const parsed = JSON.parse(rawRateIdJson);
+              if (Array.isArray(parsed)) {
+                  parsedRoomRateIds = parsed.map((id: any) => Number(id));
+              }
+          }
+      }
+  } catch (e) {
+      console.error(`[assignRoomAndCheckIn] Failed to parse room_hotel_rate_ids_json for room ${roomId}: ${updatedRoomDbRow.room_hotel_rate_ids_json}`, e);
+  }
+
+  const finalUpdatedTransaction: Transaction = {
+    id: Number(updatedTransactionRow.id),
+    tenant_id: Number(updatedTransactionRow.tenant_id),
+    branch_id: Number(updatedTransactionRow.branch_id),
+    hotel_room_id: updatedTransactionRow.hotel_room_id ? Number(updatedTransactionRow.hotel_room_id) : null,
+    hotel_rate_id: updatedTransactionRow.hotel_rate_id ? Number(updatedTransactionRow.hotel_rate_id) : null,
+    client_name: String(updatedTransactionRow.client_name),
+    client_payment_method: updatedTransactionRow.client_payment_method,
+    notes: updatedTransactionRow.notes,
+    check_in_time: String(checkInTimeForReturn),
+    check_out_time: updatedTransactionRow.check_out_time ? String(updatedTransactionRow.check_out_time) : null,
+    hours_used: updatedTransactionRow.hours_used ? Number(updatedTransactionRow.hours_used) : null,
+    total_amount: updatedTransactionRow.total_amount !== null ? parseFloat(String(updatedTransactionRow.total_amount)) : null,
+    tender_amount: updatedTransactionRow.tender_amount !== null ? parseFloat(String(updatedTransactionRow.tender_amount)) : null,
+    is_paid: Number(updatedTransactionRow.is_paid),
+    created_by_user_id: Number(updatedTransactionRow.created_by_user_id),
+    check_out_by_user_id: updatedTransactionRow.check_out_by_user_id ? Number(updatedTransactionRow.check_out_by_user_id) : null,
+    accepted_by_user_id: updatedTransactionRow.accepted_by_user_id ? Number(updatedTransactionRow.accepted_by_user_id) : null,
+    declined_by_user_id: updatedTransactionRow.declined_by_user_id ? Number(updatedTransactionRow.declined_by_user_id) : null,
+    status: Number(updatedTransactionRow.status),
+    created_at: String(updatedTransactionRow.created_at),
+    updated_at: String(updatedTransactionRow.updated_at),
+    reserved_check_in_datetime: updatedTransactionRow.reserved_check_in_datetime ? String(updatedTransactionRow.reserved_check_in_datetime) : null,
+    reserved_check_out_datetime: updatedTransactionRow.reserved_check_out_datetime ? String(updatedTransactionRow.reserved_check_out_datetime) : null,
+    is_admin_created: updatedTransactionRow.is_admin_created !== null ? Number(updatedTransactionRow.is_admin_created) : null,
+    is_accepted: Number(updatedTransactionRow.is_accepted),
+    rate_name: rateNameFromDb,
+    room_name: updatedRoomDbRow.room_name,
+    rate__price: fetchedRatePrice,
+    rate_hours: rateHoursFromDb,
+    rate_excess_hour_price: rateExcessHourPriceFromDb,
+  };
+
+  const updatedRoomDataForClient: Partial<HotelRoom> & { id: number } = {
+    id: roomId,
+    is_available: ROOM_NOW_OCCUPIED_STATUS_INT,
+    transaction_id: transactionId,
+    active_transaction_id: transactionId,
+    active_transaction_client_name: finalUpdatedTransaction.client_name,
+    active_transaction_check_in_time: finalUpdatedTransaction.check_in_time,
+    active_transaction_rate_name: finalUpdatedTransaction.rate_name,
+    active_transaction_rate_hours: finalUpdatedTransaction.rate_hours,
+    active_transaction_lifecycle_status: finalUpdatedTransaction.status,
+    cleaning_status: Number(updatedRoomDbRow.cleaning_status),
+    cleaning_notes: updatedRoomDbRow.cleaning_notes,
+    hotel_rate_id: parsedRoomRateIds,
+  };
+
+  return {
+    success: true,
+    message: `Room '${updatedRoomDbRow.room_name}' assigned and client '${updatedTransactionRow.client_name}' checked in. Room set to ${ROOM_CLEANING_STATUS_TEXT[ROOM_NEEDS_INSPECTION_STATUS_INT]}.`,
+    updatedRoomData: updatedRoomDataForClient,
+    updatedTransaction: finalUpdatedTransaction,
+  };
 }
-    
-    
 
     
