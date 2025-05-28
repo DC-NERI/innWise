@@ -44,7 +44,7 @@ const defaultFormValuesCreate: HotelRoomCreateData = {
 
 interface RoomsContentProps {
   tenantId: number;
-  adminUserId: number; // Added for logging
+  adminUserId: number;
 }
 
 export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProps) {
@@ -58,12 +58,13 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<HotelRoom | null>(null);
-  const [activeTab, setActiveTab] = useState("active");
+  const [activeTab, setActiveTab] = useState(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedRoom;
 
   const form = useForm<RoomFormValues>({
+    // Resolver is set dynamically in useEffect
   });
 
   const fetchBranches = useCallback(async () => {
@@ -71,7 +72,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     setIsLoadingBranches(true);
     try {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
-      setBranches(fetchedBranches);
+      setBranches(fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE)); // Only show active branches for selection
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
     } finally {
@@ -86,14 +87,14 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   const fetchBranchData = useCallback(async (branchId: number) => {
     if (!tenantId) return;
     setIsLoadingData(true);
-    setAvailableRates([]); 
+    setAvailableRates([]);
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
-        getRatesForBranchSimple(tenantId, branchId) 
+        getRatesForBranchSimple(tenantId, branchId)
       ]);
       setRooms(fetchedRooms);
-      setAvailableRates(fetchedRates.filter(rate => rate.status === HOTEL_ENTITY_STATUS.ACTIVE));
+      setAvailableRates(fetchedRates.filter(rate => String(rate.status) === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch room and rate data for the branch.", variant: "destructive" });
       setRooms([]);
@@ -129,15 +130,15 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         is_available: Number(selectedRoom.is_available),
         cleaning_status: Number(selectedRoom.cleaning_status) || ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: selectedRoom.cleaning_notes || '',
-        status: selectedRoom.status || HOTEL_ENTITY_STATUS.ACTIVE,
+        status: String(selectedRoom.status) || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
-      newDefaults = { 
-        ...defaultFormValuesCreate, 
-        hotel_rate_ids: [], 
+      newDefaults = {
+        ...defaultFormValuesCreate,
+        hotel_rate_ids: [],
         is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
         cleaning_status: ROOM_CLEANING_STATUS.CLEAN,
-        status: HOTEL_ENTITY_STATUS.ACTIVE 
+        status: HOTEL_ENTITY_STATUS.ACTIVE
       };
     }
     form.reset(newDefaults, { resolver: newResolver } as any);
@@ -156,6 +157,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         toast({ title: "Success", description: "Room created." });
         setRooms(prev => [...prev, result.room!].sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsAddDialogOpen(false);
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
       }
@@ -172,13 +174,14 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         toast({ title: "Success", description: "Room updated." });
         setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r).sort((a, b) => (a.room_code || "").localeCompare(b.room_code || "")));
         setIsEditDialogOpen(false); setSelectedRoom(null);
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Update Failed", description: result.message, variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during room update.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
   };
-  
+
   const handleArchive = async (room: HotelRoom) => {
      if (!tenantId || !room.branch_id || !adminUserId) return;
     setIsSubmitting(true);
@@ -186,7 +189,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        setRooms(prev => prev.map(r => r.id === room.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
+        fetchBranchData(room.branch_id); // Re-fetch to update lists
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
       }
@@ -214,7 +217,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        setRooms(prev => prev.map(r => r.id === result.room!.id ? result.room! : r));
+        fetchBranchData(room.branch_id); // Re-fetch to update lists
       } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
@@ -223,7 +226,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   };
 
 
-  const filteredRooms = rooms.filter(room => room.status === (activeTab === "active" ? HOTEL_ENTITY_STATUS.ACTIVE : HOTEL_ENTITY_STATUS.ARCHIVED));
+  const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
 
   const getRateNames = (rateIds: number[] | null): string => {
     if (!Array.isArray(rateIds) || rateIds.length === 0) return 'N/A';
@@ -235,7 +238,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     <React.Fragment>
       <FormField control={form.control} name="room_name" render={({ field }) => (<FormItem><RHFFormLabel>Room Name *</RHFFormLabel><FormControl><Input placeholder="Deluxe Room 101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="room_code" render={({ field }) => (<FormItem><RHFFormLabel>Room Code *</RHFFormLabel><FormControl><Input placeholder="DR101" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      
+
       <Controller
         control={form.control}
         name="hotel_rate_ids"
@@ -269,11 +272,11 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         )}
       />
 
-      <FormField control={form.control} name="floor" render={({ field }) => (<FormItem><RHFFormLabel>Floor</RHFFormLabel><FormControl><Input type="number" placeholder="1" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="floor" render={({ field }) => (<FormItem><RHFFormLabel>Floor</RHFFormLabel><FormControl><Input type="number" placeholder="1" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? undefined : parseInt(e.target.value, 10))} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="room_type" render={({ field }) => (<FormItem><RHFFormLabel>Room Type</RHFFormLabel><FormControl><Input placeholder="Deluxe" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="bed_type" render={({ field }) => (<FormItem><RHFFormLabel>Bed Type</RHFFormLabel><FormControl><Input placeholder="King" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="capacity" render={({ field }) => (<FormItem><RHFFormLabel>Capacity</RHFFormLabel><FormControl><Input type="number" placeholder="2" {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      
+      <FormField control={form.control} name="capacity" render={({ field }) => (<FormItem><RHFFormLabel>Capacity</RHFFormLabel><FormControl><Input type="number" placeholder="2" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? undefined : parseInt(e.target.value, 10))} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+
       <FormField control={form.control} name="is_available"
         render={({ field }) => (
           <FormItem>
@@ -330,7 +333,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
           render={({ field }) => (
             <FormItem>
               <RHFFormLabel>Room Record Status *</RHFFormLabel>
-              <Select onValueChange={field.onChange} value={field.value?.toString() ?? HOTEL_ENTITY_STATUS.ACTIVE}>
+              <Select onValueChange={field.onChange} value={String(field.value ?? HOTEL_ENTITY_STATUS.ACTIVE)}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select record status" /></SelectTrigger></FormControl>
                 <SelectContent>
                     <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
@@ -345,105 +348,156 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center space-x-2"><BedDouble className="h-6 w-6 text-primary" /><CardTitle>Hotel Rooms Management</CardTitle></div>
-        <CardDescription>Manage hotel rooms for a selected branch.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-         <div className="flex items-end space-x-4">
-            <div className="flex-grow space-y-2">
-                <Label htmlFor="branch-select-trigger-rooms">Select Branch</Label>
-                <Select onValueChange={(value) => setSelectedBranchId(value ? parseInt(value) : null)} value={selectedBranchId?.toString()} disabled={isLoadingBranches || branches.length === 0}>
-                    <SelectTrigger id="branch-select-trigger-rooms"><SelectValue placeholder={isLoadingBranches ? "Loading branches..." : (branches.length === 0 ? "No branches available" : "Select a branch")} /></SelectTrigger>
-                    <SelectContent>{branches.map(branch => (<SelectItem key={branch.id} value={branch.id.toString()}>{branch.branch_name}</SelectItem>))}</SelectContent>
-                </Select>
-            </div>
-            <Dialog
-                key={isEditing ? `edit-room-${selectedRoom?.id}` : 'add-room'}
-                open={isAddDialogOpen || isEditDialogOpen}
-                onOpenChange={(open) => {
-                    if (!open) { setIsAddDialogOpen(false); setIsEditDialogOpen(false); setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); }
-                }}>
-              <DialogTrigger asChild>
-                <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); }} 
-                        disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} 
-                        title={!selectedBranchId ? "Select a branch first" : (availableRates.length === 0 ? "No active rates for this branch. Add rates first." : "Add new room")}>
-                  <PlusCircle className="mr-2 h-4 w-4" /> Add Room
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
-                <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Room: ${selectedRoom?.room_name}` : 'Add New Room'}</DialogTitle></DialogHeader>
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRoomUpdateData)) : (d => handleAddSubmit(d as HotelRoomCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
-                    <div className="flex-grow space-y-3 p-1 overflow-y-auto">{renderFormFields()}</div>
-                    <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
-                      <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-                      <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Room")}</Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
-              </DialogContent>
-            </Dialog>
-        </div>
+    <div className="flex flex-col md:flex-row gap-6 h-full">
+      <Card className="md:w-2/5 flex flex-col h-full">
+        <CardHeader>
+          <div className="flex items-center space-x-2">
+            <Building className="h-6 w-6 text-primary" />
+            <CardTitle>Select Branch</CardTitle>
+          </div>
+          <CardDescription>Click a branch to view its rooms and associated rates.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-grow overflow-y-auto p-1">
+          {isLoadingBranches ? (
+            <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+          ) : branches.length === 0 ? (
+            <p className="text-muted-foreground text-center py-4">No active branches available for this tenant.</p>
+          ) : (
+            <ul className="space-y-1">
+              {branches.map(branch => (
+                <li key={branch.id}>
+                  <Button
+                    variant={selectedBranchId === branch.id ? "secondary" : "ghost"}
+                    className="w-full justify-start text-left h-auto py-2 px-2"
+                    onClick={() => setSelectedBranchId(branch.id)}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium">{branch.branch_name}</span>
+                    </div>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
-        {selectedBranchId && isLoadingData && <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room data...</p></div>}
-        
-        {selectedBranchId && !isLoadingData && (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="mb-4"><TabsTrigger value="active">Active</TabsTrigger><TabsTrigger value="archive">Archive</TabsTrigger></TabsList>
-            <TabsContent value="active">
-              {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
-              {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                  <TableBody>{filteredRooms.map(r => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
-                      <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
-                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
-                        <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive room "{r.room_name}"?</AlertDialogDescription></AlertDialogHeader>
-                            <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(r)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>))}
-                  </TableBody>
-                </Table>)}
-            </TabsContent>
-             <TabsContent value="archive">
-              {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
-              {filteredRooms.length > 0 && (
-                <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                  <TableBody>{filteredRooms.map(r => (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell>
-                      <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT || ROOM_CLEANING_STATUS.CLEAN] || 'N/A'}</TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
-                      </TableCell>
-                    </TableRow>))}
-                  </TableBody>
-                </Table>)}
-            </TabsContent>
-          </Tabs>
-        )}
-        {!selectedBranchId && !isLoadingBranches && branches.length > 0 && (
-             <div className="text-center py-10 text-muted-foreground">
+      <Card className="md:w-3/5 flex flex-col h-full">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+                <div className="flex items-center space-x-2">
+                    <BedDouble className="h-6 w-6 text-primary" />
+                    <CardTitle>
+                        {selectedBranchId ? `Rooms for: ${branches.find(b=>b.id === selectedBranchId)?.branch_name || 'Branch'}` : 'Hotel Room Management'}
+                    </CardTitle>
+                </div>
+                <CardDescription>
+                    {selectedBranchId ? 'Manage rooms for the selected branch.' : 'Please select a branch to view and manage its rooms.'}
+                </CardDescription>
+            </div>
+            {selectedBranchId && (
+                <Dialog
+                    key={isEditing ? `edit-room-${selectedRoom?.id}` : `add-room-branch-${selectedBranchId}`}
+                    open={isAddDialogOpen || isEditDialogOpen}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            setIsAddDialogOpen(false);
+                            setIsEditDialogOpen(false);
+                            setSelectedRoom(null);
+                            form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' });
+                        }
+                    }}
+                >
+                <DialogTrigger asChild>
+                    <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }} 
+                            disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} 
+                            title={!selectedBranchId ? "Select a branch first" : (availableRates.length === 0 ? "No active rates for this branch. Add rates first before adding rooms." : "Add new room")}>
+                      <PlusCircle className="mr-2 h-4 w-4" /> Add Room
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg p-3 flex flex-col max-h-[85vh]">
+                    <DialogHeader className="p-2 border-b"><DialogTitle>{isEditing ? `Edit Room: ${selectedRoom?.room_name}` : 'Add New Room'}</DialogTitle></DialogHeader>
+                    <Form {...form}>
+                    <form onSubmit={form.handleSubmit(isEditing ? (d => handleEditSubmit(d as HotelRoomUpdateData)) : (d => handleAddSubmit(d as HotelRoomCreateData)))} className="bg-card rounded-md flex flex-col flex-grow overflow-hidden">
+                        <div className="flex-grow space-y-3 p-1 overflow-y-auto">
+                        {renderFormFields()}
+                        </div>
+                        <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10">
+                        <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
+                        <Button type="submit" disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : (isEditing ? "Save Changes" : "Create Room")}</Button>
+                        </DialogFooter>
+                    </form>
+                    </Form>
+                </DialogContent>
+                </Dialog>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="flex-grow overflow-y-auto p-1">
+          {!selectedBranchId ? (
+            <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
+              <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              Please select a branch from the left to view its rooms.
+            </div>
+          ) : isLoadingData ? (
+            <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room data...</p></div>
+          ) : (
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE).length})</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ARCHIVED).length})</TabsTrigger></TabsList>
+              <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
+                {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
+                {filteredRooms.length > 0 && (
+                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                    <TableBody>{filteredRooms.map(r => (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
+                        <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
+                        <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
+                          <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader><AlertDialogTitle>Confirm Archive</AlertDialogTitle><AlertDialogDescription>Are you sure you want to archive room "{r.room_name}"?</AlertDialogDescription></AlertDialogHeader>
+                              <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(r)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </TableCell>
+                      </TableRow>))}
+                    </TableBody>
+                  </Table>)}
+              </TabsContent>
+               <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
+                {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
+                {filteredRooms.length > 0 && (
+                  <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                    <TableBody>{filteredRooms.map(r => (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell>
+                        <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
+                        </TableCell>
+                      </TableRow>))}
+                    </TableBody>
+                  </Table>)}
+              </TabsContent>
+            </Tabs>
+          )}
+          {!selectedBranchId && !isLoadingBranches && branches.length > 0 && (
+             <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
                 <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 Please select a branch to manage its rooms.
             </div>
         )}
          {!isLoadingBranches && branches.length === 0 && (
-             <div className="text-center py-10 text-muted-foreground">
+             <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
                 <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                No branches available for this tenant. Please add a branch first to manage rooms.
+                No active branches available for this tenant. Please add a branch first to manage rooms.
             </div>
         )}
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
