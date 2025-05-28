@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogFooter,
   DialogClose,
+  DialogTrigger, // Added DialogTrigger
   DialogDescription as ShadDialogDescription,
 } from '@/components/ui/dialog';
 import {
@@ -47,7 +48,6 @@ import {
   TransactionUnassignedUpdateData
 } from '@/lib/schemas';
 import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
-// Corrected individual imports:
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
 import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
 import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
@@ -69,6 +69,7 @@ interface ReservationsContentProps {
 
 const getDefaultCheckInDateTimeString = (): string => {
   const now = new Date();
+  // Default to 2 PM for check-in
   const checkIn = setMilliseconds(setSeconds(setMinutes(setHours(now, 14), 0), 0), 0);
   return format(checkIn, "yyyy-MM-dd'T'HH:mm");
 };
@@ -77,16 +78,21 @@ const getDefaultCheckOutDateTimeString = (checkInDateString?: string | null): st
   let baseDate = new Date();
   if (checkInDateString) {
     try {
+        // Ensure the date string is in a format parseISO can handle, typically 'YYYY-MM-DDTHH:mm:ss'
         const parsableDateString = checkInDateString.includes('T') ? checkInDateString : checkInDateString.replace(' ', 'T');
         const parsedCheckIn = parseISO(parsableDateString);
-        if (!isNaN(parsedCheckIn.getTime())) {
+        if (!isNaN(parsedCheckIn.getTime())) { // Check if parseISO returned a valid date
             baseDate = parsedCheckIn;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+        // If parsing fails, baseDate remains new Date()
+    }
   } else {
+    // If no checkInDateString, default baseDate's time to 2 PM as well
     baseDate = setMilliseconds(setSeconds(setMinutes(setHours(baseDate, 14), 0), 0), 0);
   }
-  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12), 0), 0), 0);
+  // Default to 12 PM (noon) the next day for check-out
+  const checkOut = setMilliseconds(setSeconds(setMinutes(setHours(addDays(baseDate, 1), 12),0),0),0);
   return format(checkOut, "yyyy-MM-dd'T'HH:mm");
 };
 
@@ -104,7 +110,7 @@ const defaultUnassignedReservationFormValues: TransactionCreateData = {
 };
 
 const defaultAssignRoomFormValues: AssignRoomAndCheckInData = {
-  selected_room_id: undefined as unknown as number,
+  selected_room_id: undefined as unknown as number, // Zod requires a number, but initial state can be undefined
 };
 
 export default function ReservationsContent({ tenantId, branchId, staffUserId, refreshReservationCount }: ReservationsContentProps) {
@@ -137,9 +143,10 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const editReservationForm = useForm<TransactionUnassignedUpdateData>({
     resolver: zodResolver(transactionUnassignedUpdateSchema),
+    // defaultValues will be set when dialog opens
   });
-  const watchIsAdvanceReservationEdit = useWatch({ control: editReservationForm.control, name: 'is_advance_reservation' });
-  const watchIsPaidEdit = useWatch({ control: editReservationForm.control, name: 'is_paid' });
+  const watchIsAdvanceReservationEdit = useWatch({ control: editReservationForm.control, name: 'is_advance_reservation'});
+  const watchIsPaidEdit = useWatch({ control: editReservationForm.control, name: 'is_paid'});
 
 
   const assignRoomForm = useForm<AssignRoomAndCheckInData>({
@@ -166,7 +173,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   useEffect(() => {
     if (isEditReservationDialogOpen && selectedReservationForEdit) {
-        if (watchIsAdvanceReservationEdit) {
+        const currentIsAdvance = editReservationForm.getValues('is_advance_reservation');
+        if (currentIsAdvance) { // Only set if is_advance_reservation is true
             if (!editReservationForm.getValues('reserved_check_in_datetime')) {
                  editReservationForm.setValue('reserved_check_in_datetime', selectedReservationForEdit.reserved_check_in_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_in_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckInDateTimeString(), { shouldValidate: true, shouldDirty: true });
             }
@@ -174,7 +182,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
             if (!editReservationForm.getValues('reserved_check_out_datetime')) {
                 editReservationForm.setValue('reserved_check_out_datetime', selectedReservationForEdit.reserved_check_out_datetime && isValid(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T'))) ? format(parseISO(selectedReservationForEdit.reserved_check_out_datetime.replace(' ', 'T')), "yyyy-MM-dd'T'HH:mm") : getDefaultCheckOutDateTimeString(currentCheckInEdit), { shouldValidate: true, shouldDirty: true });
             }
-        } else {
+        } else { // If not advance, clear the dates
             editReservationForm.setValue('reserved_check_in_datetime', null, { shouldValidate: true });
             editReservationForm.setValue('reserved_check_out_datetime', null, { shouldValidate: true });
         }
@@ -215,14 +223,11 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      const rateIdForAction = data.selected_rate_id ? Number(data.selected_rate_id) : undefined;
-
       const result = await createUnassignedReservation(
         data,
         tenantId,
         branchId,
-        staffUserId,
-        false // is_admin_created_flag
+        staffUserId
       );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
@@ -344,7 +349,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setSelectedReservationForAssignment(reservation);
     assignRoomForm.reset(defaultAssignRoomFormValues);
-    setIsLoading(true);
+    setIsLoading(true); // Using main isLoading for room fetching
     try {
       const roomsData = await listAvailableRoomsForBranch(tenantId, branchId);
       setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
@@ -404,7 +409,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
             <FormLabel>Select Rate</FormLabel>
-            <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={allBranchRates.length === 0}>
+            <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={allBranchRates.length === 0}>
               <FormControl>
                 <SelectTrigger className="w-[90%]">
                   <SelectValue placeholder={allBranchRates.length === 0 ? "No rates available for branch" : "Select a rate (Optional)"} />
@@ -530,7 +535,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     className="w-[90%]"
                     {...field}
                     value={field.value || ""}
-                    min={formValues.reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
+                    min={(formValues as TransactionCreateData).reserved_check_in_datetime || format(new Date(), "yyyy-MM-dd'T'HH:mm")}
                   />
                 </FormControl>
                 <FormMessage />
@@ -602,8 +607,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     <TableCell>{res.rate_name || 'N/A'}</TableCell>
                     <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
                     <TableCell>
-                        {res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE ? 'Pending Acceptance' : 
-                         (res.reserved_check_in_datetime && isValid(parseISO(res.reserved_check_in_datetime.replace(' ','T'))))
+                        {res.reserved_check_in_datetime && isValid(parseISO(res.reserved_check_in_datetime.replace(' ','T')))
                         ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
                         : (res.created_at && isValid(parseISO(res.created_at.replace(' ','T'))) ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
                     </TableCell>
@@ -679,7 +683,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
               <FormField control={assignRoomForm.control} name="selected_room_id" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Select Available Room *</FormLabel>
-                  <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString()} disabled={isLoading || availableRooms.length === 0}>
+                  <Select onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)} value={field.value?.toString() ?? ""} disabled={isLoading || availableRooms.length === 0}>
                     <FormControl>
                       <SelectTrigger className="w-[90%]">
                         <SelectValue placeholder={isLoading ? "Loading rooms..." : availableRooms.length === 0 ? "No rooms available" : "Select a room"} />
