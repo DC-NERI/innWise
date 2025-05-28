@@ -11,10 +11,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"; // Added Popover imports
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, BedDouble, Building, PlusCircle, Edit, Trash2, ArchiveRestore } from 'lucide-react';
+import { Loader2, BedDouble, Building, PlusCircle, Edit, Trash2, ArchiveRestore, Tags } from 'lucide-react'; // Added Tags icon
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { hotelRoomCreateSchema, HotelRoomCreateData, hotelRoomUpdateSchema, HotelRoomUpdateData } from '@/lib/schemas';
@@ -25,7 +26,7 @@ import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranch
 import { createRoom } from '@/actions/admin/rooms/createRoom';
 import { updateRoom } from '@/actions/admin/rooms/updateRoom';
 import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
-import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_TEXT, ROOM_CLEANING_STATUS_OPTIONS, HOTEL_ENTITY_STATUS } from '@/lib/constants';
+import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -58,7 +59,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<HotelRoom | null>(null);
-  const [activeTab, setActiveTab] = useState(HOTEL_ENTITY_STATUS.ACTIVE);
+  const [activeTab, setActiveTab] = useState<string>(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedRoom;
@@ -72,7 +73,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     setIsLoadingBranches(true);
     try {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
-      setBranches(fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE)); // Only show active branches for selection
+      setBranches(fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE));
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
     } finally {
@@ -128,7 +129,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
         is_available: Number(selectedRoom.is_available),
-        cleaning_status: Number(selectedRoom.cleaning_status) || ROOM_CLEANING_STATUS.CLEAN,
+        cleaning_status: selectedRoom.cleaning_status !== null && selectedRoom.cleaning_status !== undefined ? Number(selectedRoom.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: selectedRoom.cleaning_notes || '',
         status: String(selectedRoom.status) || HOTEL_ENTITY_STATUS.ACTIVE,
       };
@@ -189,7 +190,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id); // Re-fetch to update lists
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
       }
@@ -209,7 +210,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       bed_type: room.bed_type,
       capacity: room.capacity,
       is_available: Number(room.is_available),
-      cleaning_status: Number(room.cleaning_status) || ROOM_CLEANING_STATUS.CLEAN,
+      cleaning_status: room.cleaning_status !== null && room.cleaning_status !== undefined ? Number(room.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
       cleaning_notes: room.cleaning_notes || '',
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
@@ -217,7 +218,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id); // Re-fetch to update lists
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
       }
@@ -225,14 +226,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     finally { setIsSubmitting(false); }
   };
 
-
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
-
-  const getRateNames = (rateIds: number[] | null): string => {
-    if (!Array.isArray(rateIds) || rateIds.length === 0) return 'N/A';
-    return rateIds.map(id => availableRates.find(r => r.id === id)?.name || `Rate ID: ${id}`).join(', ');
-  };
-
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -410,8 +404,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                     }}
                 >
                 <DialogTrigger asChild>
-                    <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }} 
-                            disabled={!selectedBranchId || isLoadingData || availableRates.length === 0} 
+                    <Button onClick={() => { setSelectedRoom(null); form.reset({ ...defaultFormValuesCreate, hotel_rate_ids: [], status: HOTEL_ENTITY_STATUS.ACTIVE, is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE, cleaning_status: ROOM_CLEANING_STATUS.CLEAN, cleaning_notes: '' }); setIsAddDialogOpen(true); setIsEditDialogOpen(false); }}
+                            disabled={!selectedBranchId || isLoadingData || availableRates.length === 0}
                             title={!selectedBranchId ? "Select a branch first" : (availableRates.length === 0 ? "No active rates for this branch. Add rates first before adding rooms." : "Add new room")}>
                       <PlusCircle className="mr-2 h-4 w-4" /> Add Room
                     </Button>
@@ -451,7 +445,37 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                   <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Floor</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell><TableCell>{r.floor ?? '-'}</TableCell>
+                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell>
+                        <TableCell>
+                          {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7">
+                                  <Tags className="h-4 w-4" />
+                                  <span className="sr-only">View Associated Rates</span>
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-3 max-w-xs">
+                                <div className="text-sm">
+                                  <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
+                                  {r.hotel_rate_id.length > 0 ? (
+                                    <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
+                                      {r.hotel_rate_id.map(rateId => {
+                                        const rate = availableRates.find(ar => ar.id === rateId);
+                                        return <li key={rateId}>{rate ? `${rate.name} (₱${rate.price.toFixed(2)})` : `Rate ID: ${rateId}`}</li>;
+                                      })}
+                                    </ul>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">No rates assigned.</p>
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">N/A</span>
+                          )}
+                        </TableCell>
+                        <TableCell>{r.floor ?? '-'}</TableCell>
                         <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
                         <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
                         <TableCell className="text-right space-x-2">
@@ -473,7 +497,36 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                   <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Code</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell><TableCell className="max-w-xs truncate" title={getRateNames(r.hotel_rate_id)}>{getRateNames(r.hotel_rate_id)}</TableCell>
+                        <TableCell className="font-medium">{r.room_name}</TableCell><TableCell>{r.room_code}</TableCell>
+                        <TableCell>
+                          {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-7 w-7">
+                                  <Tags className="h-4 w-4" />
+                                  <span className="sr-only">View Associated Rates</span>
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-auto p-3 max-w-xs">
+                                <div className="text-sm">
+                                  <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
+                                  {r.hotel_rate_id.length > 0 ? (
+                                    <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
+                                      {r.hotel_rate_id.map(rateId => {
+                                        const rate = availableRates.find(ar => ar.id === rateId);
+                                        return <li key={rateId}>{rate ? `${rate.name} (₱${rate.price.toFixed(2)})` : `Rate ID: ${rateId}`}</li>;
+                                      })}
+                                    </ul>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground">No rates assigned.</p>
+                                  )}
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">N/A</span>
+                          )}
+                        </TableCell>
                         <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
@@ -501,3 +554,6 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     </div>
   );
 }
+
+
+    
