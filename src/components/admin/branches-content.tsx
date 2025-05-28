@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose, DialogTrigger } from '@/components/ui/dialog'; // Added DialogFooter
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Edit3, Building, Save } from 'lucide-react';
@@ -21,7 +22,7 @@ type BranchUpdateFormValues = z.infer<typeof branchUpdateSchema>;
 
 interface BranchesContentProps {
   tenantId: number;
-  adminUserId: number; // Added for logging
+  adminUserId: number; 
 }
 
 export default function BranchesContent({ tenantId, adminUserId }: BranchesContentProps) {
@@ -97,8 +98,7 @@ export default function BranchesContent({ tenantId, adminUserId }: BranchesConte
     }
     setIsUpdating(true);
     try {
-      // Pass adminUserId to updateBranchDetails if that action is updated to accept it for logging
-      const result = await updateBranchDetails(selectedBranch.id, data, adminUserId); // Pass adminUserId
+      const result = await updateBranchDetails(selectedBranch.id, data, adminUserId); 
       if (result.success && result.updatedBranch) {
         setBranches(branches.map(b => b.id === result.updatedBranch!.id ? result.updatedBranch! : b));
         setSelectedBranch(result.updatedBranch); 
