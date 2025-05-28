@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from '@/components/ui/textarea'; // Added Textarea import
+import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -53,20 +53,20 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   const [branches, setBranches] = useState<SimpleBranch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [rooms, setRooms] = useState<HotelRoom[]>([]);
-  const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]);
+  const [availableRates, setAvailableRates] = useState<SimpleRate[]>([]); // Active rates for the selected branch
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
-  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(false); // For rooms and rates of a branch
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState<HotelRoom | null>(null);
-  const [activeTab, setActiveTab] = useState<string>(HOTEL_ENTITY_STATUS.ACTIVE);
+  const [activeTab, setActiveTab] = useState<string>(String(HOTEL_ENTITY_STATUS.ACTIVE));
   const { toast } = useToast();
 
   const isEditing = !!selectedRoom;
 
   const form = useForm<RoomFormValues>({
-    // Resolver is set dynamically in useEffect
+    // Resolver and defaultValues set dynamically in useEffect
   });
 
   const fetchBranches = useCallback(async () => {
@@ -93,10 +93,10 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     try {
       const [fetchedRooms, fetchedRates] = await Promise.all([
         listRoomsForBranch(branchId, tenantId),
-        getRatesForBranchSimple(tenantId, branchId)
+        getRatesForBranchSimple(tenantId, branchId) // Fetches active rates
       ]);
       setRooms(fetchedRooms);
-      setAvailableRates(fetchedRates.filter(rate => String(rate.status) === HOTEL_ENTITY_STATUS.ACTIVE));
+      setAvailableRates(fetchedRates); // Already filtered for active by the action
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch room and rate data for the branch.", variant: "destructive" });
       setRooms([]);
@@ -129,8 +129,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: selectedRoom.is_available,
-        cleaning_status: selectedRoom.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN,
+        is_available: Number(selectedRoom.is_available),
+        cleaning_status: Number(selectedRoom.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
         cleaning_notes: selectedRoom.cleaning_notes || '',
         status: String(selectedRoom.status) || HOTEL_ENTITY_STATUS.ACTIVE,
       };
@@ -158,7 +158,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
         setIsAddDialogOpen(false);
-        fetchBranchData(selectedBranchId);
+        fetchBranchData(selectedBranchId); // Re-fetch data for the branch
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create room.", variant: "destructive" });
       }
@@ -174,7 +174,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
         setIsEditDialogOpen(false); setSelectedRoom(null);
-        fetchBranchData(selectedBranchId);
+        fetchBranchData(selectedBranchId); // Re-fetch data for the branch
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update room.", variant: "destructive" });
       }
@@ -189,7 +189,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id);
+        fetchBranchData(room.branch_id); // Re-fetch data
       } else {
         toast({ title: "Archive Failed", description: result.message || "Could not archive room.", variant: "destructive" });
       }
@@ -201,7 +201,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     if (!tenantId || !room.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     const payload: HotelRoomUpdateData = {
-      hotel_rate_ids: Array.isArray(room.hotel_rate_id) ? room.hotel_rate_id : [],
+      hotel_rate_ids: Array.isArray(room.hotel_rate_id) ? room.hotel_rate_id.map(id => Number(id)) : [],
       room_name: room.room_name,
       room_code: room.room_code,
       floor: room.floor,
@@ -209,7 +209,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       bed_type: room.bed_type,
       capacity: room.capacity,
       is_available: Number(room.is_available),
-      cleaning_status: room.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN,
+      cleaning_status: Number(room.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
       cleaning_notes: room.cleaning_notes || '',
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
@@ -217,7 +217,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id);
+        fetchBranchData(room.branch_id); // Re-fetch data
       } else {
         toast({ title: "Restore Failed", description: result.message || "Could not restore room.", variant: "destructive" });
       }
@@ -226,15 +226,6 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   };
 
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
-
-  const getRateNames = useCallback((rateIds: number[] | null): string => {
-    if (!rateIds || rateIds.length === 0) return 'N/A';
-    return rateIds
-      .map(id => availableRates.find(rate => rate.id === id)?.name)
-      .filter(name => !!name)
-      .join(', ') || 'N/A (Rates might be inactive)';
-  }, [availableRates]);
-
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -264,7 +255,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                         }}
                       />
                     </FormControl>
-                    <Label className="font-normal">{rate.name} (₱{rate.price.toFixed(2)})</Label>
+                    <RHFFormLabel className="font-normal">{rate.name} (₱{rate.price.toFixed(2)})</RHFFormLabel>
                   </FormItem>
                 ))}
               </div>
@@ -283,12 +274,12 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         render={({ field }) => (
           <FormItem>
             <RHFFormLabel>Availability Status *</RHFFormLabel>
-            <Select onValueChange={(value) => field.onChange(Number(value))} value={field.value?.toString()}>
+            <Select onValueChange={(value) => field.onChange(Number(value))} value={String(field.value ?? ROOM_AVAILABILITY_STATUS.AVAILABLE)}>
               <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select availability status" /></SelectTrigger></FormControl>
               <SelectContent>
-                <SelectItem value={ROOM_AVAILABILITY_STATUS.AVAILABLE.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
-                <SelectItem value={ROOM_AVAILABILITY_STATUS.OCCUPIED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.OCCUPIED]}</SelectItem>
-                 <SelectItem value={ROOM_AVAILABILITY_STATUS.RESERVED.toString()}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.RESERVED]}</SelectItem>
+                <SelectItem value={String(ROOM_AVAILABILITY_STATUS.AVAILABLE)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.AVAILABLE]}</SelectItem>
+                <SelectItem value={String(ROOM_AVAILABILITY_STATUS.OCCUPIED)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.OCCUPIED]}</SelectItem>
+                 <SelectItem value={String(ROOM_AVAILABILITY_STATUS.RESERVED)}>{ROOM_AVAILABILITY_STATUS_TEXT[ROOM_AVAILABILITY_STATUS.RESERVED]}</SelectItem>
               </SelectContent>
             </Select>
             <FormMessage />
@@ -338,8 +329,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <Select onValueChange={field.onChange} value={String(field.value ?? HOTEL_ENTITY_STATUS.ACTIVE)}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select record status" /></SelectTrigger></FormControl>
                 <SelectContent>
-                    <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
-                    <SelectItem value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archived</SelectItem>
+                    <SelectItem value={String(HOTEL_ENTITY_STATUS.ACTIVE)}>Active</SelectItem>
+                    <SelectItem value={String(HOTEL_ENTITY_STATUS.ARCHIVED)}>Archived</SelectItem>
                 </SelectContent>
               </Select><FormMessage />
             </FormItem>
@@ -348,6 +339,20 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       )}
     </React.Fragment>
   );
+
+  if (!tenantId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Room Management</CardTitle>
+          <CardDescription>Tenant information is not available.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p>Please ensure you are properly logged in and tenant information is loaded.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="flex flex-col md:flex-row gap-6 h-full">
@@ -446,8 +451,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
             <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /><p className="ml-2 text-muted-foreground">Loading room data...</p></div>
           ) : (
             <Tabs value={String(activeTab)} onValueChange={setActiveTab}>
-              <TabsList className="mb-4"><TabsTrigger value={HOTEL_ENTITY_STATUS.ACTIVE}>Active ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ACTIVE).length})</TabsTrigger><TabsTrigger value={HOTEL_ENTITY_STATUS.ARCHIVED}>Archive ({rooms.filter(r => String(r.status) === HOTEL_ENTITY_STATUS.ARCHIVED).length})</TabsTrigger></TabsList>
-              <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
+              <TabsList className="mb-4"><TabsTrigger value={String(HOTEL_ENTITY_STATUS.ACTIVE)}>Active ({rooms.filter(r => String(r.status) === String(HOTEL_ENTITY_STATUS.ACTIVE)).length})</TabsTrigger><TabsTrigger value={String(HOTEL_ENTITY_STATUS.ARCHIVED)}>Archive ({rooms.filter(r => String(r.status) === String(HOTEL_ENTITY_STATUS.ARCHIVED)).length})</TabsTrigger></TabsList>
+              <TabsContent value={String(HOTEL_ENTITY_STATUS.ACTIVE)}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
                   <Table><TableHeader><TableRow><TableHead>Room Information</TableHead><TableHead>Rates</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
@@ -476,7 +481,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                                     <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
                                       {r.hotel_rate_id.map(rateId => {
                                         const rate = availableRates.find(ar => ar.id === rateId);
-                                        return <li key={rateId}>{rate ? `${rate.name} (₱${rate.price.toFixed(2)})` : `Rate ID: ${rateId}`}</li>;
+                                        return <li key={rateId}>{rate && rate.name ? `${rate.name} (₱${typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})` : `Rate ID: ${rateId} (Not Active/Found)`}</li>;
                                       })}
                                     </ul>
                                   ) : (
@@ -504,7 +509,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                     </TableBody>
                   </Table>)}
               </TabsContent>
-               <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
+               <TabsContent value={String(HOTEL_ENTITY_STATUS.ARCHIVED)}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
                   <Table><TableHeader><TableRow><TableHead>Room Information</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
@@ -533,7 +538,9 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                                     <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
                                       {r.hotel_rate_id.map(rateId => {
                                         const rate = availableRates.find(ar => ar.id === rateId);
-                                        return <li key={rateId}>{rate ? `${rate.name} (₱${rate.price.toFixed(2)})` : `Rate ID: ${rateId}`}</li>;
+                                        // If the rate is not in availableRates (e.g., it's archived), we won't have its details.
+                                        // A more robust solution might fetch all rates for display purposes, or store rate names on the room if they are critical for archived display.
+                                        return <li key={rateId}>{rate && rate.name ? `${rate.name} (₱${typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})` : `Rate ID: ${rateId} (Details unavailable)`}</li>;
                                       })}
                                     </ul>
                                   ) : (
@@ -573,3 +580,5 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     </div>
   );
 }
+
+    
