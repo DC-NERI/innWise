@@ -37,8 +37,8 @@ const defaultFormValuesCreate: HotelRateCreateData = {
 };
 
 interface RatesContentProps {
-  tenantId: number;
-  adminUserId: number;
+  tenantId: number | null; // Changed to allow null
+  adminUserId: number | null;
 }
 
 export default function RatesContent({ tenantId, adminUserId }: RatesContentProps) {
@@ -51,41 +51,48 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [selectedRate, setSelectedRate] = useState<HotelRate | null>(null);
-  const [activeTab, setActiveTab] = useState(HOTEL_ENTITY_STATUS.ACTIVE);
+  const [activeTab, setActiveTab] = useState<string>(HOTEL_ENTITY_STATUS.ACTIVE);
   const { toast } = useToast();
 
   const isEditing = !!selectedRate;
 
   const form = useForm<RateFormValues>({
+    // Resolver and defaultValues are set dynamically in useEffect
   });
 
   const fetchBranches = useCallback(async () => {
-    if (!tenantId) return;
+    console.log("[RatesContent] fetchBranches called. Tenant ID:", tenantId); // DEBUG LOG
+    if (!tenantId) {
+      setBranches([]);
+      setIsLoadingBranches(false);
+      return;
+    }
     setIsLoadingBranches(true);
     try {
       const fetchedBranches = await getBranchesForTenantSimple(tenantId);
       const activeBranches = fetchedBranches.filter(b => String(b.status) === HOTEL_ENTITY_STATUS.ACTIVE);
       setBranches(activeBranches);
-      if (activeBranches.length > 0 && !selectedBranchId) {
-        // Optionally auto-select the first branch
-        // setSelectedBranchId(activeBranches[0].id);
-      }
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch branches.", variant: "destructive" });
+      setBranches([]);
     } finally {
       setIsLoadingBranches(false);
     }
-  }, [tenantId, toast, selectedBranchId]);
+  }, [tenantId, toast]);
 
   useEffect(() => {
     fetchBranches();
   }, [fetchBranches]);
 
-  const fetchRates = useCallback(async (branchId: number) => {
-    if (!tenantId) return;
+  const fetchRates = useCallback(async (branchIdToFetch: number) => {
+    if (!tenantId || !branchIdToFetch) {
+        setRates([]);
+        setIsLoadingRates(false);
+        return;
+    }
     setIsLoadingRates(true);
     try {
-      const fetchedRates = await listRatesForBranch(branchId, tenantId);
+      const fetchedRates = await listRatesForBranch(branchIdToFetch, tenantId);
       setRates(fetchedRates);
     } catch (error) {
       toast({ title: "Error", description: "Could not fetch rates for the selected branch.", variant: "destructive" });
@@ -99,7 +106,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
     if (selectedBranchId) {
       fetchRates(selectedBranchId);
     } else {
-      setRates([]);
+      setRates([]); // Clear rates if no branch is selected
     }
   }, [selectedBranchId, fetchRates]);
 
@@ -115,7 +122,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         hours: selectedRate.hours,
         excess_hour_price: selectedRate.excess_hour_price ?? undefined,
         description: selectedRate.description || '',
-        status: selectedRate.status || HOTEL_ENTITY_STATUS.ACTIVE,
+        status: String(selectedRate.status) || HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
       newDefaults = { ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE };
@@ -125,59 +132,60 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
 
 
   const handleAddSubmit = async (data: HotelRateCreateData) => {
-    if (!selectedBranchId || !tenantId) {
-      toast({ title: "Error", description: "Branch or Tenant ID must be selected/available.", variant: "destructive" });
+    if (!selectedBranchId || !tenantId || !adminUserId) {
+      toast({ title: "Error", description: "Branch, Tenant ID, or Admin User ID must be selected/available.", variant: "destructive" });
       return;
     }
     setIsSubmitting(true);
     try {
-      const result = await createRate(data, tenantId, selectedBranchId);
+      const result = await createRate(data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate created." });
-        setRates(prev => [...prev, result.rate!].sort((a, b) => a.name.localeCompare(b.name)));
+        // setRates(prev => [...prev, result.rate!].sort((a, b) => a.name.localeCompare(b.name)));
         setIsAddDialogOpen(false);
-        fetchRates(selectedBranchId); 
+        fetchRates(selectedBranchId);
       } else {
-        toast({ title: "Creation Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Creation Failed", description: result.message || "Could not create rate.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during rate creation.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
   };
 
   const handleEditSubmit = async (data: HotelRateUpdateData) => {
-    if (!selectedRate || !selectedBranchId || !tenantId) return;
+    if (!selectedRate || !selectedBranchId || !tenantId || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId); 
+      const result = await updateRate(selectedRate.id, data, tenantId, selectedBranchId, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: "Rate updated." });
-        setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r).sort((a, b) => a.name.localeCompare(b.name)));
+        // setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r).sort((a, b) => a.name.localeCompare(b.name)));
         setIsEditDialogOpen(false); setSelectedRate(null);
-        fetchRates(selectedBranchId); 
+        fetchRates(selectedBranchId);
       } else {
-        toast({ title: "Update Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Update Failed", description: result.message || "Could not update rate.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during rate update.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
   };
 
   const handleArchive = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id) return;
+    if (!tenantId || !rate.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     try {
-      const result = await archiveRate(rate.id, tenantId, rate.branch_id); 
+      const result = await archiveRate(rate.id, tenantId, rate.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Rate "${rate.name}" archived.` });
-        setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
+        // setRates(prev => prev.map(r => r.id === rate.id ? { ...r, status: HOTEL_ENTITY_STATUS.ARCHIVED } : r));
+        fetchRates(rate.branch_id);
       } else {
-        toast({ title: "Archive Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Archive Failed", description: result.message || "Could not archive rate.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during archiving.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
   };
 
   const handleRestore = async (rate: HotelRate) => {
-    if (!tenantId || !rate.branch_id) return;
+    if (!tenantId || !rate.branch_id || !adminUserId) return;
     setIsSubmitting(true);
     const payload: HotelRateUpdateData = {
         name: rate.name,
@@ -188,12 +196,13 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
-      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id);
+      const result = await updateRate(rate.id, payload, tenantId, rate.branch_id, adminUserId);
       if (result.success && result.rate) {
         toast({ title: "Success", description: `Rate "${rate.name}" restored.` });
-        setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r));
+        // setRates(prev => prev.map(r => r.id === result.rate!.id ? result.rate! : r));
+        fetchRates(rate.branch_id);
       } else {
-        toast({ title: "Restore Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Restore Failed", description: result.message || "Could not restore rate.", variant: "destructive" });
       }
     } catch (e) { toast({ title: "Error", description: "Unexpected error during restore.", variant: "destructive" }); }
     finally { setIsSubmitting(false); }
@@ -204,16 +213,16 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
   const renderRateFormFields = () => (
     <React.Fragment>
       <FormField control={form.control} name="name" render={({ field }) => (<FormItem><RHFFormLabel>Rate Name *</RHFFormLabel><FormControl><Input placeholder="Standard Rate" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="price" render={({ field }) => (<FormItem><RHFFormLabel>Price *</RHFFormLabel><FormControl><Input type="number" step="0.01" placeholder="100.00" {...field} onChange={e => field.onChange(parseFloat(e.target.value))} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="hours" render={({ field }) => (<FormItem><RHFFormLabel>Hours *</RHFFormLabel><FormControl><Input type="number" placeholder="24" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10))} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
-      <FormField control={form.control} name="excess_hour_price" render={({ field }) => (<FormItem><RHFFormLabel>Excess Hour Price (Optional)</RHFFormLabel><FormControl><Input type="number" step="0.01" placeholder="10.00" {...field} onChange={e => field.onChange(e.target.value ? parseFloat(e.target.value) : undefined)} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="price" render={({ field }) => (<FormItem><RHFFormLabel>Price *</RHFFormLabel><FormControl><Input type="text" placeholder="100.00" {...field} onChange={e => { const val = e.target.value; if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) { field.onChange(val === "" ? undefined : parseFloat(val));} }} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="hours" render={({ field }) => (<FormItem><RHFFormLabel>Hours *</RHFFormLabel><FormControl><Input type="text" placeholder="24" {...field} onChange={e => {const val = e.target.value; if (val === "" || /^[0-9]*$/.test(val)) { field.onChange(val === "" ? undefined : parseInt(val, 10));}}} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
+      <FormField control={form.control} name="excess_hour_price" render={({ field }) => (<FormItem><RHFFormLabel>Excess Hour Price (Optional)</RHFFormLabel><FormControl><Input type="text" placeholder="10.00" {...field} onChange={e => {const val = e.target.value; if (val === "" || /^[0-9]*\.?[0-9]{0,2}$/.test(val)) { field.onChange(val === "" ? undefined : parseFloat(val));}}} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       <FormField control={form.control} name="description" render={({ field }) => (<FormItem><RHFFormLabel>Description (Optional)</RHFFormLabel><FormControl><Textarea placeholder="Rate details..." {...field} value={field.value ?? ''} className="w-[90%]" /></FormControl><FormMessage /></FormItem>)} />
       {isEditing && (
         <FormField control={form.control} name="status"
           render={({ field }) => (
             <FormItem>
               <RHFFormLabel>Status *</RHFFormLabel>
-              <Select onValueChange={field.onChange} value={field.value?.toString() ?? HOTEL_ENTITY_STATUS.ACTIVE}>
+              <Select onValueChange={field.onChange} value={String(field.value ?? HOTEL_ENTITY_STATUS.ACTIVE)}>
                 <FormControl><SelectTrigger className="w-[90%]"><SelectValue placeholder="Select status" /></SelectTrigger></FormControl>
                 <SelectContent>
                     <SelectItem value={HOTEL_ENTITY_STATUS.ACTIVE}>Active</SelectItem>
@@ -229,9 +238,23 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
 
   const selectedBranchName = branches.find(b => b.id === selectedBranchId)?.branch_name;
 
+  if (!tenantId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Rates Management</CardTitle>
+          <CardDescription>Tenant information is not available.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p>Please ensure you are properly logged in and tenant information is loaded.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <div className="flex flex-col md:flex-row gap-6 h-full"> {/* Added h-full to encourage filling */}
-      <Card className="md:w-2/5 flex flex-col h-full"> {/* Added flex flex-col h-full */}
+    <div className="flex flex-col md:flex-row gap-6 h-full">
+      <Card className="md:w-2/5 flex flex-col h-full">
         <CardHeader>
           <div className="flex items-center space-x-2">
             <Building className="h-6 w-6 text-primary" />
@@ -239,7 +262,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
           </div>
           <CardDescription>Click a branch to view its rates.</CardDescription>
         </CardHeader>
-        <CardContent className="flex-grow overflow-y-auto p-1"> {/* Changed padding to p-1 for content */}
+        <CardContent className="flex-grow overflow-y-auto p-1">
           {isLoadingBranches ? (
             <div className="flex justify-center items-center h-32"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
           ) : branches.length === 0 ? (
@@ -250,7 +273,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
                 <li key={branch.id}>
                   <Button
                     variant={selectedBranchId === branch.id ? "secondary" : "ghost"}
-                    className="w-full justify-start text-left h-auto py-2 px-2" // Adjusted padding for items
+                    className="w-full justify-start text-left h-auto py-2 px-2"
                     onClick={() => setSelectedBranchId(branch.id)}
                   >
                     <div className="flex flex-col">
@@ -264,7 +287,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         </CardContent>
       </Card>
 
-      <Card className="md:w-3/5 flex flex-col h-full"> {/* Added flex flex-col h-full */}
+      <Card className="md:w-3/5 flex flex-col h-full">
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
@@ -314,7 +337,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
             )}
           </div>
         </CardHeader>
-        <CardContent className="flex-grow overflow-y-auto p-1"> {/* Changed padding to p-1 */}
+        <CardContent className="flex-grow overflow-y-auto p-1">
           {!selectedBranchId ? (
             <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
               <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -354,9 +377,7 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
                   <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Price</TableHead><TableHead>Hours</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                     <TableBody>{filteredRates.map(r => (
                       <TableRow key={r.id}>
-                        <TableCell className="font-medium">{r.name}</TableCell>
-                        <TableCell>₱{r.price.toFixed(2)}</TableCell>
-                        <TableCell>{r.hours}</TableCell>
+                        <TableCell className="font-medium">{r.name}</TableCell><TableCell>₱{r.price.toFixed(2)}</TableCell><TableCell>{r.hours}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="outline" size="sm" onClick={() => handleRestore(r)} disabled={isSubmitting}><ArchiveRestore className="mr-1 h-3 w-3" /> Restore</Button>
                         </TableCell>
@@ -366,9 +387,22 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
               </TabsContent>
             </Tabs>
           )}
+          {!selectedBranchId && !isLoadingBranches && branches.length > 0 && (
+             <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
+                <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                Please select a branch to manage its rates.
+            </div>
+        )}
+         {!isLoadingBranches && branches.length === 0 && (
+             <div className="text-center py-10 text-muted-foreground flex flex-col items-center justify-center h-full">
+                <Building className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                No active branches available for this tenant. Please add a branch first to manage rates.
+            </div>
+        )}
         </CardContent>
       </Card>
     </div>
   );
 }
 
+    
