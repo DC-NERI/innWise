@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from '@/components/ui/textarea'; // Added Textarea import
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Form, FormControl, FormField, FormItem, FormLabel as RHFFormLabel, FormMessage } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -128,8 +129,8 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: Number(selectedRoom.is_available),
-        cleaning_status: selectedRoom.cleaning_status !== null && selectedRoom.cleaning_status !== undefined ? Number(selectedRoom.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
+        is_available: selectedRoom.is_available,
+        cleaning_status: selectedRoom.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN,
         cleaning_notes: selectedRoom.cleaning_notes || '',
         status: String(selectedRoom.status) || HOTEL_ENTITY_STATUS.ACTIVE,
       };
@@ -157,7 +158,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room created." });
         setIsAddDialogOpen(false);
-        fetchBranchData(selectedBranchId); 
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Creation Failed", description: result.message || "Could not create room.", variant: "destructive" });
       }
@@ -173,7 +174,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       if (result.success && result.room) {
         toast({ title: "Success", description: "Room updated." });
         setIsEditDialogOpen(false); setSelectedRoom(null);
-        fetchBranchData(selectedBranchId); 
+        fetchBranchData(selectedBranchId);
       } else {
         toast({ title: "Update Failed", description: result.message || "Could not update room.", variant: "destructive" });
       }
@@ -188,7 +189,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       const result = await archiveRoom(room.id, tenantId, room.branch_id, adminUserId);
       if (result.success) {
         toast({ title: "Success", description: `Room "${room.room_name}" archived.` });
-        fetchBranchData(room.branch_id); 
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Archive Failed", description: result.message || "Could not archive room.", variant: "destructive" });
       }
@@ -208,15 +209,15 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       bed_type: room.bed_type,
       capacity: room.capacity,
       is_available: Number(room.is_available),
-      cleaning_status: room.cleaning_status !== null && room.cleaning_status !== undefined ? Number(room.cleaning_status) : ROOM_CLEANING_STATUS.CLEAN,
+      cleaning_status: room.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN,
       cleaning_notes: room.cleaning_notes || '',
-      status: HOTEL_ENTITY_STATUS.ACTIVE, 
+      status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
     try {
       const result = await updateRoom(room.id, payload, tenantId, room.branch_id, adminUserId);
       if (result.success && result.room) {
         toast({ title: "Success", description: `Room "${room.room_name}" restored.` });
-        fetchBranchData(room.branch_id); 
+        fetchBranchData(room.branch_id);
       } else {
         toast({ title: "Restore Failed", description: result.message || "Could not restore room.", variant: "destructive" });
       }
@@ -225,6 +226,15 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
   };
 
   const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
+
+  const getRateNames = useCallback((rateIds: number[] | null): string => {
+    if (!rateIds || rateIds.length === 0) return 'N/A';
+    return rateIds
+      .map(id => availableRates.find(rate => rate.id === id)?.name)
+      .filter(name => !!name)
+      .join(', ') || 'N/A (Rates might be inactive)';
+  }, [availableRates]);
+
 
   const renderFormFields = () => (
     <React.Fragment>
@@ -440,16 +450,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <TabsContent value={HOTEL_ENTITY_STATUS.ACTIVE}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Room Information</TableHead>
-                        <TableHead>Rates</TableHead>
-                        <TableHead>Availability</TableHead>
-                        <TableHead>Cleaning</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
+                  <Table><TableHeader><TableRow><TableHead>Room Information</TableHead><TableHead>Rates</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
                         <TableCell>
@@ -506,15 +507,7 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
                <TabsContent value={HOTEL_ENTITY_STATUS.ARCHIVED}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}
                 {filteredRooms.length > 0 && (
-                  <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Room Information</TableHead>
-                            <TableHead>Rates</TableHead>
-                            <TableHead>Cleaning</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
+                  <Table><TableHeader><TableRow><TableHead>Room Information</TableHead><TableHead>Rates</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                     <TableBody>{filteredRooms.map(r => (
                       <TableRow key={r.id}>
                         <TableCell>
