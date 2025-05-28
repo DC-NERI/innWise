@@ -3,7 +3,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -12,7 +18,6 @@ import {
   DialogFooter,
   DialogClose,
   DialogDescription as ShadDialogDescription,
-  DialogTrigger
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -33,8 +38,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Loader2, PlusCircle, CalendarPlus, Bed, Edit, Ban } from 'lucide-react';
 import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useToast } from '@/hooks/use-toast';
-import type { Transaction, SimpleRate, HotelRoom } from '@/lib/types';
 import {
   transactionCreateSchema,
   TransactionCreateData,
@@ -44,17 +47,18 @@ import {
   TransactionUnassignedUpdateData
 } from '@/lib/schemas';
 import { getRatesForBranchSimple } from '@/actions/admin/rates/getRatesForBranchSimple';
-import {
-  listUnassignedReservations,
-  createUnassignedReservation,
-  updateUnassignedReservation,
-  cancelReservation,
-  assignRoomAndCheckIn
-} from '@/actions/staff/reservations'; // Grouped imports
+// Corrected individual imports:
+import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
+import { createUnassignedReservation } from '@/actions/staff/reservations/createUnassignedReservation';
+import { updateUnassignedReservation } from '@/actions/staff/reservations/updateUnassignedReservation';
+import { cancelReservation } from '@/actions/staff/reservations/cancelReservation';
+import { assignRoomAndCheckIn } from '@/actions/staff/reservations/assignRoomAndCheckIn';
 import { listAvailableRoomsForBranch } from '@/actions/staff/rooms/listAvailableRoomsForBranch';
 
 import { TRANSACTION_LIFECYCLE_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT, TRANSACTION_PAYMENT_STATUS, TRANSACTION_IS_ACCEPTED_STATUS } from '@/lib/constants';
 import { format, addDays, setHours, setMinutes, setSeconds, setMilliseconds, parseISO, isValid } from 'date-fns';
+import { useToast } from '@/hooks/use-toast';
+import type { Transaction, SimpleRate, HotelRoom } from '@/lib/types';
 
 interface ReservationsContentProps {
   tenantId: number | null;
@@ -122,12 +126,6 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const [selectedReservationForAssignment, setSelectedReservationForAssignment] = useState<Transaction | null>(null);
 
   const { toast } = useToast();
-
-  // Log incoming props
-  useEffect(() => {
-    console.log("[ReservationsContent] Props received:", { tenantId, branchId, staffUserId });
-  }, [tenantId, branchId, staffUserId]);
-
 
   const addReservationForm = useForm<TransactionCreateData>({
     resolver: zodResolver(transactionCreateSchema),
@@ -217,7 +215,15 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      const result = await createUnassignedReservation(data, tenantId, branchId, staffUserId, false);
+      const rateIdForAction = data.selected_rate_id ? Number(data.selected_rate_id) : undefined;
+
+      const result = await createUnassignedReservation(
+        data,
+        tenantId,
+        branchId,
+        staffUserId,
+        false // is_admin_created_flag
+      );
       if (result.success && result.transaction) {
         toast({ title: "Success", description: "Unassigned reservation created." });
         setUnassignedReservations(prev => [result.transaction!, ...prev].sort((a, b) => {
@@ -242,7 +248,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
 
   const handleOpenEditReservationDialog = (reservation: Transaction) => {
     setSelectedReservationForEdit(reservation);
-    const isAdvance = Number(reservation.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_NO_ROOM && !!reservation.reserved_check_in_datetime;
+    const isAdvance = !!reservation.reserved_check_in_datetime;
 
     let checkInDateTimeFormatted = null;
     if (reservation.reserved_check_in_datetime && isValid(parseISO(reservation.reserved_check_in_datetime.replace(' ', 'T')))) {
@@ -269,10 +275,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   };
 
   const handleEditReservationSubmit = async (data: TransactionUnassignedUpdateData) => {
-    console.log("[ReservationsContent] handleEditReservationSubmit - staffUserId:", staffUserId, "selectedReservationForEdit ID:", selectedReservationForEdit?.id);
     if (!selectedReservationForEdit || !tenantId || !branchId || !staffUserId || staffUserId <= 0) {
         toast({ title: "Action Failed", description: "Required information (User, Tenant, Branch, or Reservation) is missing for update.", variant: "destructive" });
-        setIsSubmitting(false); // ensure submitting is false if we return early
+        setIsSubmitting(false);
         return;
     }
     setIsSubmitting(true);
@@ -315,7 +320,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     }
     setIsSubmitting(true);
     try {
-      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null, staffUserId);
+      const result = await cancelReservation(transactionToCancel.id, tenantId, branchId, null, staffUserId); // roomId is null for unassigned
       if (result.success) {
         toast({ title: "Success", description: "Reservation cancelled." });
         setUnassignedReservations(prev => prev.filter(res => res.id !== transactionToCancel.id));
@@ -341,9 +346,9 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     assignRoomForm.reset(defaultAssignRoomFormValues);
     setIsLoading(true);
     try {
-      const rooms = await listAvailableRoomsForBranch(tenantId, branchId);
-      setAvailableRooms(rooms.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
-      if (rooms.length === 0) {
+      const roomsData = await listAvailableRoomsForBranch(tenantId, branchId);
+      setAvailableRooms(roomsData.map(r => ({ id: r.id, room_name: r.room_name, room_code: r.room_code, hotel_rate_id: r.hotel_rate_id })));
+      if (roomsData.length === 0) {
         toast({ title: "No Rooms Available", description: "There are no currently available and clean rooms in this branch to assign.", variant: "default"});
       }
     } catch (error) {
@@ -490,7 +495,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     onCheckedChange={(checked) => {
                         field.onChange(!!checked);
                         const currentIsPaid = formInstance.getValues("is_paid");
-                        if (currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
+                        if (currentIsPaid && currentIsPaid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
                             formInstance.setValue("is_paid", !!checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
                         }
                     }}
@@ -597,7 +602,8 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     <TableCell>{res.rate_name || 'N/A'}</TableCell>
                     <TableCell>{TRANSACTION_LIFECYCLE_STATUS_TEXT[res.status as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'Unknown'}</TableCell>
                     <TableCell>
-                        {res.reserved_check_in_datetime && isValid(parseISO(res.reserved_check_in_datetime.replace(' ','T')))
+                        {res.status === TRANSACTION_LIFECYCLE_STATUS.PENDING_BRANCH_ACCEPTANCE ? 'Pending Acceptance' : 
+                         (res.reserved_check_in_datetime && isValid(parseISO(res.reserved_check_in_datetime.replace(' ','T'))))
                         ? `For: ${format(parseISO(res.reserved_check_in_datetime.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`
                         : (res.created_at && isValid(parseISO(res.created_at.replace(' ','T'))) ? `Created: ${format(parseISO(res.created_at.replace(' ','T')), 'yyyy-MM-dd hh:mm aa')}`: 'N/A')}
                     </TableCell>
@@ -606,7 +612,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                             <Button variant="outline" size="sm" onClick={() => handleOpenEditReservationDialog(res)}>
                                 <Edit className="mr-1 h-3 w-3" /> Edit
                             </Button>
-                             <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
+                            <Button variant="destructive" size="sm" onClick={() => handleOpenCancelUnassignedReservationDialog(res)}>
                                 <Ban className="mr-1 h-3 w-3" /> Cancel
                             </Button>
                             <Button variant="default" size="sm" onClick={() => handleOpenAssignRoomDialog(res)}>
@@ -725,5 +731,3 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
     </Card>
   );
 }
-
-    
