@@ -101,7 +101,7 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
   useEffect(() => {
     if (selectedItemForUpdate) {
       updateStatusForm.reset({
-        status: selectedItemForUpdate.status || LOST_AND_FOUND_STATUS.FOUND,
+        status: (selectedItemForUpdate.status ?? LOST_AND_FOUND_STATUS.FOUND) as 0 | 1 | 2,
         claimed_by_details: selectedItemForUpdate.claimed_by_details || '',
         disposed_details: selectedItemForUpdate.disposed_details || '',
       });
@@ -255,12 +255,12 @@ export default function LostAndFoundAdminContent({ tenantId, adminUserId }: Lost
             <TabsList className="grid w-full grid-cols-3 mb-4">
               {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
                 <TabsTrigger key={`item-status-tab-${opt.value}`} value={opt.value.toString()}>
-                  {opt.label} ({getFilteredItemsForStatusTab(opt.value).length})
+                  {opt.label} ({getFilteredItemsForStatusTab(Number(opt.value)).length})
                 </TabsTrigger>
               ))}
             </TabsList>
             {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => {
-              const currentFilteredItems = getFilteredItemsForStatusTab(opt.value);
+              const currentFilteredItems = getFilteredItemsForStatusTab(Number(opt.value));
               return (
                 <TabsContent key={`item-status-content-${opt.value}`} value={opt.value.toString()}>
                   {currentFilteredItems.length === 0 ? (

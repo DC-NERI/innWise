@@ -236,7 +236,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
         is_advance_reservation: !!transaction.reserved_check_in_datetime,
         reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
         reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
-        is_paid: transaction.is_paid !== null && transaction.is_paid !== undefined ? transaction.is_paid : TRANSACTION_PAYMENT_STATUS.UNPAID,
+        is_paid: transaction.is_paid !== null && transaction.is_paid !== undefined ? transaction.is_paid as 0 | 1 | 2 : TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: transaction.tender_amount ?? null,
       });
 
@@ -368,7 +368,18 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                   <CardContent className={cn("text-xs pb-3", cardContentTextClass)}>
                     <p>Status: <span className={cn(isUnread && !isPendingAcceptance ? "font-semibold text-primary" : "font-normal", notif.status === NOTIFICATION_STATUS.READ && cardContentTextClass !== "text-card-foreground" ? cardContentTextClass : "") }>{NOTIFICATION_STATUS_TEXT[notif.status]}</span></p>
                     {notif.transaction_id && (
-                      <p>Linked Reservation: Status <span className="font-semibold">{notif.linked_transaction_lifecycle_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_lifecycle_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</span> | Acceptance <span className="font-semibold">{notif.transaction_is_accepted !== null ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted] : 'N/A'}</span> </p>
+                      <p>Linked Reservation: Status 
+                          <span className="font-semibold">
+                            {notif.linked_transaction_lifecycle_status !== null ? 
+                            (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_lifecycle_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') 
+                            : 'N/A'}
+                          </span> | 
+                          Acceptance 
+                            <span className="font-semibold">
+                               {notif.transaction_is_accepted !== null && notif.transaction_is_accepted !== undefined
+                                  ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted as keyof typeof TRANSACTION_IS_ACCEPTED_STATUS_TEXT] : 'N/A'}
+                        </span> 
+                      </p>
                     )}
                   </CardContent>
                 </Card>
@@ -397,7 +408,11 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
                 <>
                   <p><strong>Linked Transaction ID:</strong> {selectedNotificationForDetails.transaction_id}</p>
                   <p><strong>Linked Reservation Status:</strong> {selectedNotificationForDetails.linked_transaction_lifecycle_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(selectedNotificationForDetails.linked_transaction_lifecycle_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</p>
-                  <p><strong>Acceptance by Branch:</strong> {selectedNotificationForDetails.transaction_is_accepted !== null ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotificationForDetails.transaction_is_accepted] : 'N/A'}</p>
+                  <p><strong>Acceptance by Branch:</strong> 
+                  {selectedNotificationForDetails.transaction_is_accepted !== null && selectedNotificationForDetails.transaction_is_accepted !== undefined
+                                  ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotificationForDetails.transaction_is_accepted as keyof typeof TRANSACTION_IS_ACCEPTED_STATUS_TEXT] : 'N/A'}
+                  {/* selectedNotificationForDetails.transaction_is_accepted !== null ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[selectedNotificationForDetails.transaction_is_accepted] : 'N/A'} */}
+                  </p> 
                 </>
               )}
             </div>
@@ -430,7 +445,7 @@ export default function NotificationsContent({ tenantId, branchId, staffUserId, 
               <form className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
                 <div className="flex-grow overflow-y-auto p-3 space-y-3">
                   <FormField control={acceptManageForm.control} name="client_name" render={({ field }) => (
-                    <FormItem><FormLabel>Client Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-full" /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Client Name</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} value={field.value ?? ''} className="w-full" /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={acceptManageForm.control} name="selected_rate_id" render={({ field }) => (
                     <FormItem><FormLabel>Select Rate *</FormLabel>

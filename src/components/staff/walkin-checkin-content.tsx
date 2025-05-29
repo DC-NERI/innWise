@@ -137,7 +137,11 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
     setIsSubmitting(true);
     try {
       const result = await createTransactionAndOccupyRoom(
-        data,
+        {
+          ...data,
+          selected_rate_id: Number(data.selected_rate_id),
+          client_payment_method: typeof data.client_payment_method === "string" ? data.client_payment_method : "Cash", // Ensure it's always a string
+        },
         tenantId,
         branchId,
         selectedRoomId,
@@ -248,7 +252,13 @@ export default function WalkInCheckInContent({ tenantId, branchId, staffUserId }
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Client Name *</FormLabel>
-                  <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
+                  <FormControl>
+                    <Input
+                      placeholder="John Doe"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}

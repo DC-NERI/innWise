@@ -26,7 +26,7 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client in admin/rates/createRate action', err);
 });
 
-export async function createRate(data: HotelRateCreateData, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string; rate?: HotelRate }> {
+export async function createRate(data: HotelRateCreateData, tenantId: number, branchId: number, adminUserId: number): Promise<{ success: boolean; message?: string; rate?: HotelRate }> {
   const validatedFields = hotelRateCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);

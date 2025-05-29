@@ -270,7 +270,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
         is_advance_reservation: isAdvance,
         reserved_check_in_datetime: checkInDateTimeFormatted,
         reserved_check_out_datetime: checkOutDateTimeFormatted,
-        is_paid: reservation.is_paid ?? TRANSACTION_PAYMENT_STATUS.UNPAID,
+        is_paid: (reservation.is_paid as 0 | 1 | 2 | null | undefined) ?? TRANSACTION_PAYMENT_STATUS.UNPAID,
         tender_amount_at_checkin: reservation.tender_amount ?? null,
     });
     setIsEditReservationDialogOpen(true);
@@ -404,14 +404,25 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
   const renderReservationFormFields = (
     formInstance: typeof addReservationForm | typeof editReservationForm,
     isAdvance: boolean | undefined,
-    isPaid: TRANSACTION_PAYMENT_STATUS | undefined | null,
+    isPaid: typeof TRANSACTION_PAYMENT_STATUS[keyof typeof TRANSACTION_PAYMENT_STATUS] | undefined | null,
     isRateOptional: boolean = false
   ) => {
     const formValues = formInstance.getValues();
     return (
       <div className="p-1 space-y-3">
         <FormField control={formInstance.control} name="client_name" render={({ field }) => (
-          <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="Jane Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+          <FormItem>
+            <FormLabel>Client Name *</FormLabel>
+            <FormControl>
+              <Input
+                placeholder="Jane Doe"
+                {...field}
+                value={field.value ?? ""}
+                className="w-[90%]"
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
         )} />
         <FormField control={formInstance.control} name="selected_rate_id" render={({ field }) => (
           <FormItem>
@@ -453,7 +464,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                 <Checkbox
                   checked={field.value === TRANSACTION_PAYMENT_STATUS.PAID || field.value === TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID}
                   onCheckedChange={(checked) => {
-                    const currentIsAdvance = formInstance.getValues("is_advance_reservation");
+                    const currentIsAdvance = formInstance.getValues().is_advance_reservation;
                     if (checked) {
                         field.onChange(currentIsAdvance ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID);
                     } else {
@@ -506,7 +517,7 @@ export default function ReservationsContent({ tenantId, branchId, staffUserId, r
                     checked={!!field.value}
                     onCheckedChange={(checked) => {
                         field.onChange(!!checked);
-                        const currentIsPaid = formInstance.getValues("is_paid");
+                        const currentIsPaid = formInstance.getValues().is_paid;
                         if (Number(currentIsPaid) !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
                             formInstance.setValue("is_paid", !!checked ? TRANSACTION_PAYMENT_STATUS.ADVANCE_PAID : TRANSACTION_PAYMENT_STATUS.PAID, { shouldValidate: true });
                         }

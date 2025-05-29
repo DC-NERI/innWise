@@ -122,7 +122,9 @@ export default function RatesContent({ tenantId, adminUserId }: RatesContentProp
         hours: selectedRate.hours,
         excess_hour_price: selectedRate.excess_hour_price ?? undefined,
         description: selectedRate.description || '',
-        status: String(selectedRate.status) || HOTEL_ENTITY_STATUS.ACTIVE,
+        status: (selectedRate.status === HOTEL_ENTITY_STATUS.ACTIVE || selectedRate.status === HOTEL_ENTITY_STATUS.ARCHIVED)
+          ? (selectedRate.status as "0" | "1")
+          : HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
       newDefaults = { ...defaultFormValuesCreate, status: HOTEL_ENTITY_STATUS.ACTIVE };

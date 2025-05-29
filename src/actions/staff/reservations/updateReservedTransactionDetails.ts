@@ -27,11 +27,7 @@ pool.on('error', (err) => {
 });
 
 export async function updateReservedTransactionDetails(
-  transactionId: number,
-  data: TransactionReservedUpdateData,
-  tenantId: number,
-  branchId: number
-): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
+transactionId: number, data: TransactionReservedUpdateData, tenantId: number, branchId: number, staffUserId: number): Promise<{ success: boolean; message?: string; updatedTransaction?: Transaction }> {
   const validatedFields = transactionReservedUpdateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);

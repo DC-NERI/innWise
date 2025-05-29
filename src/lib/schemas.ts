@@ -185,7 +185,7 @@ export type HotelRoomUpdateData = z.infer<typeof hotelRoomUpdateSchema>;
 
 
 const baseTransactionFields = {
-  client_name: z.string().min(1, "Client name is required").max(255),
+  client_name: z.string().min(1, "Client name is required").max(255).optional().nullable(),
   selected_rate_id: z.coerce.number().int().positive().optional().nullable(),
   client_payment_method: z.string().max(50).optional().nullable(),
   notes: z.string().max(1000, "Notes too long").optional().nullable(),

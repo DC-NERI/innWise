@@ -76,14 +76,14 @@ import {
   TRANSACTION_IS_ACCEPTED_STATUS,
   HOTEL_ENTITY_STATUS
 } from '@/lib/constants';
-import { format, parseISO, addHours, differenceInMilliseconds, isValid } from 'date-fns';
+import { format, parseISO, addHours, differenceInMilliseconds, isValid, setMilliseconds, setSeconds, setMinutes, setHours, addDays } from 'date-fns';
 import CleaningStatusUpdateCard from './room-status/CleaningStatusUpdateCard';
 import CleaningNotesModal from './room-status/CleaningNotesModal';
 
 
 const defaultBookingFormValues: StaffBookingCreateData = {
   client_name: '',
-  selected_rate_id: undefined,
+  selected_rate_id: 0,
   client_payment_method: 'Cash',
   notes: '',
   is_advance_reservation: false,
@@ -99,7 +99,7 @@ const defaultNotesEditFormValues: TransactionUpdateNotesData = {
 
 const defaultReservationEditFormValues: TransactionReservedUpdateData = {
   client_name: '',
-  selected_rate_id: undefined,
+  selected_rate_id: 0,
   client_payment_method: undefined,
   notes: '',
   is_advance_reservation: false,
@@ -517,7 +517,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             is_advance_reservation: !!transaction.reserved_check_in_datetime, // Set based on if date exists
             reserved_check_in_datetime: formatDateTimeForInput(transaction.reserved_check_in_datetime),
             reserved_check_out_datetime: formatDateTimeForInput(transaction.reserved_check_out_datetime),
-            is_paid: transaction.is_paid !== null ? transaction.is_paid : TRANSACTION_PAYMENT_STATUS.UNPAID,
+            is_paid: transaction.is_paid !== null ? transaction.is_paid as 0 | 1 | 2 | null | undefined : TRANSACTION_PAYMENT_STATUS.UNPAID,
             tender_amount_at_checkin: transaction.tender_amount ?? null,
           });
         } else {
@@ -1086,7 +1086,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
       <Dialog open={isBookingDialogOpen} onOpenChange={(isOpen) => {
           if (!isOpen) {
             setSelectedRoomForBooking(null); setBookingMode(null); bookingForm.reset(defaultBookingFormValues); setApplicableRatesForBookingDialog([]);
-            bookingForm.setValue('selected_rate_id', undefined);
+            bookingForm.setValue('selected_rate_id', undefined as any);
           } setIsBookingDialogOpen(isOpen);
       }}>
         <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
@@ -1101,7 +1101,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             <form onSubmit={bookingForm.handleSubmit(handleBookingSubmit)} className="flex flex-col flex-grow overflow-hidden bg-card rounded-md">
               <div className="flex-grow space-y-3 p-1 overflow-y-auto">
                 <FormField control={bookingForm.control} name="client_name" render={({ field }) => (
-                  <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="John Doe" {...field} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
+                  <FormItem><FormLabel>Client Name *</FormLabel><FormControl><Input placeholder="John Doe" {...field} value={field.value ?? ""} className="w-[90%]" /></FormControl><FormMessage /></FormItem>
                 )} />
                 <FormField control={bookingForm.control} name="selected_rate_id" render={({ field }) => (
                   <FormItem>
@@ -1192,13 +1192,13 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
               notesForm.reset(defaultNotesEditFormValues); reservationEditForm.reset(defaultReservationEditFormValues);
           } else { setIsTransactionDetailsDialogOpen(open); }
       }}>
-        <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh]">
-          <DialogHeader className="p-2 border-b">
+        <DialogContent className="sm:max-w-md p-1 flex flex-col max-h-[85vh] overflow-hidden">
+          <DialogHeader className="p-2 border-b ">
             <DialogTitle>Transaction Details</DialogTitle>
             {transactionDetails?.room_name && <ShadDialogDescriptionAliased className="text-xs">Room: {transactionDetails.room_name} ({transactionDetails.rate_name || 'Rate N/A'})</ShadDialogDescriptionAliased>}
           </DialogHeader>
           {transactionDetails ? (
-            <div className="flex-grow flex flex-col overflow-hidden">
+            <div className="flex-grow flex flex-col overflow-hidden mb-[50px]">
                  <div className="flex-grow space-y-3 p-3 overflow-y-auto">
                     <p><strong>Client:</strong> {transactionDetails.client_name}</p>
                     <p><strong>Status:</strong> {transactionDetails.status !== null ? TRANSACTION_LIFECYCLE_STATUS_TEXT[transactionDetails.status] || 'Unknown' : 'N/A'}</p>
@@ -1317,7 +1317,7 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
                 </div>
             </div>
           ) : <div className="p-2"><p className="py-4 text-muted-foreground">Loading details or no active transaction...</p></div>}
-          <DialogFooter className="bg-card py-2 border-t px-3 sticky bottom-0 z-10 flex flex-row justify-between items-center">
+          <DialogFooter className="bg-card py-2 border-t px-3 absolute bottom-0 z-10 w-full flex flex-row justify-between items-center">
              <div>
                 {transactionDetails && (Number(transactionDetails.status) === TRANSACTION_LIFECYCLE_STATUS.RESERVATION_WITH_ROOM) && editingModeForDialog !== 'fullReservation' && (
                     <Button variant="destructive" size="sm"
@@ -1572,6 +1572,6 @@ export default function RoomStatusContent({ tenantId, branchId, staffUserId, sho
             </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
+      </div>
+    );
+  }

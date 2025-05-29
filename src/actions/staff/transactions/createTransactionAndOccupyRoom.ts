@@ -160,9 +160,8 @@ export async function createTransactionAndOccupyRoom(
     await client.query('COMMIT');
 
     const finalMessage = is_advance_reservation 
-        ? `Room ${selectedRoomForBooking?.room_name || roomId} reserved successfully for ${client_name}.`
-        : `Guest ${client_name} checked in successfully to room ${selectedRoomForBooking?.room_name || roomId}.`;
-
+        ? `Room ${roomId} reserved successfully for ${client_name}.`
+        : `Guest ${client_name} checked in successfully to room ${roomId}.`;
 
     // Map to Transaction type
      const transactionResult: Transaction = {

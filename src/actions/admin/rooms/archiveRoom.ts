@@ -25,10 +25,7 @@ pool.on('error', (err) => {
 });
 
 export async function archiveRoom(
-  roomId: number,
-  tenantId: number,
-  branchId: number
-): Promise<{ success: boolean; message?: string }> {
+roomId: number, tenantId: number, branchId: number, adminUserId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
     const query = `

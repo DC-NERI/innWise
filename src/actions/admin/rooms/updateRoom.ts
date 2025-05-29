@@ -26,11 +26,7 @@ pool.on('error', (err) => {
 });
 
 export async function updateRoom(
-  roomId: number,
-  data: HotelRoomUpdateData,
-  tenantId: number,
-  branchId: number
-): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
+roomId: number, data: HotelRoomUpdateData, tenantId: number, branchId: number, adminUserId: number): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
   const validatedFields = hotelRoomUpdateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);

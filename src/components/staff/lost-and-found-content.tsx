@@ -81,14 +81,14 @@ export default function LostAndFoundContent({ tenantId, branchId, staffUserId }:
   }, [fetchItems]);
 
   useEffect(() => {
-    if (selectedItemForUpdate) {
-      updateStatusForm.reset({
-        status: selectedItemForUpdate.status,
-        claimed_by_details: selectedItemForUpdate.claimed_by_details || '',
-        disposed_details: selectedItemForUpdate.disposed_details || '',
-      });
-    }
-  }, [selectedItemForUpdate, updateStatusForm]);
+      if (selectedItemForUpdate) {
+        updateStatusForm.reset({
+          status: (selectedItemForUpdate.status ?? LOST_AND_FOUND_STATUS.FOUND) as 0 | 1 | 2,
+          claimed_by_details: selectedItemForUpdate.claimed_by_details || '',
+          disposed_details: selectedItemForUpdate.disposed_details || '',
+        });
+      }
+    }, [selectedItemForUpdate, updateStatusForm]);
 
   const handleAddItemSubmit = async (data: LostAndFoundCreateData) => {
     if (!staffUserId) {
@@ -194,7 +194,7 @@ export default function LostAndFoundContent({ tenantId, branchId, staffUserId }:
           <TabsList className="grid w-full grid-cols-3 mb-4">
             {LOST_AND_FOUND_STATUS_OPTIONS.map(opt => (
               <TabsTrigger key={opt.value} value={opt.value.toString()}>
-                {opt.label} ({items.filter(i => i.status === opt.value).length})
+                {opt.label} ({items.filter(i => i.status.toString() === opt.value.toString()).length})
               </TabsTrigger>
             ))}
           </TabsList>

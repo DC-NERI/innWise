@@ -1,4 +1,3 @@
-
 "use server";
 
 import pg from 'pg';
@@ -136,7 +135,24 @@ export async function checkInReservedGuest(
         active_transaction_rate_hours: rateHours,
         active_transaction_lifecycle_status: TRANSACTION_LIFECYCLE_STATUS.CHECKED_IN,
         cleaning_status: Number(roomUpdateResult.rows[0].cleaning_status),
-        hotel_rate_id: roomUpdateResult.rows[0].hotel_rate_id ? JSON.parse(roomUpdateResult.rows[0].hotel_rate_id) : [],
+        hotel_rate_id: (() => {
+          const val = roomUpdateResult.rows[0].hotel_rate_id;
+          if (Array.isArray(val)) return val;
+          if (typeof val === "string") {
+            try {
+              const parsed = JSON.parse(val);
+              if (Array.isArray(parsed)) return parsed;
+              if (!isNaN(Number(parsed))) return [Number(parsed)];
+            } catch {
+              if (val.includes(",")) {
+                return val.split(",").map((v) => Number(v.trim())).filter(Boolean);
+              }
+              if (!isNaN(Number(val))) return [Number(val)];
+            }
+          }
+          if (typeof val === "number") return [val];
+          return [];
+        })(),
       }
     };
   } catch (error) {

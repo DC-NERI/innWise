@@ -1,4 +1,3 @@
-
 "use server";
 
 import pg from 'pg';
@@ -9,7 +8,7 @@ pg.types.setTypeParser(1700, (stringValue) => parseFloat(stringValue));
 
 import { Pool } from 'pg';
 import type { HotelRoom } from '@/lib/types';
-import { TRANSACTION_LIFECYCLE_STATUS, ROOM_AVAILABILITY_STATUS } from '@/lib/constants';
+import { TRANSACTION_LIFECYCLE_STATUS, ROOM_AVAILABILITY_STATUS, TRANSACTION_LIFECYCLE_STATUS_TEXT } from '@/lib/constants';
 
 const pool = new Pool({
   connectionString: process.env.POSTGRES_URL,
@@ -77,6 +76,31 @@ transactionId: number, tenantId: number, branchId: number, roomId: number | null
         [ROOM_AVAILABILITY_STATUS.AVAILABLE, finalRoomIdToUpdate, tenantId, branchId]
       );
        if (roomUpdateResult.rows.length > 0) {
+            // Robustly parse hotel_rate_id (handles JSON, number, comma-separated, etc.)
+            const rawHotelRateId = roomUpdateResult.rows[0].hotel_rate_id;
+            let parsedHotelRateId: number[] = [];
+            if (Array.isArray(rawHotelRateId)) {
+                parsedHotelRateId = rawHotelRateId;
+            } else if (typeof rawHotelRateId === "string") {
+                try {
+                    const jsonParsed = JSON.parse(rawHotelRateId);
+                    if (Array.isArray(jsonParsed)) {
+                        parsedHotelRateId = jsonParsed;
+                    } else if (!isNaN(Number(jsonParsed))) {
+                        parsedHotelRateId = [Number(jsonParsed)];
+                    }
+                } catch {
+                    // Not JSON, try comma-separated or single number
+                    if (rawHotelRateId.includes(",")) {
+                        parsedHotelRateId = rawHotelRateId.split(",").map((v) => Number(v.trim())).filter(Boolean);
+                    } else if (!isNaN(Number(rawHotelRateId))) {
+                        parsedHotelRateId = [Number(rawHotelRateId)];
+                    }
+                }
+            } else if (typeof rawHotelRateId === "number") {
+                parsedHotelRateId = [rawHotelRateId];
+            }
+
             updatedRoomData = {
                 id: finalRoomIdToUpdate,
                 is_available: ROOM_AVAILABILITY_STATUS.AVAILABLE,
@@ -86,7 +110,7 @@ transactionId: number, tenantId: number, branchId: number, roomId: number | null
                 active_transaction_check_in_time: null,
                 active_transaction_rate_name: null,
                 cleaning_status: Number(roomUpdateResult.rows[0].cleaning_status),
-                hotel_rate_id: roomUpdateResult.rows[0].hotel_rate_id ? JSON.parse(roomUpdateResult.rows[0].hotel_rate_id) : [],
+                hotel_rate_id: parsedHotelRateId,
             };
         }
     }
@@ -102,4 +126,3 @@ transactionId: number, tenantId: number, branchId: number, roomId: number | null
     client.release();
   }
 }
-    

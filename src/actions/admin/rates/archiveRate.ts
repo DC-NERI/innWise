@@ -24,7 +24,7 @@ pool.on('error', (err) => {
   console.error('Unexpected error on idle client in admin/rates/archiveRate action', err);
 });
 
-export async function archiveRate(rateId: number, tenantId: number, branchId: number): Promise<{ success: boolean; message?: string }> {
+export async function archiveRate(rateId: number, tenantId: number, branchId: number, adminUserId: number): Promise<{ success: boolean; message?: string }> {
   const client = await pool.connect();
   try {
     const query = `

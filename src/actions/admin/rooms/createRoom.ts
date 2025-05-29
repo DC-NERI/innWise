@@ -1,4 +1,3 @@
-
 "use server";
 
 import pg from 'pg';
@@ -27,10 +26,7 @@ pool.on('error', (err) => {
 });
 
 export async function createRoom(
-  data: HotelRoomCreateData,
-  tenantId: number,
-  branchId: number
-): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
+data: HotelRoomCreateData, tenantId: number, branchId: number, adminUserId: number): Promise<{ success: boolean; message?: string; room?: HotelRoom }> {
   const validatedFields = hotelRoomCreateSchema.safeParse(data);
   if (!validatedFields.success) {
     const errorMessage = "Invalid data: " + JSON.stringify(validatedFields.error.flatten().fieldErrors);
@@ -85,7 +81,24 @@ export async function createRoom(
         message: "Room created successfully.",
         room: {
           ...newRoom,
-          hotel_rate_id: newRoom.hotel_rate_id ? JSON.parse(newRoom.hotel_rate_id) : [],
+          hotel_rate_id: (() => {
+            const val = newRoom.hotel_rate_id;
+            if (Array.isArray(val)) return val;
+            if (typeof val === "string") {
+              try {
+                return JSON.parse(val);
+              } catch {
+                // fallback: try comma-separated numbers
+                if (val.includes(",")) {
+                  return val.split(",").map(v => Number(v.trim())).filter(Boolean);
+                }
+                if (!isNaN(Number(val))) return [Number(val)];
+                return [];
+              }
+            }
+            if (typeof val === "number") return [val];
+            return [];
+          })(),
           is_available: Number(newRoom.is_available),
           cleaning_status: Number(newRoom.cleaning_status),
           status: String(newRoom.status),
@@ -106,4 +119,3 @@ export async function createRoom(
     client.release();
   }
 }
-    

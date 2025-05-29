@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -28,6 +27,8 @@ import { updateRoom } from '@/actions/admin/rooms/updateRoom';
 import { archiveRoom } from '@/actions/admin/rooms/archiveRoom';
 import { ROOM_AVAILABILITY_STATUS, ROOM_AVAILABILITY_STATUS_TEXT, ROOM_CLEANING_STATUS, ROOM_CLEANING_STATUS_OPTIONS, ROOM_CLEANING_STATUS_TEXT, HOTEL_ENTITY_STATUS } from '@/lib/constants';
 import { Textarea } from '@/components/ui/textarea';
+import { DataTable } from '@/components/ui/data-table';
+import { getRoomColumns } from "@/components/admin/rooms/room-columns";
 
 type RoomFormValues = HotelRoomCreateData | HotelRoomUpdateData;
 
@@ -129,10 +130,12 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
         room_type: selectedRoom.room_type ?? '',
         bed_type: selectedRoom.bed_type ?? '',
         capacity: selectedRoom.capacity ?? 2,
-        is_available: Number(selectedRoom.is_available),
-        cleaning_status: Number(selectedRoom.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
+        is_available: selectedRoom.is_available as typeof ROOM_AVAILABILITY_STATUS[keyof typeof ROOM_AVAILABILITY_STATUS],
+        cleaning_status: (selectedRoom.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN) as typeof ROOM_CLEANING_STATUS[keyof typeof ROOM_CLEANING_STATUS],
         cleaning_notes: selectedRoom.cleaning_notes || '',
-        status: String(selectedRoom.status) || HOTEL_ENTITY_STATUS.ACTIVE,
+        status: [String(HOTEL_ENTITY_STATUS.ACTIVE), String(HOTEL_ENTITY_STATUS.ARCHIVED)].includes(String(selectedRoom.status))
+          ? (String(selectedRoom.status) as "0" | "1")
+          : HOTEL_ENTITY_STATUS.ACTIVE,
       };
     } else {
       newDefaults = {
@@ -207,9 +210,9 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
       floor: room.floor,
       room_type: room.room_type,
       bed_type: room.bed_type,
-      capacity: room.capacity,
-      is_available: Number(room.is_available),
-      cleaning_status: Number(room.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN),
+      capacity: room.capacity ?? null,
+      is_available: room.is_available as typeof ROOM_AVAILABILITY_STATUS[keyof typeof ROOM_AVAILABILITY_STATUS],
+      cleaning_status: (room.cleaning_status ?? ROOM_CLEANING_STATUS.CLEAN) as typeof ROOM_CLEANING_STATUS[keyof typeof ROOM_CLEANING_STATUS],
       cleaning_notes: room.cleaning_notes || '',
       status: HOTEL_ENTITY_STATUS.ACTIVE,
     };
@@ -225,7 +228,10 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
     finally { setIsSubmitting(false); }
   };
 
-  const filteredRooms = rooms.filter(room => String(room.status) === String(activeTab));
+  const filteredRooms = React.useMemo(
+    () => rooms.filter(room => String(room.status) === String(activeTab)),
+    [rooms, activeTab]
+  );
 
   const extractHoursFromName = (name: string | undefined): number => {
     if (!name) return Infinity;
@@ -459,89 +465,113 @@ export default function RoomsContent({ tenantId, adminUserId }: RoomsContentProp
               <TabsList className="mb-4"><TabsTrigger value={String(HOTEL_ENTITY_STATUS.ACTIVE)}>Active ({rooms.filter(r => String(r.status) === String(HOTEL_ENTITY_STATUS.ACTIVE)).length})</TabsTrigger><TabsTrigger value={String(HOTEL_ENTITY_STATUS.ARCHIVED)}>Archive ({rooms.filter(r => String(r.status) === String(HOTEL_ENTITY_STATUS.ARCHIVED)).length})</TabsTrigger></TabsList>
               <TabsContent value={String(HOTEL_ENTITY_STATUS.ACTIVE)}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No active rooms found for this branch.</p>}
-                {filteredRooms.length > 0 && (
-                  <Table><TableHeader><TableRow><TableHead>Room Information</TableHead><TableHead>Rates</TableHead><TableHead>Availability</TableHead><TableHead>Cleaning</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
-                    <TableBody>{filteredRooms.map(r => (
-                      <TableRow key={r.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{r.room_name}</div>
-                            <div className="text-xs text-muted-foreground">Room Number: {r.room_code}</div>
-                            <div className="text-xs text-muted-foreground">Floor: {r.floor ?? 'N/A'}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <Button variant="ghost" size="icon" className="h-7 w-7">
-                                  <Tags className="h-4 w-4" />
-                                  <span className="sr-only">View Associated Rates</span>
-                                </Button>
-                              </PopoverTrigger>
-                              <PopoverContent className="w-auto p-3 max-w-xs">
-                                <div className="text-sm">
-                                  <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
-                                  {(() => {
-                                    const extractHours = (name: string | undefined): number => {
-                                      if (!name) return Infinity;
-                                      const match = name.match(/(\d+)\s*hr/i);
-                                      return match ? parseInt(match[1], 10) : Infinity;
-                                    };
+                {
+                filteredRooms.length > 0 && (
+                  // <Table>
+                  //   <TableHeader>
+                  //     <TableRow>
+                  //       <TableHead>Room Information</TableHead>
+                  //       <TableHead>Rates</TableHead>
+                  //       <TableHead>Availability</TableHead>
+                  //       <TableHead>Cleaning</TableHead>
+                  //       <TableHead className="text-right">Actions</TableHead>
+                  //       </TableRow>
+                  //       </TableHeader>
+                  //   <TableBody>{filteredRooms.map(r => (
+                  //     <TableRow key={r.id}>
+                  //       <TableCell>
+                  //         <div>
+                  //           <div className="font-medium">{r.room_name}</div>
+                  //           <div className="text-xs text-muted-foreground">Room Number: {r.room_code}</div>
+                  //           <div className="text-xs text-muted-foreground">Floor: {r.floor ?? 'N/A'}</div>
+                  //         </div>
+                  //       </TableCell>
+                  //       <TableCell>
+                  //         {r.hotel_rate_id && r.hotel_rate_id.length > 0 ? (
+                  //           <Popover>
+                  //             <PopoverTrigger asChild>
+                  //               <Button variant="ghost" size="icon" className="h-7 w-7">
+                  //                 <Tags className="h-4 w-4" />
+                  //                 <span className="sr-only">View Associated Rates</span>
+                  //               </Button>
+                  //             </PopoverTrigger>
+                  //             <PopoverContent className="w-auto p-3 max-w-xs">
+                  //               <div className="text-sm">
+                  //                 <p className="font-semibold mb-1 text-popover-foreground">Associated Rates:</p>
+                  //                 {(() => {
+                  //                   const extractHours = (name: string | undefined): number => {
+                  //                     if (!name) return Infinity;
+                  //                     const match = name.match(/(\d+)\s*hr/i);
+                  //                     return match ? parseInt(match[1], 10) : Infinity;
+                  //                   };
 
-                                    const ratesForRoom = availableRates
-                                      .filter(ar => r.hotel_rate_id!.includes(ar.id))
-                                      .sort((a, b) => {
-                                        const hoursA = extractHours(a.name);
-                                        const hoursB = extractHours(b.name);
-                                        if (hoursA !== hoursB) {
-                                          return hoursA - hoursB;
-                                        }
-                                        return a.name.localeCompare(b.name);
-                                      });
+                  //                   const ratesForRoom = availableRates
+                  //                     .filter(ar => r.hotel_rate_id!.includes(ar.id))
+                  //                     .sort((a, b) => {
+                  //                       const hoursA = extractHours(a.name);
+                  //                       const hoursB = extractHours(b.name);
+                  //                       if (hoursA !== hoursB) {
+                  //                         return hoursA - hoursB;
+                  //                       }
+                  //                       return a.name.localeCompare(b.name);
+                  //                     });
 
-                                    if (ratesForRoom.length > 0) {
-                                      return (
-                                        <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
-                                          {ratesForRoom.map(rate => (
-                                            <li key={rate.id}>
-                                              {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
-                                            </li>
-                                          ))}
-                                          {r.hotel_rate_id
-                                            .filter(rateId => !availableRates.some(ar => ar.id === rateId))
-                                            .map(rateId => (
-                                              <li key={rateId} className="text-xs text-muted-foreground italic">
-                                                Rate ID: {rateId} (Inactive/Not Found)
-                                              </li>
-                                            ))
-                                          }
-                                        </ul>
-                                      );
-                                    }
-                                    return <p className="text-xs text-muted-foreground">No active rates assigned or found.</p>;
-                                  })()}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">N/A</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
-                        <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
-                        <TableCell className="text-right space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
-                          <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader><ShadAlertDialogTitleConfirm>Confirm Archive</ShadAlertDialogTitleConfirm><ShadAlertDialogDescriptionConfirm>Are you sure you want to archive room "{r.room_name}"?</ShadAlertDialogDescriptionConfirm></AlertDialogHeader>
-                              <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(r)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      </TableRow>))}
-                    </TableBody>
-                  </Table>)}
+                  //                   if (ratesForRoom.length > 0) {
+                  //                     return (
+                  //                       <ul className="list-disc list-inside space-y-0.5 text-popover-foreground/90">
+                  //                         {ratesForRoom.map(rate => (
+                  //                           <li key={rate.id}>
+                  //                             {rate.name} (₱{typeof rate.price === 'number' ? rate.price.toFixed(2) : 'N/A'})
+                  //                           </li>
+                  //                         ))}
+                  //                         {r.hotel_rate_id
+                  //                           .filter(rateId => !availableRates.some(ar => ar.id === rateId))
+                  //                           .map(rateId => (
+                  //                             <li key={rateId} className="text-xs text-muted-foreground italic">
+                  //                               Rate ID: {rateId} (Inactive/Not Found)
+                  //                             </li>
+                  //                           ))
+                  //                         }
+                  //                       </ul>
+                  //                     );
+                  //                   }
+                  //                   return <p className="text-xs text-muted-foreground">No active rates assigned or found.</p>;
+                  //                 })()}
+                  //               </div>
+                  //             </PopoverContent>
+                  //           </Popover>
+                  //         ) : (
+                  //           <span className="text-xs text-muted-foreground">N/A</span>
+                  //         )}
+                  //       </TableCell>
+                  //       <TableCell>{ROOM_AVAILABILITY_STATUS_TEXT[Number(r.is_available) as keyof typeof ROOM_AVAILABILITY_STATUS_TEXT] || 'Unknown'}</TableCell>
+                  //       <TableCell>{ROOM_CLEANING_STATUS_TEXT[Number(r.cleaning_status) as keyof typeof ROOM_CLEANING_STATUS_TEXT] || 'N/A'}</TableCell>
+                  //       <TableCell className="text-right space-x-2">
+                  //         <Button variant="outline" size="sm" onClick={() => { setSelectedRoom(r); setIsEditDialogOpen(true); setIsAddDialogOpen(false); }}><Edit className="mr-1 h-3 w-3" /> Edit</Button>
+                  //         <AlertDialog><AlertDialogTrigger asChild><Button variant="destructive" size="sm" disabled={isSubmitting}><Trash2 className="mr-1 h-3 w-3" /> Archive</Button></AlertDialogTrigger>
+                  //           <AlertDialogContent>
+                  //             <AlertDialogHeader><ShadAlertDialogTitleConfirm>Confirm Archive</ShadAlertDialogTitleConfirm><ShadAlertDialogDescriptionConfirm>Are you sure you want to archive room "{r.room_name}"?</ShadAlertDialogDescriptionConfirm></AlertDialogHeader>
+                  //             <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={() => handleArchive(r)} disabled={isSubmitting}>{isSubmitting ? <Loader2 className="animate-spin" /> : "Archive"}</AlertDialogAction></AlertDialogFooter>
+                  //           </AlertDialogContent>
+                  //         </AlertDialog>
+                  //       </TableCell>
+                  //     </TableRow>))}
+                  //   </TableBody>
+                  // </Table>
+                  <DataTable
+                      columns={getRoomColumns(
+                        availableRates,
+                        setSelectedRoom,
+                        setIsEditDialogOpen,
+                        setIsAddDialogOpen,
+                        handleArchive,
+                        isSubmitting
+                      )}
+                      data={filteredRooms}
+                    />
+                    
+                  )
+                }
               </TabsContent>
                <TabsContent value={String(HOTEL_ENTITY_STATUS.ARCHIVED)}>
                 {filteredRooms.length === 0 && <p className="text-muted-foreground text-center py-8">No archived rooms found for this branch.</p>}

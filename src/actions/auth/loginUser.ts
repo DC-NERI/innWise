@@ -63,7 +63,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
   let branchIdForActivityLog: number | undefined = undefined;
   let attemptedUsername: string = "";
 
-  const headerList = headers();
+  const headerList = await headers();
   const ipAddress = (headerList.get('x-forwarded-for') ?? headerList.get('x-real-ip') ?? headerList.get('cf-connecting-ip') ?? 'unknown').split(',')[0].trim();
   const userAgent = headerList.get('user-agent') ?? 'unknown';
 

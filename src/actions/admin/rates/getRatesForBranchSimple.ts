@@ -33,7 +33,7 @@ export async function getRatesForBranchSimple(tenantId: number, branchId: number
   const client = await pool.connect();
   try {
     const query = `
-      SELECT id, name, price, hours
+      SELECT id, name, price, hours,status
       FROM hotel_rates
       WHERE tenant_id = $1 AND branch_id = $2 AND status = $3
       ORDER BY name;
@@ -44,6 +44,7 @@ export async function getRatesForBranchSimple(tenantId: number, branchId: number
       name: row.name,
       price: parseFloat(row.price),
       hours: parseInt(row.hours, 10),
+      status: row.status,
     }));
   } catch (error) {
     console.error('[getRatesForBranchSimple DB Error]', error);

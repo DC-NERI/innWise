@@ -50,8 +50,12 @@ const NotificationTable = ({ notifications }: { notifications: Notification[] })
               <TableCell className="truncate max-w-[150px] sm:max-w-xs" title={notif.message}>{notif.message.substring(0, 50)}{notif.message.length > 50 ? '...' : ''}</TableCell>
               <TableCell>{notif.creator_username || 'System'}</TableCell>
               <TableCell>{NOTIFICATION_STATUS_TEXT[notif.status] || 'Unknown'}</TableCell>
-              <TableCell>{notif.transaction_id && notif.linked_transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.linked_transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
-              <TableCell>{notif.transaction_id && notif.transaction_is_accepted !== null ? (TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted]) : 'N/A'}</TableCell>
+              <TableCell>{notif.transaction_id && notif.transaction_status !== null ? (TRANSACTION_LIFECYCLE_STATUS_TEXT[Number(notif.transaction_status) as keyof typeof TRANSACTION_LIFECYCLE_STATUS_TEXT] || 'N/A') : 'N/A'}</TableCell>
+              <TableCell>
+                {notif.transaction_id && notif.transaction_is_accepted !== null && notif.transaction_is_accepted !== undefined
+                  ? TRANSACTION_IS_ACCEPTED_STATUS_TEXT[notif.transaction_is_accepted as keyof typeof TRANSACTION_IS_ACCEPTED_STATUS_TEXT] ?? 'N/A'
+                  : 'N/A'}
+              </TableCell>
               <TableCell>{notif.created_at ? format(parseISO(notif.created_at.replace(' ', 'T')), 'yyyy-MM-dd hh:mm aa') : 'N/A'}</TableCell>
             </TableRow>
           ))}

@@ -81,7 +81,7 @@ export default function CleaningStatusUpdateCard({
     setSelectedRoomForCleaningNotes(room);
     setTargetCleaningStatusForModal(targetStatus);
     cleaningUpdateForm.reset({
-      cleaning_status: targetStatus,
+      cleaning_status: targetStatus as 0 | 1 | 2 | 3,
       cleaning_notes: getDefaultNoteForModal(targetStatus, room.cleaning_notes),
     });
     setIsCleaningNotesModalOpen(true);
