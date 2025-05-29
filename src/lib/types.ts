@@ -6,7 +6,9 @@ import type {
     checkoutFormSchema,
     StaffBookingCreateData,
     TransactionCreateData,
-    adminResetPasswordSchema
+    adminResetPasswordSchema,
+    transactionUpdateNotesSchema, // Import the new schema
+    transactionReservedUpdateSchema, // Import the new schema
 } from '@/lib/schemas';
 import type {
     ROOM_AVAILABILITY_STATUS,
@@ -224,6 +226,9 @@ export interface RoomCleaningLog {
 }
 
 // Re-exporting from schemas.ts to keep type definitions centralized if they're simple inferences
+export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSchema>;
+export type TransactionReservedUpdateData = z.infer<typeof transactionReservedUpdateSchema>;
+
 export type { StaffBookingCreateData };
 export type { TransactionCreateData };
 

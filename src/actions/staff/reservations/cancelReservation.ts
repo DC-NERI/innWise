@@ -21,11 +21,7 @@ pool.on('error', (err) => {
 });
 
 export async function cancelReservation(
-  transactionId: number,
-  tenantId: number,
-  branchId: number,
-  roomId: number | null
-): Promise<{ success: boolean; message?: string; updatedRoomData?: Partial<HotelRoom> & { id: number } }> {
+transactionId: number, tenantId: number, branchId: number, roomId: number | null, staffUserId: number): Promise<{ success: boolean; message?: string; updatedRoomData?: Partial<HotelRoom> & { id: number } }> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

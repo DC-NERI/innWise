@@ -226,7 +226,7 @@ export const transactionSuperRefineLogic = (data: BaseTransactionData, ctx: z.Re
     if (data.tender_amount_at_checkin === null || data.tender_amount_at_checkin === undefined || data.tender_amount_at_checkin < 0) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Tender amount is required if transaction is marked as paid.", path: ["tender_amount_at_checkin"] });
     }
-    if (!data.selected_rate_id && data.is_paid !== TRANSACTION_PAYMENT_STATUS.UNPAID) {
+    if (!data.selected_rate_id) {
        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A rate must be selected if transaction is marked as paid.", path: ["selected_rate_id"] });
     }
   }
@@ -250,8 +250,9 @@ export type TransactionUpdateNotesData = z.infer<typeof transactionUpdateNotesSc
 // For Staff editing an unassigned reservation (e.g., from notifications or reservations list)
 export const transactionUnassignedUpdateSchema = transactionObjectSchema.extend({
   client_name: z.string().max(255).optional().nullable(), // Client name is likely pre-filled and might not need re-validation for min(1)
-  selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation."),
+  selected_rate_id: z.coerce.number().int().positive("A rate must be selected when managing this reservation.").optional().nullable(),
 }).superRefine(transactionSuperRefineLogic);
+
 export type TransactionUnassignedUpdateData = z.infer<typeof transactionUnassignedUpdateSchema>;
 
 // For Staff editing a RESERVATION_WITH_ROOM (status 2) - full edit
