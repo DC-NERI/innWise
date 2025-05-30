@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { NextPage } from 'next';
@@ -15,12 +14,13 @@ import NotificationsContent from '@/components/admin/notifications-content';
 import LostAndFoundAdminContent from '@/components/admin/lost-and-found-admin-content';
 import DashboardAdminContent from '@/components/admin/dashboard-admin-content';
 import DetailedSalesReport from '@/components/admin/reports/detailed-sales-report';
+import TicketsManagement from '@/components/sysad/tickets-management'; // <-- Import your tickets management component
 
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type AdminActiveView = 'dashboard' | 'reports' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found';
+type AdminActiveView = 'dashboard' | 'reports' | 'users' | 'branches' | 'rates' | 'rooms' | 'notifications' | 'lost-and-found' | 'tickets'; // <-- Add 'tickets'
 
 const AdminDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<AdminActiveView>('dashboard');
@@ -240,6 +240,16 @@ const AdminDashboardPage: NextPage = () => {
                 <span>Lost & Found</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('tickets')}
+                isActive={activeView === 'tickets'}
+                tooltip="Tickets"
+              >
+                <span role="img" aria-label="Ticket" className="mr-2">🎫</span>
+                <span>Tickets</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -291,6 +301,9 @@ const AdminDashboardPage: NextPage = () => {
           {activeView === 'lost-and-found' && userRole === 'admin' && tenantId !== null && userId && userId > 0 && <LostAndFoundAdminContent tenantId={tenantId} adminUserId={userId} />}
           {activeView === 'lost-and-found' && (tenantId === null || !userId || userId <=0) && <p>Loading information for Lost & Found...</p>}
 
+          {activeView === 'tickets' && userRole === 'admin' && userId && (
+            <TicketsManagement sysAdUserId={userId} />
+          )}
         </main>
       </SidebarInset>
     </SidebarProvider>

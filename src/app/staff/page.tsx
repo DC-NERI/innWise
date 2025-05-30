@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { NextPage } from 'next';
@@ -15,6 +14,7 @@ import NotificationsContent from '@/components/staff/notifications-content';
 import WalkInCheckInContent from '@/components/staff/walkin-checkin-content';
 import DashboardContent from '@/components/staff/dashboard-content';
 import LostAndFoundContent from '@/components/staff/lost-and-found-content';
+import TicketsManagement from '@/components/sysad/tickets-management'; // <-- Add this import
 
 import { getTenantDetails } from '@/actions/admin/tenants/getTenantDetails';
 import { listUnassignedReservations } from '@/actions/staff/reservations/listUnassignedReservations';
@@ -22,7 +22,7 @@ import { listNotificationsForBranch } from '@/actions/staff/notifications/listNo
 import { NOTIFICATION_STATUS } from '@/lib/constants';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 
-type StaffActiveView = 'dashboard' | 'room-status' | 'walk-in' | 'reservations' | 'notifications' | 'lost-and-found';
+type StaffActiveView = 'dashboard' | 'room-status' | 'walk-in' | 'reservations' | 'notifications' | 'lost-and-found' | 'tickets'; // <-- Add 'tickets'
 
 const StaffDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<StaffActiveView>('dashboard');
@@ -283,6 +283,16 @@ const StaffDashboardPage: NextPage = () => {
                 <span>Lost & Found</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('tickets')}
+                isActive={activeView === 'tickets'}
+                tooltip="Tickets"
+              >
+                <span role="img" aria-label="Ticket" className="mr-2">🎫</span>
+                <span>Tickets</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -348,6 +358,9 @@ const StaffDashboardPage: NextPage = () => {
               branchId={branchId}
               staffUserId={userId}
             />
+          )}
+          {activeView === 'tickets' && tenantId && branchId && userId && userId > 0 && (
+            <TicketsManagement sysAdUserId={userId} />
           )}
           {/* Fallback for missing IDs */}
           {( (activeView === 'dashboard' && (!tenantId || !branchId || !userId || userId <= 0)) ||

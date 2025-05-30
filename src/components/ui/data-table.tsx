@@ -13,9 +13,16 @@ import {
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
+  rowClassName?: (row: { original: TData }) => string;
+  onRowClick?: (row: { original: TData }) => void;
 }
 
-export function DataTable<TData, TValue>({ columns, data }: DataTableProps<TData, TValue>) {
+export function DataTable<TData, TValue>({
+  columns,
+  data,
+  rowClassName,
+  onRowClick,
+}: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = React.useState("");
   const [pageIndex, setPageIndex] = React.useState(0);
@@ -136,7 +143,12 @@ export function DataTable<TData, TValue>({ columns, data }: DataTableProps<TData
         </thead>
         <tbody>
           {table.getRowModel().rows.map(row => (
-            <tr key={row.id}>
+            <tr
+              key={row.id}
+              className={rowClassName ? rowClassName({ original: row.original }) : ""}
+              onClick={() => onRowClick && onRowClick({ original: row.original })}
+              style={{ cursor: "pointer" }}
+            >
               {row.getVisibleCells().map(cell => (
                 <td key={cell.id} className="px-3 py-2 border-b">
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}

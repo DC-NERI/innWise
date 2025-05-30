@@ -323,3 +323,28 @@ export interface LoginLog {
   status: number; // 0 for failed, 1 for success (LOGIN_LOG_STATUS)
   error_details: string | null;
 }
+
+export interface Ticket {
+  ticket_code: ReactNode;
+  ticket_id: number;
+  tenant_id: number;
+  branch_id: number;
+  user_id: number;
+  subject: string;
+  description: string;
+  status: string;
+  priority: string;
+  assigned_agent_id: number | null;
+  comments: TicketComment[];
+  created_at: string;
+  updated_at: string;
+  author: string;
+}
+
+export interface TicketComment {
+  author: any;
+  name: any;
+  user_id: number;
+  comment: string;
+  created_at: string;
+}

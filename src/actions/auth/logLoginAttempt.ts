@@ -31,7 +31,7 @@ export async function logLoginAttempt(
   status: 0 | 1, // 0 for failed, 1 for success
   errorDetails?: string | null
 ): Promise<void> {
-  console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, errorDetails });
+  // console.log('[logLoginAttempt] Action called with:', { userId, ipAddress, userAgent, status, errorDetails });
 
   let client;
   try {
@@ -50,9 +50,9 @@ export async function logLoginAttempt(
       errorDetails || null,
     ];
 
-    console.log('[logLoginAttempt] Executing query:', queryText, 'With values:', values);
+    // console.log('[logLoginAttempt] Executing query:', queryText, 'With values:', values);
     await client.query(queryText, values);
-    console.log('[logLoginAttempt] Login attempt logged successfully to login_logs.');
+    // console.log('[logLoginAttempt] Login attempt logged successfully to login_logs.');
 
   } catch (dbError: any) {
     console.error('[logLoginAttempt DB Error] Failed to log login attempt to login_logs:', dbError.message, dbError.stack, dbError);

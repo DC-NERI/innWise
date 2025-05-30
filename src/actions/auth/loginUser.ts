@@ -209,7 +209,7 @@ export async function loginUser(formData: FormData): Promise<LoginResult> {
     };
 
   } catch (dbError: any) {
-    console.error("[loginUser DB Main Error]", dbError);
+    // console.error("[loginUser DB Main Error]", dbError);
     const logErrorDetails = `Attempted Username: ${attemptedUsername}. Reason: Database error during login: ${dbError.message}`;
     await logLoginAttempt(userIdToLog, ipAddress, userAgent, 0, logErrorDetails); // 0 for failed
     

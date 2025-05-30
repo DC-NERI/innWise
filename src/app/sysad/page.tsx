@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarInset, SidebarFooter, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft, LayoutDashboard, History } from 'lucide-react';
+import { Building2, Settings, LogOut, Users as UsersIcon, Network, PanelLeft, LayoutDashboard, History, TicketIcon } from 'lucide-react';
 import TenantsManagement from '@/components/sysad/tenants-management';
 import UsersManagement from '@/components/sysad/users-management';
 import AllBranchesManagement from '@/components/sysad/all-branches-management';
@@ -14,8 +14,9 @@ import SysAdDashboardContent from '@/components/sysad/dashboard-content';
 // Removed import for LoginLogsManagement
 import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
+import TicketsManagement from '@/components/sysad/tickets-management';
 
-type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'settings'; // Removed 'login-logs'
+type SysAdActiveView = 'dashboard' | 'tenants' | 'branches' | 'users' | 'tickets' | 'settings'; // Added 'tickets'
 
 const SysAdDashboardPage: NextPage = () => {
   const [activeView, setActiveView] = useState<SysAdActiveView>('dashboard');
@@ -155,6 +156,16 @@ const SysAdDashboardPage: NextPage = () => {
                 <span>Users</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('tickets')}
+                isActive={activeView === 'tickets'}
+                tooltip="Tickets"
+              >
+                <TicketIcon/>
+                <span>Tickets</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             {/* Removed Login Logs menu item */}
           </SidebarMenu>
         </SidebarContent>
@@ -197,6 +208,7 @@ const SysAdDashboardPage: NextPage = () => {
           {activeView === 'tenants' && <TenantsManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'branches' && <AllBranchesManagement sysAdUserId={sysAdUserId} />}
           {activeView === 'users' && <UsersManagement sysAdUserId={sysAdUserId} />}
+          {activeView === 'tickets' && <TicketsManagement sysAdUserId={sysAdUserId} />}
           {/* Removed conditional rendering for LoginLogsManagement */}
           {activeView === 'settings' && (
             <div>

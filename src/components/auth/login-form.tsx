@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loginUser } from "@/actions/auth/loginUser"; // Updated import
-import { loginAttempt } from "@/actions/auth/logLoginAttempt";
+import { logLoginAttempt } from "@/actions/auth/logLoginAttempt";
 import { loginSchema } from "@/lib/schemas";
 import { useToast } from "@/hooks/use-toast";
 

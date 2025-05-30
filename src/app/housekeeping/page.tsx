@@ -1,4 +1,3 @@
-
 "use client";
 
 import type { NextPage } from 'next';
@@ -11,10 +10,11 @@ import type { UserRole } from '@/lib/types';
 import { format as formatDateTime, toZonedTime } from 'date-fns-tz';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import RoomCleaningDashboard from '@/components/housekeeping/room-cleaning-dashboard';
+import TicketsManagement from '@/components/sysad/tickets-management'; // <-- Add this import
 
 
 const HousekeepingDashboardPage: NextPage = () => {
-  const [activeView, setActiveView] = useState<'cleaning-dashboard'>('cleaning-dashboard');
+  const [activeView, setActiveView] = useState<'cleaning-dashboard' | 'tickets'>('cleaning-dashboard');
   const [dateTimeDisplay, setDateTimeDisplay] = useState<string>('Loading date and time...');
 
   const [userRole, setUserRole] = useState<UserRole | null>(null);
@@ -126,6 +126,16 @@ const HousekeepingDashboardPage: NextPage = () => {
                 <span>Cleaning Status</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => setActiveView('tickets')}
+                isActive={activeView === 'tickets'}
+                tooltip="Tickets"
+              >
+                <span role="img" aria-label="Ticket" className="mr-2">🎫</span>
+                <span>Tickets</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
           </SidebarMenu>
         </SidebarContent>
         <SidebarFooter>
@@ -168,6 +178,9 @@ const HousekeepingDashboardPage: NextPage = () => {
                 </p>
               </CardContent>
             </Card>
+          )}
+          {activeView === 'tickets' && userId && (
+            <TicketsManagement sysAdUserId={userId} />
           )}
         </main>
       </SidebarInset>
